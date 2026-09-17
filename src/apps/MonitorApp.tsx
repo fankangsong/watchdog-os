@@ -20,7 +20,11 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
   const procsPoll = usePolling(fetchProcesses, intervalSec * 1000, !paused);
 
   const handleLogout = useCallback(async () => {
-    await logout();
+    try {
+      await logout();
+    } catch {
+      // 登出接口失败也照常回到登录页（如 token 已过期）
+    }
     onLogout();
   }, [onLogout]);
 

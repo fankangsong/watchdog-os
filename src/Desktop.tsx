@@ -20,7 +20,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
     >
       <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg} startupWordmark="系统探针">
         <MonitorApp onLogout={onLogout} />
-        <DockerApp />
+        <DockerApp onLogout={onLogout} />
       </ClassicyDesktop>
     </ClassicyAppManagerProvider>
   );

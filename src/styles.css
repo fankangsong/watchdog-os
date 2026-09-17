@@ -23,22 +23,13 @@ html, body, #root {
 .sp-login {
   height: 100%;
   display: flex; align-items: center; justify-content: center;
-  background: #8a8a8a;
+  background: #6e6e6e;
   padding: 20px;
 }
-.sp-login-card {
-  width: 300px;
-  background: #dcdcdc;
-  border: 2px solid #fff;
-  outline: 1px solid #000;
-  padding: 22px 24px;
-  text-align: center;
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35);
-}
-.sp-login-card h1 { font-size: 20px; margin: 0 0 4px; }
-.sp-login-sub { font-size: 12px; color: #555; margin: 0 0 14px; }
-.sp-login-err { color: #c00; font-size: 12px; margin: 8px 0 0; }
-.sp-login-form { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+/* 登录表单（classicy Platinum 控件布局） */
+.sp-login-form { display: flex; flex-direction: column; gap: calc(var(--window-padding-size) * 2.5); }
+.sp-login-actions { display: flex; justify-content: center; }
+.sp-login-err { color: #c00; font-size: 12px; margin: 0; }
 
 /* ---------- 窗口内容通用 ---------- */
 /* 各模块（分组框）之间统一垂直间距，跟随 classicy 的 --window-padding-size */

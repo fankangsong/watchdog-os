@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ClassicyButton, ClassicyInput } from 'classicy';
+import { ClassicyButton, ClassicyControlGroup, ClassicyInput } from 'classicy';
 import { login } from './api';
 
+// 登录表单：classicy Platinum 控件（分组框 + 密码输入 + 默认按钮）
 export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -26,28 +27,23 @@ export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
   };
 
   return (
-    <div className="sp-login">
-      <form className="sp-login-card sp-login-form" onSubmit={submit}>
-        <div>
-          <h1>系统探针</h1>
-          <p className="sp-login-sub">请输入访问密码</p>
-        </div>
+    <form className="sp-login-form" onSubmit={submit}>
+      <ClassicyControlGroup label="访问密码">
         <ClassicyInput
           id="sp-login-password"
           type="password"
-          labelTitle="密码"
-          labelSize="small"
-          labelPosition="above"
-          placeholder="密码"
+          placeholder="请输入密码"
           prefillValue={password}
           onChangeFunc={(e) => setPassword(e.target.value)}
           onEnterFunc={doLogin}
         />
-        {error && <p className="sp-login-err">{error}</p>}
+      </ClassicyControlGroup>
+      {error && <p className="sp-login-err">{error}</p>}
+      <div className="sp-login-actions">
         <ClassicyButton isDefault buttonType="submit" disabled={busy}>
           {busy ? '登录中…' : '登录'}
         </ClassicyButton>
-      </form>
-    </div>
+      </div>
+    </form>
   );
 }
