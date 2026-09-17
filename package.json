@@ -1,0 +1,28 @@
+{
+  "name": "srv-dashboard",
+  "version": "2.0.0",
+  "description": "系统探针监控应用（Classicy 桌面版）",
+  "main": "server.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "classicy": "^0.79.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "^5.7.0",
+    "vite": "^6.2.0"
+  },
+  "engines": {
+    "node": ">=18.15"
+  },
+  "license": "MIT"
+}

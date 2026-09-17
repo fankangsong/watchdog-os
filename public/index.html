@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>系统探针监控</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./style.css">
+  <script>
+    /* 主题初始化：localStorage 优先，否则跟随系统（防闪烁，置于 head） */
+    (function () {
+      var t = localStorage.getItem('sp_theme');
+      if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme-pending', '');
+      document.addEventListener('DOMContentLoaded', function () {
+        document.body.setAttribute('data-theme', t);
+      });
+      window.__spTheme = t;
+    })();
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1 id="page-title">--</h1>
+    </div>
+    <div class="controls">
+      <span id="countdown" class="countdown"></span>
+      <label>刷新
+        <select id="interval">
+          <option value="2">2s</option>
+          <option value="5" selected>5s</option>
+          <option value="10">10s</option>
+          <option value="30">30s</option>
+        </select>
+      </label>
+      <button id="pause-btn" class="btn">⏸ 暂停</button>
+      <button id="theme-btn" class="btn btn-ghost" title="切换主题">🌓</button>
+      <button id="logout-btn" class="btn btn-ghost">退出</button>
+    </div>
+  </header>
+
+  <div id="err-banner" class="err-banner"></div>
+
+  <main>
+    <section class="grid">
+      <!-- 系统信息 -->
+      <div class="card">
+        <h2>系统信息</h2>
+        <div class="info-list">
+          <div class="info-item"><span>主机名</span><b id="host-name">--</b></div>
+          <div class="info-item"><span>操作系统</span><b id="host-os">--</b></div>
+          <div class="info-item"><span>CPU</span><b id="host-cpu">--</b></div>
+          <div class="info-item"><span>运行时间</span><b id="host-uptime">--</b></div>
+          <div class="info-item"><span>局域网 IP</span><b id="host-lan">--</b></div>
+          <div class="info-item"><span>公网 IP</span><b id="host-wan">--</b></div>
+          <div class="info-item"><span>硬件温度</span><b id="host-temp" class="dim">读取中…</b></div>
+        </div>
+      </div>
+
+      <!-- 资源使用率 -->
+      <div class="card">
+        <h2>资源使用率</h2>
+        <div class="res-gauges">
+          <div class="gauge-row">
+            <svg class="gauge" viewBox="0 0 110 110">
+              <circle class="gauge-bg" cx="55" cy="55" r="45"/>
+              <circle id="cpu-arc" class="gauge-arc" cx="55" cy="55" r="45"/>
+            </svg>
+            <div class="gauge-text">
+              <b id="cpu-pct">--%</b>
+              <span id="cpu-load" class="dim"></span>
+            </div>
+          </div>
+          <div class="gauge-row">
+            <svg class="gauge" viewBox="0 0 110 110">
+              <circle class="gauge-bg" cx="55" cy="55" r="45"/>
+              <circle id="mem-arc" class="gauge-arc" cx="55" cy="55" r="45"/>
+            </svg>
+            <div class="gauge-text">
+              <b id="mem-pct">--%</b>
+              <span id="mem-detail" class="dim"></span>
+            </div>
+          </div>
+        </div>
+        <div class="legend"><span><i class="dot dot-cpu"></i>CPU</span><span><i class="dot dot-mem"></i>内存</span><span class="dim">最近 4 分钟</span></div>
+        <canvas id="cpu-history"></canvas>
+        <div id="cpu-cores" class="cores"></div>
+        <div id="swap-box" class="bar-item" hidden>
+          <div class="bar-label"><span>Swap</span><span id="swap-pct"></span></div>
+          <div class="bar"><div id="swap-bar" class="bar-fill"></div></div>
+        </div>
+        <h3 class="sub-h">磁盘使用率</h3>
+        <div id="disks" class="disk-list"><p class="dim">读取中…</p></div>
+      </div>
+    </section>
+
+    <!-- 进程列表 -->
+    <section class="card proc-card">
+      <h2>进程列表 <span id="proc-count" class="tag"></span>
+        <input id="proc-search" class="search" type="text" placeholder="搜索进程 / PID…">
+      </h2>
+      <div class="table-wrap">
+        <table id="proc-table">
+          <thead>
+            <tr>
+              <th class="sortable num" data-key="pid">PID<span class="arrow"></span></th>
+              <th class="sortable" data-key="user">用户<span class="arrow"></span></th>
+              <th class="sortable num" data-key="cpuPct">CPU%<span class="arrow"></span></th>
+              <th class="sortable num" data-key="mem">内存<span class="arrow"></span></th>
+              <th class="sortable num" data-key="memPct">内存%<span class="arrow"></span></th>
+              <th class="sortable num" data-key="etime">运行时长<span class="arrow"></span></th>
+              <th>命令 / 进程名</th>
+            </tr>
+          </thead>
+          <tbody id="proc-tbody"><tr><td colspan="7" class="dim pulse">加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Docker -->
+    <section class="card">
+      <h2>Docker 容器 <span id="docker-count" class="tag"></span></h2>
+      <div class="table-wrap">
+        <table id="docker-table">
+          <thead>
+            <tr>
+              <th>容器名</th><th>镜像</th><th>状态</th>
+              <th class="num">CPU</th><th class="num">内存占用</th><th class="num">内存%</th>
+              <th class="num">网络 I/O</th><th class="num">磁盘 I/O</th><th class="num">PIDs</th>
+            </tr>
+          </thead>
+          <tbody id="docker-tbody"><tr><td colspan="9" class="dim pulse">加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span id="update-time">--</span>
+  </footer>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>

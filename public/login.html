@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - 系统探针</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./style.css">
+  <script>
+    (function () {
+      var t = localStorage.getItem('sp_theme');
+      if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.addEventListener('DOMContentLoaded', function () {
+        document.body.setAttribute('data-theme', t);
+      });
+    })();
+  </script>
+</head>
+<body class="login-body">
+  <div class="login-box">
+    <h1 style="display:flex;align-items:center;justify-content:center;gap:8px;"><img src="./favicon.svg" alt="" style="width:24px;height:24px;">系统探针</h1>
+    <p class="sub">请输入访问密码</p>
+    <form id="login-form">
+      <input type="password" id="password" placeholder="访问密码" autocomplete="current-password" required>
+      <button type="submit" id="btn">登 录</button>
+      <p id="msg" class="msg"></p>
+    </form>
+  </div>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn');
+      const msg = document.getElementById('msg');
+      const password = document.getElementById('password').value;
+      btn.disabled = true;
+      btn.textContent = '验证中…';
+      msg.textContent = '';
+      try {
+        const r = await fetch('./api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        if (r.ok) {
+          location.href = './';
+        } else {
+          const d = await r.json().catch(() => ({}));
+          msg.textContent = d.error || '登录失败';
+        }
+      } catch {
+        msg.textContent = '网络错误，请重试';
+      }
+      btn.disabled = false;
+      btn.textContent = '登 录';
+    });
+  </script>
+</body>
+</html>
