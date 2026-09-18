@@ -9,6 +9,7 @@ import type { ClassicyStore } from 'classicy';
 import { logout } from './api';
 import { MonitorApp } from './apps/MonitorApp';
 import { DockerApp } from './apps/DockerApp';
+import { ImcolinApp } from './apps/ImcolinApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 
@@ -58,7 +59,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
   return null;
 }
 
-// 桌面：系统监控 与 Docker 两个应用窗口
+// 桌面：系统监控 / Docker / imcolin.fan 三个应用窗口
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   return (
     <ClassicyAppManagerProvider
@@ -73,6 +74,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
       <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg}>
         <MonitorApp onLogout={onLogout} />
         <DockerApp onLogout={onLogout} />
+        <ImcolinApp onLogout={onLogout} />
       </ClassicyDesktop>
       <AppleMenuLogoutItem onLogout={onLogout} />
     </ClassicyAppManagerProvider>

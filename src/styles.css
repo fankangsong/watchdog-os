@@ -132,6 +132,25 @@ html, body, #root {
   height: 18px;
 }
 
+/* ---------- imcolin.fan 网页查看器 ---------- */
+.sp-web {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.sp-web-toolbar {
+  flex: 0 0 auto;
+  padding-bottom: calc(var(--window-padding-size) * 1);
+}
+.sp-web-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  background: #fff;
+}
+
 /* ---------- 窗口内容通用 ---------- */
 /* 各模块（分组框）之间统一垂直间距，跟随 classicy 的 --window-padding-size */
 .sp-block + .sp-block { margin-top: calc(var(--window-padding-size) * 2); }
