@@ -21,6 +21,22 @@ npm start         # 启动生产后端（node server.js，默认端口 3000）
 ./run.sh start|restart|stop|status   # Linux 服务器上的 systemd 服务管理
 ```
 
+### Windows 本地联调终端功能（mock ttyd）
+
+服务器上需真实安装 ttyd；Windows 本地可用 `tools/` 下的 mock 模拟 ttyd（HTTP /token + WebSocket 帧回显）：
+
+```powershell
+# 1. 编译（一次即可；源码 tools/mock-ttyd.cs，使用系统自带 C# 编译器）
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /out:tools\ttyd.exe tools\mock-ttyd.cs
+
+# 2. 启动服务（server.js 会自动把 tools\ttyd.exe 当作 ttyd 拉起，监听 127.0.0.1:7681）
+$env:PASSWORD='test123'; $env:TERMINAL_ENABLED='true'
+$env:TTYD_PATH='d:\fankangsong\srv-dashboard\tools\ttyd.exe'
+node server.js
+```
+
+然后访问 Dashboard 打开 Terminal 窗口，输入字符会被 mock 回显（`mock-ttyd shell ready` 横幅）。
+
 注意：项目同时存在 `package-lock.json` 和 `pnpm-lock.yaml`，优先使用 **npm**。
 
 ## 后端配置

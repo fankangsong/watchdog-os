@@ -171,7 +171,6 @@ html, body, #root {
   padding: 4px;
   box-sizing: border-box;
 }
-.sp-term-status { margin-left: 10px; font-size: 12px; }
 .sp-term-disabled {
   height: 100%;
   display: flex;

@@ -4,3 +4,4 @@ dist/
 config.json
 *.log
 .DS_Store
+tools/ttyd.exe
