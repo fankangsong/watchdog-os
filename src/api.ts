@@ -1,5 +1,17 @@
 // 后端 API 封装：全部使用相对路径，兼容任意 basePath 部署
 
+export interface HealthInfo {
+  ok: boolean;
+  basePath: string;
+  hostname: string;
+}
+
+export async function fetchHealth(): Promise<HealthInfo> {
+  const r = await fetch('./api/health');
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json() as Promise<HealthInfo>;
+}
+
 export class Unauthorized extends Error {
   constructor() {
     super('未授权');

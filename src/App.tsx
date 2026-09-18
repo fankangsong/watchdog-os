@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchMetrics, Unauthorized } from './api';
-import { LoginDesktop } from './LoginDesktop';
+import { LoginApp } from './LoginApp';
 import { Desktop } from './Desktop';
 
 // 鉴权状态机：checking → authed | unauthed
@@ -21,5 +21,5 @@ export function App() {
     );
   }
   if (authed) return <Desktop onLogout={() => setAuthed(false)} />;
-  return <LoginDesktop onSuccess={() => setAuthed(true)} />;
+  return <LoginApp onSuccess={() => setAuthed(true)} />;
 }

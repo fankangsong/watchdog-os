@@ -20,16 +20,107 @@ html, body, #root {
   color: #333;
   font-size: 14px;
 }
-.sp-login {
-  height: 100%;
-  display: flex; align-items: center; justify-content: center;
-  background: #6e6e6e;
-  padding: 20px;
+/* 全屏登录页：未登录时盖住整个系统（无桌面/图标/窗口） */
+/* 此处补全 classicy 默认 Platinum 主题的 CSS 变量（classicy 仅在 Desktop 上注入变量，
+   登录页无 Desktop，故手动提供，使控件获得与桌面一致的完整原生样式） */
+.sp-login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #8a97a5 0%, #55616e 100%);
+  --color-black: #000000;
+  --color-white: #ffffff;
+  --color-alert: #ffff00;
+  --color-error: #ff0000;
+  --color-outline: #000000;
+  --color-system-01: #eeeeee;
+  --color-system-02: #dddddd;
+  --color-system-03: #cccccc;
+  --color-system-04: #aaaaaa;
+  --color-system-05: #808080;
+  --color-system-06: #393939;
+  --color-system-07: #202020;
+  --color-theme-01: #eeeeee;
+  --color-theme-02: #ccccff;
+  --color-theme-03: #9999ff;
+  --color-theme-04: #6666cc;
+  --color-theme-05: #333399;
+  --color-theme-06: #000088;
+  --color-theme-07: #000055;
+  --window-border-size: 1px;
+  --window-control-size: 12px;
+  --window-padding-size: 6px;
+  --window-scrollbar-size: 17px;
+  --ui-font: "Charcoal", "ChicagoFLF", "Geneva", sans-serif;
+  --ui-font-size: 14px;
+  --header-font: "AppleGaramond", serif;
+  --body-font: "Geneva", serif;
+  --mono-font: "Monaco", monospace;
+  --hig-button-height: 20px;
+  --hig-button-min-width: 58px;
 }
-/* 登录表单（classicy Platinum 控件布局） */
-.sp-login-form { display: flex; flex-direction: column; gap: calc(var(--window-padding-size) * 2.5); }
+/* 登录窗口：参考 MacOS Platinum 对话框（固定像素，不依赖 Provider 变量） */
+.sp-platinum-window {
+  width: 340px;
+  background: #e3e0da;
+  border: 2px solid #fff;
+  outline: 1px solid #000;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35);
+}
+/* 标题栏：浅灰横纹渐变 + 左侧应用图标 + 居中标题（无窗口控制按钮） */
+.sp-platinum-title {
+  position: relative;
+  height: 26px;
+  background: repeating-linear-gradient(
+    0deg,
+    #d9d5cd 0px,
+    #d9d5cd 1px,
+    #ece9e2 1px,
+    #ece9e2 2px
+  );
+  border-bottom: 1px solid #000;
+  text-align: center;
+  line-height: 26px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #000;
+}
+.sp-platinum-icon {
+  position: absolute;
+  left: 6px;
+  top: 5px;
+  width: 16px;
+  height: 16px;
+  image-rendering: pixelated;
+}
+/* 主体：宽松内边距，元素垂直排布 */
+.sp-platinum-body {
+  padding: 22px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+/* 标签 + 输入框左右布局 */
+.sp-login-field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.sp-login-field input {
+  flex: 1;
+  box-sizing: border-box;
+}
 .sp-login-actions { display: flex; justify-content: center; }
-.sp-login-err { color: #c00; font-size: 12px; margin: 0; }
+.sp-login-err {
+  color: #c00;
+  font-size: 12px;
+  margin: 0 0 0 58px;
+  height: 18px;
+}
 
 /* ---------- 窗口内容通用 ---------- */
 /* 各模块（分组框）之间统一垂直间距，跟随 classicy 的 --window-padding-size */

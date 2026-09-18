@@ -578,7 +578,7 @@ async function route(req, res, url) {
   }
 
   /* ---- 公开接口 ---- */
-  if (p === '/api/health') return send(res, 200, { ok: true, basePath: BASE });
+  if (p === '/api/health') return send(res, 200, { ok: true, basePath: BASE, hostname: os.hostname() });
 
   if (p === '/api/login' && req.method === 'POST') {
     let body;

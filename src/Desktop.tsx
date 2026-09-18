@@ -18,7 +18,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
       disableWebViewer
       defaultMuted
     >
-      <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg} startupWordmark="系统探针">
+      <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg}>
         <MonitorApp onLogout={onLogout} />
         <DockerApp onLogout={onLogout} />
       </ClassicyDesktop>
