@@ -23,6 +23,20 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 /* ---------------- 配置 ---------------- */
+/* .env 加载（零依赖）：PASSWORD 等变量写入 process.env，不覆盖已有环境变量 */
+function loadEnv() {
+  try {
+    const txt = fs.readFileSync(path.join(__dirname, '.env'), 'utf8');
+    for (const line of txt.split('\n')) {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+      if (!m) continue;
+      const val = m[2].replace(/^["']|["']$/g, '');
+      if (!(m[1] in process.env)) process.env[m[1]] = val;
+    }
+  } catch { /* 无 .env 文件时忽略 */ }
+}
+loadEnv();
+
 let fileCfg = {};
 try {
   fileCfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -47,6 +61,11 @@ const cfg = Object.assign(
 if (process.env.PORT) cfg.port = parseInt(process.env.PORT, 10);
 if (process.env.PASSWORD) cfg.password = process.env.PASSWORD;
 if (process.env.BASE_PATH) cfg.basePath = process.env.BASE_PATH;
+
+if (!cfg.password) {
+  console.error('[fatal] 未配置访问密码：请在 config.json 的 password 或 .env 的 PASSWORD 中设置');
+  process.exit(1);
+}
 
 /* basePath 规范化：必须以 / 开头，去除末尾 /（根路径保留为 '/'） */
 let BASE = String(cfg.basePath || '/').trim();
