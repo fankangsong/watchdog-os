@@ -14,7 +14,7 @@ export async function fetchHealth(): Promise<HealthInfo> {
 
 export class Unauthorized extends Error {
   constructor() {
-    super('未授权');
+    super('Unauthorized');
     this.name = 'Unauthorized';
   }
 }
@@ -107,7 +107,7 @@ export async function login(password: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   });
-  if (r.status === 401) throw new Error('密码错误');
+  if (r.status === 401) throw new Error('Incorrect password');
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
 

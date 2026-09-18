@@ -1,9 +1,39 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>系统监控</title>
+    <title>System Monitor</title>
+    <script>
+      // 一次性数据迁移：classicy 会把应用名持久化到 localStorage（classicyDesktopState）。
+      // 旧版本曾使用中文名「系统监控」「系统探针」，在应用代码加载前先改写为英文名，
+      // 避免菜单栏/窗口/Dock 图标等残留中文。
+      (function () {
+        try {
+          var KEY = 'classicyDesktopState';
+          var raw = localStorage.getItem(KEY);
+          var next = raw;
+          if (next) {
+            next = next.split('系统监控').join('System Monitor');
+            next = next.split('系统探针').join('System Monitor');
+            if (next !== raw) localStorage.setItem(KEY, next);
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script>
+      // 网页标题使用主机名，页面加载即生效（失败时保持下方英文回退标题）
+      (function () {
+        fetch('./api/health')
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (d) {
+            if (d && d.hostname) document.title = d.hostname;
+          })
+          .catch(function () {});
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -7,7 +7,7 @@ import { ResourcesPanel } from '../components/ResourcesPanel';
 import { ProcessPanel } from '../components/ProcessPanel';
 
 const APP_ID = 'srv-monitor.app';
-const APP_NAME = '系统监控';
+const APP_NAME = 'System Monitor';
 
 const INTERVALS = [2, 5, 10, 30];
 
@@ -39,8 +39,8 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
     () => [
       {
         id: 'sys',
-        title: '系统',
-        menuChildren: [{ id: 'logout', title: '退出登录', onClickFunc: handleLogout }],
+        title: 'System',
+        menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: handleLogout }],
       },
     ],
     [handleLogout]
@@ -66,30 +66,30 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
         appMenu={appMenu}
       >
         <div className="sp-block">
-          <ClassicyControlGroup label="刷新控制">
+          <ClassicyControlGroup label="Refresh">
             <div className="sp-controls">
               <div className="sp-ctrl">
                 <ClassicyPopUpMenu
                   id="sp-refresh-interval"
-                  label="刷新间隔"
+                  label="Refresh Interval"
                   labelPosition="left"
                   size="small"
-                  options={INTERVALS.map((s) => ({ value: String(s), label: `${s} 秒` }))}
+                  options={INTERVALS.map((s) => ({ value: String(s), label: `${s}s` }))}
                   selected={String(intervalSec)}
                   onChangeFunc={(e) => setIntervalSec(parseInt(e.target.value, 10))}
                 />
               </div>
               <div className="sp-ctrl">
                 <ClassicyButton buttonSize="small" margin="sm" onClickFunc={() => setPaused((p) => !p)}>
-                  {paused ? '▶ 继续' : '⏸ 暂停'}
+                  {paused ? '▶ Resume' : '⏸ Pause'}
                 </ClassicyButton>
               </div>
               <div className="sp-ctrl">
                 <ClassicyButton buttonSize="small" margin="sm" onClickFunc={() => { metricsPoll.reload(); procsPoll.reload(); }}>
-                  立即刷新
+                  Refresh Now
                 </ClassicyButton>
               </div>
-              <span className="sp-pulse" style={{ flex: '0 0 auto' }} hidden={!paused}>已暂停</span>
+              <span className="sp-pulse" style={{ flex: '0 0 auto' }} hidden={!paused}>Paused</span>
             </div>
           </ClassicyControlGroup>
         </div>
@@ -103,7 +103,7 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
               </div>
             </>
           ) : (
-            <p className="sp-dim">加载中…</p>
+            <p className="sp-dim">Loading…</p>
           )}
         </div>
 
@@ -114,3 +114,4 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
     </ClassicyApp>
   );
 }
+

@@ -19,8 +19,8 @@ export function DockerApp({ onLogout }: { onLogout?: () => void }) {
     () => [
       {
         id: 'sys',
-        title: '系统',
-        menuChildren: [{ id: 'logout', title: '退出登录', onClickFunc: () => onLogout?.() }],
+        title: 'System',
+        menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: () => onLogout?.() }],
       },
     ],
     [onLogout]
@@ -43,7 +43,7 @@ export function DockerApp({ onLogout }: { onLogout?: () => void }) {
         minimumSize={[620, 360]}
         appMenu={appMenu}
       >
-        <ClassicyControlGroup label={`容器列表（${poll.data?.containers?.length ?? 0}）`}>
+        <ClassicyControlGroup label={`Containers (${poll.data?.containers?.length ?? 0})`}>
           <DockerTable state={poll.data} />
         </ClassicyControlGroup>
       </ClassicyWindow>

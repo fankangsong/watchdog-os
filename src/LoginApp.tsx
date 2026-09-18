@@ -25,7 +25,7 @@ export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
         document.title = h.hostname;
       })
       .catch(() => {
-        document.title = '系统监控';
+        document.title = 'System Monitor';
       });
   }, []);
 
@@ -37,7 +37,7 @@ export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
       await login(password);
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败');
+      setError(err instanceof Error ? err.message : 'Login failed');
       setBusy(false);
     }
   };
@@ -71,11 +71,11 @@ export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
             <div className="sp-login-field">
               <ClassicyInput
                 id="sp-login-password"
-                labelTitle="访问密码"
+                labelTitle="Access Password"
                 labelPosition="left"
                 labelSize="small"
                 type="password"
-                placeholder="请输入密码"
+                placeholder="Enter password"
                 prefillValue={password}
                 onChangeFunc={(e) => setPassword(e.target.value)}
                 onEnterFunc={doLogin}
@@ -84,7 +84,7 @@ export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
             <p className="sp-login-err">{error && <span>{error}</span>}</p>
             <div className="sp-login-actions">
               <ClassicyButton buttonType="submit" disabled={busy}>
-                {busy ? '登录中…' : '登录'}
+                {busy ? 'Signing in…' : 'Sign In'}
               </ClassicyButton>
             </div>
           </div>

@@ -326,7 +326,7 @@ async function readDisks() {
         usagePct: total ? +((used / total) * 100).toFixed(1) : 0,
       });
     } catch {
-      disks.push({ mount, total: 0, free: 0, used: 0, usagePct: 0, error: '不可访问' });
+      disks.push({ mount, total: 0, free: 0, used: 0, usagePct: 0, error: 'Unreadable' });
     }
   }
   return disks;
@@ -337,7 +337,7 @@ async function readDocker() {
     'ps', '--format', '{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}',
   ]);
   if (psOut === null) {
-    return { available: false, containers: [], error: 'docker 命令不可用或无权限' };
+    return { available: false, containers: [], error: 'Docker command unavailable or no permission' };
   }
   const containers = psOut
     .trim()
@@ -376,7 +376,7 @@ async function readProcesses() {
     const out = await runCmd('ps', [
       '-eo', 'pid,user,pcpu,pmem,rss,etime,args', '--sort=-pcpu', '--no-headers',
     ]);
-    if (out === null) return { available: false, list: [], error: 'ps 命令不可用' };
+    if (out === null) return { available: false, list: [], error: 'ps command unavailable' };
     const list = [];
     for (const line of out.split('\n')) {
       const m = line.match(/^\s*(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s*(.*)$/);
@@ -404,7 +404,7 @@ async function readProcesses() {
     ['-NoProfile', '-NonInteractive', '-Command', script],
     15000
   );
-  if (out === null) return { available: false, list: [], error: 'PowerShell 查询进程失败' };
+  if (out === null) return { available: false, list: [], error: 'PowerShell process query failed' };
   const now = Date.now();
   const dtSec = prevProcAt ? Math.max(1, (now - prevProcAt) / 1000) : 0;
   const cur = {};
@@ -491,8 +491,8 @@ const state = {
   swap: null,
   temps: [],
   disks: [],
-  docker: { available: false, containers: [], error: '采集中…' },
-  processes: { available: false, list: [], error: '采集中…' },
+  docker: { available: false, containers: [], error: 'Collecting…' },
+  processes: { available: false, list: [], error: 'Collecting…' },
   history: [], // 最近 120 个采样点 {t, cpu, mem}
   host: {
     hostname: os.hostname(),
@@ -585,7 +585,7 @@ async function route(req, res, url) {
     try {
       body = JSON.parse((await readBody(req)) || '{}');
     } catch {
-      return send(res, 400, { error: '请求格式错误' });
+      return send(res, 400, { error: 'Invalid request body' });
     }
     const pass = String(body.password || '');
     const ok = safeEqual(
@@ -594,7 +594,7 @@ async function route(req, res, url) {
     );
     if (!ok) {
       await new Promise((r) => setTimeout(r, 600)); // 简单防爆破
-      return send(res, 401, { error: '密码错误' });
+      return send(res, 401, { error: 'Incorrect password' });
     }
     const jwt = signJwt({
       sub: 'sysprobe',
@@ -614,7 +614,7 @@ async function route(req, res, url) {
   /* ---- 需要鉴权的接口 ---- */
   if (p === '/api/metrics' || p === '/api/docker' || p === '/api/processes' || p === '/api/logout') {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: '未授权' }, { 'WWW-Authenticate': 'Bearer' });
+      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
     }
     if (p === '/api/metrics') {
       state.host.uptime = os.uptime();

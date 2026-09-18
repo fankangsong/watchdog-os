@@ -8,9 +8,19 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* classicy 默认壁纸为平铺小图（带圆角），圆角外露出黑色背景；
-   改为纯色桌面背景，消除四角黑块 */
-.classicyDesktop { background-image: none !important; }
+
+/* 壁纸水印：居中偏上的半透明苹果 logo，不拦截鼠标 */
+.sp-wallpaper-logo {
+  position: fixed;
+  left: 50%;
+  top: 24%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: auto;
+  opacity: 0.16;
+  pointer-events: none;
+  z-index: 0;
+}
 
 /* ---------- 启动 / 登录 ---------- */
 .sp-boot {

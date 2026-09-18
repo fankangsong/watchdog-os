@@ -12,7 +12,7 @@ export function ResourcesPanel({ metrics }: { metrics: Metrics }) {
   const cores = cpu.cores || [];
 
   return (
-    <ClassicyControlGroup label="资源使用率">
+    <ClassicyControlGroup label="Resource Usage">
       <div className="sp-gauges">
         <div className="sp-gauge-box">
           <Gauge pct={cpu.usage} text={`${cpu.usage.toFixed(1)}%`} color={CPU_COLOR} />
@@ -20,12 +20,12 @@ export function ResourcesPanel({ metrics }: { metrics: Metrics }) {
         </div>
         <div className="sp-gauge-box">
           <Gauge pct={mem.usagePct} text={`${mem.usagePct.toFixed(1)}%`} color={MEM_COLOR} />
-          <div className="sp-gauge-label">内存</div>
+          <div className="sp-gauge-label">Memory</div>
         </div>
         <div className="sp-chart-wrap">
           <div className="sp-legend">
-            <span><i style={{ background: CPU_COLOR }} />CPU 历史</span>
-            <span><i style={{ background: MEM_COLOR }} />内存 历史</span>
+            <span><i style={{ background: CPU_COLOR }} />CPU History</span>
+            <span><i style={{ background: MEM_COLOR }} />Memory History</span>
           </div>
           <HistoryChart points={history} />
         </div>
@@ -34,7 +34,7 @@ export function ResourcesPanel({ metrics }: { metrics: Metrics }) {
       {cores.length > 0 && (
         <div className="sp-cores">
           {cores.map((v, i) => (
-            <div className="sp-core" key={i} title={`核心 ${i}：${v}%`}>
+            <div className="sp-core" key={i} title={`Core ${i}: ${v}%`}>
               <span className="sp-core-name">C{i}</span>
               <div className="sp-core-bar">
                 <div

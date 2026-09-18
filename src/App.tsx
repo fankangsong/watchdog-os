@@ -16,7 +16,7 @@ export function App() {
   if (authed === null) {
     return (
       <div className="sp-boot">
-        <div className="sp-boot-inner">正在启动…</div>
+        <div className="sp-boot-inner">Starting…</div>
       </div>
     );
   }
