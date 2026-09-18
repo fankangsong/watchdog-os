@@ -16,7 +16,9 @@ export default defineConfig({
   server: {
     port: 5173,
     // 开发时直接代理后端 API（后端默认 3000）
+    // 注意：终端代理含 WebSocket 升级，需 ws: true 且置于更宽泛的 /api 之前
     proxy: {
+      '/api/terminal': { target: 'http://127.0.0.1:3000', changeOrigin: true, ws: true },
       '/api': { target: 'http://127.0.0.1:3000', changeOrigin: true },
     },
   },

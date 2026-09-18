@@ -20,7 +20,8 @@ const fsp = require('fs').promises;
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const net = require('net');
+const { execFile, spawn } = require('child_process');
 
 /* ---------------- 配置 ---------------- */
 /* .env 加载（零依赖）：PASSWORD 等变量写入 process.env，不覆盖已有环境变量 */
@@ -58,9 +59,25 @@ const cfg = Object.assign(
   },
   fileCfg
 );
+/* 终端（ttyd）配置：config.json 的 terminal 节整体覆盖默认值 */
+cfg.terminal = Object.assign(
+  {
+    enabled: false,          // 是否启用终端应用（需服务器安装 ttyd）
+    ttydPath: 'ttyd',        // ttyd 可执行文件路径
+    ttydPort: 7681,          // ttyd 监听端口（仅本机 127.0.0.1 访问）
+    ttydArgs: ['bash'],      // ttyd 附加参数与要运行的 shell
+  },
+  cfg.terminal
+);
+if (!Array.isArray(cfg.terminal.ttydArgs)) cfg.terminal.ttydArgs = ['bash'];
 if (process.env.PORT) cfg.port = parseInt(process.env.PORT, 10);
 if (process.env.PASSWORD) cfg.password = process.env.PASSWORD;
 if (process.env.BASE_PATH) cfg.basePath = process.env.BASE_PATH;
+if (process.env.TERMINAL_ENABLED != null) {
+  cfg.terminal.enabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.TERMINAL_ENABLED).toLowerCase());
+}
+if (process.env.TTYD_PATH) cfg.terminal.ttydPath = process.env.TTYD_PATH;
+if (process.env.TTYD_PORT) cfg.terminal.ttydPort = parseInt(process.env.TTYD_PORT, 10) || cfg.terminal.ttydPort;
 
 if (!cfg.password) {
   console.error('[fatal] 未配置访问密码：请在 config.json 的 password 或 .env 的 PASSWORD 中设置');
@@ -585,6 +602,85 @@ function serveFile(res, filename) {
   });
 }
 
+/* ---------------- 终端（ttyd 子进程 + 零依赖代理）---------------- */
+let ttydProc = null;
+
+/** 拉起 ttyd 子进程（仅监听 127.0.0.1）；失败仅告警并自动禁用，不影响主服务 */
+function startTtyd() {
+  if (!cfg.terminal.enabled) return;
+  const args = ['-i', '127.0.0.1', '-p', String(cfg.terminal.ttydPort), ...cfg.terminal.ttydArgs];
+  try {
+    ttydProc = spawn(cfg.terminal.ttydPath, args, { stdio: 'ignore', windowsHide: true });
+  } catch (e) {
+    console.warn('[warn] ttyd 启动失败，终端功能已禁用:', e.message);
+    cfg.terminal.enabled = false;
+    return;
+  }
+  ttydProc.on('error', (e) => {
+    console.warn('[warn] ttyd 不可用（未安装或无法执行），终端功能已禁用:', e.message);
+    cfg.terminal.enabled = false;
+  });
+  ttydProc.on('exit', (code) => {
+    console.warn(`[warn] ttyd 进程退出（code=${code}），终端功能已禁用`);
+    ttydProc = null;
+    cfg.terminal.enabled = false;
+  });
+  console.log(`[sysprobe] ttyd 已拉起: 127.0.0.1:${cfg.terminal.ttydPort}  args=${args.join(' ')}`);
+}
+
+process.on('exit', () => {
+  if (ttydProc) ttydProc.kill('SIGTERM');
+});
+
+/** HTTP 代理：/api/terminal/token → http://127.0.0.1:{port}/token */
+function proxyTerminalToken(req, res) {
+  const up = http.request(
+    { host: '127.0.0.1', port: cfg.terminal.ttydPort, path: '/token', method: 'GET', timeout: 5000 },
+    (ur) => {
+      const chunks = [];
+      ur.on('data', (c) => chunks.push(c));
+      ur.on('end', () => {
+        let body = Buffer.concat(chunks).toString('utf8');
+        try { body = JSON.stringify(JSON.parse(body)); } catch { /* 非 JSON 时透传原文 */ }
+        send(res, ur.statusCode || 502, body, { 'Content-Type': 'application/json; charset=utf-8' });
+      });
+    }
+  );
+  up.on('error', () => send(res, 502, { error: 'ttyd unreachable' }));
+  up.on('timeout', () => {
+    up.destroy();
+    send(res, 502, { error: 'ttyd timeout' });
+  });
+  up.end();
+}
+
+/**
+ * WebSocket 升级代理：/api/terminal/ws → ttyd /ws
+ * 校验鉴权后，改写请求行/Host 并以裸 TCP 管道双向转发，
+ * 无需实现 WS 帧编解码（对上下游完全透明）。
+ */
+function proxyTerminalWs(req, clientSocket, search) {
+  const upstream = net.connect(cfg.terminal.ttydPort, '127.0.0.1', () => {
+    const h = Object.assign({}, req.headers);
+    h.host = `127.0.0.1:${cfg.terminal.ttydPort}`;
+    delete h.cookie; // 不向 ttyd 泄露会话 Cookie
+    let head = `GET /ws${search || ''} HTTP/1.1\r\n`;
+    for (const [k, v] of Object.entries(h)) head += `${k}: ${v}\r\n`;
+    head += '\r\n';
+    upstream.write(head);
+    clientSocket.pipe(upstream);
+    upstream.pipe(clientSocket);
+  });
+  const teardown = () => {
+    clientSocket.destroy();
+    upstream.destroy();
+  };
+  clientSocket.on('error', teardown);
+  upstream.on('error', teardown);
+  clientSocket.on('close', teardown);
+  upstream.on('close', teardown);
+}
+
 /* ---------------- 路由 ---------------- */
 async function route(req, res, url) {
   let p = url.pathname;
@@ -647,6 +743,16 @@ async function route(req, res, url) {
     }
   }
 
+  /* ---- 终端代理（ttyd，复用 JWT 鉴权）---- */
+  if (p.startsWith('/api/terminal/')) {
+    if (!checkAuth(req)) {
+      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+    }
+    if (!cfg.terminal.enabled) return send(res, 503, { error: 'Terminal disabled' });
+    if (p === '/api/terminal/token') return proxyTerminalToken(req, res);
+    return send(res, 404, { error: 'not found' });
+  }
+
   /* ---- 静态页面 ---- */
   if (SPA_MODE) {
     // SPA：页面路径统一返回 index.html，登录/仪表盘由前端鉴权态决定
@@ -678,6 +784,26 @@ const server = http.createServer(async (req, res) => {
     send(res, 500, { error: String((e && e.message) || e) });
   }
 });
+
+/* WebSocket 升级：仅放行鉴权后的终端代理路径（与 route() 相同的 BASE 前缀剥离逻辑） */
+server.on('upgrade', (req, socket) => {
+  try {
+    const url = new URL(req.url, 'http://localhost');
+    let p = url.pathname;
+    if (BASE !== '/') {
+      if (p === BASE || p === BASE + '/') p = '/';
+      else if (p.startsWith(BASE + '/')) p = p.slice(BASE.length);
+      else { socket.destroy(); return; }
+    }
+    if (p !== '/api/terminal/ws') { socket.destroy(); return; }
+    if (!cfg.terminal.enabled || !checkAuth(req)) { socket.destroy(); return; }
+    proxyTerminalWs(req, socket, url.search);
+  } catch {
+    socket.destroy();
+  }
+});
+
+startTtyd();
 
 server.listen(cfg.port, cfg.host, () => {
   console.log(`[sysprobe] listening on http://${cfg.host}:${cfg.port}${BASE === '/' ? '/' : BASE}`);

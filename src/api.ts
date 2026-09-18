@@ -101,6 +101,17 @@ export const fetchMetrics = () => request<Metrics>('./api/metrics');
 export const fetchProcesses = () => request<Processes>('./api/processes');
 export const fetchDocker = () => request<DockerState>('./api/docker');
 
+/** 获取终端（ttyd）访问令牌；503 表示后端未启用终端功能 */
+export async function getTerminalToken(): Promise<string> {
+  const r = await fetch('./api/terminal/token');
+  if (r.status === 401) throw new Unauthorized();
+  if (r.status === 503) throw new Error('Terminal disabled');
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = (await r.json()) as { token?: string };
+  // ttyd 1.7+ 返回 { token }，旧版返回纯文本 token
+  return data.token ?? (data as unknown as string);
+}
+
 export async function login(password: string): Promise<void> {
   const r = await fetch('./api/login', {
     method: 'POST',

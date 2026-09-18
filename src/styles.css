@@ -151,6 +151,38 @@ html, body, #root {
   background: #fff;
 }
 
+/* ---------- 终端（xterm.js） ---------- */
+.sp-term-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.sp-term {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #000;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.sp-term .xterm {
+  height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+}
+.sp-term-status { margin-left: 10px; font-size: 12px; }
+.sp-term-disabled {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  color: #555;
+  font-size: 13px;
+}
+
 /* ---------- 窗口内容通用 ---------- */
 /* 各模块（分组框）之间统一垂直间距，跟随 classicy 的 --window-padding-size */
 .sp-block + .sp-block { margin-top: calc(var(--window-padding-size) * 2); }

@@ -10,6 +10,7 @@ import { logout } from './api';
 import { MonitorApp } from './apps/MonitorApp';
 import { DockerApp } from './apps/DockerApp';
 import { ImcolinApp } from './apps/ImcolinApp';
+import { TerminalApp } from './apps/TerminalApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 
@@ -75,6 +76,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
         <MonitorApp onLogout={onLogout} />
         <DockerApp onLogout={onLogout} />
         <ImcolinApp onLogout={onLogout} />
+        <TerminalApp onLogout={onLogout} />
       </ClassicyDesktop>
       <AppleMenuLogoutItem onLogout={onLogout} />
     </ClassicyAppManagerProvider>
