@@ -4,10 +4,11 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import {
   ClassicyApp,
+  ClassicyButton,
   ClassicyIcons,
   ClassicyWindow,
 } from 'classicy';
-import { getTerminalToken, Unauthorized } from '../api';
+import { getTerminalToken, TerminalUnavailable, Unauthorized } from '../api';
 
 const APP_ID = 'srv-terminal.app';
 const APP_NAME = 'Terminal';
@@ -16,6 +17,9 @@ const ICON = ClassicyIcons.system.network.terminal;
 /* ttyd 客户端帧协议（1.7.x）：二进制帧首字节为操作码（ASCII 字符） */
 const OP_INPUT = 0x30;  // '0' 键盘输入
 const OP_RESIZE = 0x31; // '1' 终端尺寸 {columns, rows}
+/* WebSocket 子协议：ttyd（含 1.6.x / 1.7.x）要求客户端在握手时声明 'tty'，
+   否则握手成功后连接会被立即关闭（表现为黑屏、无任何输出） */
+const WS_SUBPROTOCOL = 'tty';
 
 const enc = new TextEncoder();
 
@@ -46,6 +50,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
 
   const [attempt, setAttempt] = useState(0);
   const [disabled, setDisabled] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
   const [fontFamily, setFontFamily] = useState(DEFAULT_FONT_FAMILY);
@@ -62,12 +67,13 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       // 与 api.ts 的 './api' 相对路径约定一致，兼容任意 basePath 部署
       const url = new URL('./api/terminal/ws', window.location.href);
       url.searchParams.set('token', token);
-      const ws = new WebSocket(url.toString());
+      const ws = new WebSocket(url.toString(), WS_SUBPROTOCOL);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
 
       ws.onopen = () => {
         if (wsRef.current !== ws) return;
+        setError(null);
         const t = termRef.current;
         // ttyd 1.7.x：首条 JSON 消息携带认证令牌与初始尺寸
         ws.send(JSON.stringify({ AuthToken: token, columns: t?.cols ?? 80, rows: t?.rows ?? 24 }));
@@ -103,6 +109,11 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       }
       if (e instanceof Error && e.message === 'Terminal disabled') {
         setDisabled(true);
+        return;
+      }
+      // ttyd 进程未就绪（未安装 / 端口被占用 / 重试中）：展示错误并等待自动重连
+      if (e instanceof TerminalUnavailable) {
+        setError(e.message);
         return;
       }
       console.error('[Terminal] 连接失败：', e);
@@ -170,6 +181,13 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       fitRef.current = null;
     };
   }, [container, attempt, connect, disabled]);
+
+  // ttyd 未就绪时后端会退避重试拉起；前端每 5s 自动重连一次（也可手动重试）
+  useEffect(() => {
+    if (disabled || !error) return;
+    const timer = setTimeout(() => setAttempt((a) => a + 1), 5000);
+    return () => clearTimeout(timer);
+  }, [disabled, error, attempt]);
 
   // 菜单切换字体大小/字体族：直接更新 xterm 选项并重新 fit（不重建终端，保留回滚缓冲）
   useEffect(() => {
@@ -242,7 +260,17 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
           </div>
         ) : (
           <div className="sp-term-wrap">
+            {/* xterm 容器常驻：错误态用浮层提示，避免重建终端导致自动重连失效 */}
             <div className="sp-term" ref={setContainer} />
+            {error && (
+              <div className="sp-term-overlay">
+                <div className="sp-term-overlay-msg">终端暂时不可用：{error}</div>
+                <div className="sp-term-overlay-tip">服务端会自动重试拉起 ttyd，也可手动重试。</div>
+                <ClassicyButton buttonSize="small" onClickFunc={reconnect}>
+                  重试
+                </ClassicyButton>
+              </div>
+            )}
           </div>
         )}
       </ClassicyWindow>

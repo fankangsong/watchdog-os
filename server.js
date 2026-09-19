@@ -603,31 +603,84 @@ function serveFile(res, filename) {
 }
 
 /* ---------------- 终端（ttyd 子进程 + 零依赖代理）---------------- */
-let ttydProc = null;
+let ttydProc = null;          // 当前 ttyd 子进程；null 表示未运行
+let ttydLastError = '';       // 最近一次启动/退出失败原因（供接口提示与排错）
+let ttydRetryTimer = null;    // 启动失败后的重试定时器
+let ttydRetryDelay = 0;       // 当前重试退避间隔 ms（存活时间够长后重置）
+let shuttingDown = false;     // 进程正在退出，停止子进程重试
+const TTYD_RETRY_MIN = 5000;  // 重试退避下限 ms
+const TTYD_RETRY_MAX = 60000; // 重试退避上限 ms
 
-/** 拉起 ttyd 子进程（仅监听 127.0.0.1）；失败仅告警并自动禁用，不影响主服务 */
+/**
+ * 拉起 ttyd 子进程（仅监听 127.0.0.1）。
+ * 失败不永久禁用终端：记录原因并退避重试（端口被占用、ttyd 卸载等场景可自愈）。
+ */
 function startTtyd() {
-  if (!cfg.terminal.enabled) return;
+  if (!cfg.terminal.enabled || shuttingDown || ttydProc) return;
   const args = ['-i', '127.0.0.1', '-p', String(cfg.terminal.ttydPort), ...cfg.terminal.ttydArgs];
+  let proc;
   try {
-    ttydProc = spawn(cfg.terminal.ttydPath, args, { stdio: 'ignore', windowsHide: true });
+    // stderr 保留用于诊断（如端口冲突时的 "Address already in use"），stdout 丢弃
+    proc = spawn(cfg.terminal.ttydPath, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
   } catch (e) {
-    console.warn('[warn] ttyd 启动失败，终端功能已禁用:', e.message);
-    cfg.terminal.enabled = false;
+    ttydLastError = e.message;
+    console.warn('[warn] ttyd 启动失败，终端暂不可用，稍后重试:', e.message);
+    scheduleTtydRetry();
     return;
   }
-  ttydProc.on('error', (e) => {
-    console.warn('[warn] ttyd 不可用（未安装或无法执行），终端功能已禁用:', e.message);
-    cfg.terminal.enabled = false;
-  });
-  ttydProc.on('exit', (code) => {
-    console.warn(`[warn] ttyd 进程退出（code=${code}），终端功能已禁用`);
+  ttydProc = proc;
+  ttydLastError = '';
+  const startedAt = Date.now();
+  proc.stderr.on('data', (c) => process.stderr.write('[ttyd] ' + c));
+  proc.on('error', (e) => {
+    if (ttydProc !== proc) return;
     ttydProc = null;
-    cfg.terminal.enabled = false;
+    ttydLastError = e.message;
+    console.warn('[warn] ttyd 不可用（未安装或无法执行），终端暂不可用，稍后重试:', e.message);
+    scheduleTtydRetry();
+  });
+  proc.on('exit', (code, signal) => {
+    if (ttydProc !== proc) return;
+    ttydProc = null;
+    ttydLastError = signal ? `被信号 ${signal} 终止` : `退出码 ${code}`;
+    // 存活超 10s 视为正常启动过：重置退避，下次立刻重试；否则按启动失败继续退避
+    if (Date.now() - startedAt > 10000) ttydRetryDelay = 0;
+    console.warn(
+      `[warn] ttyd 进程退出（${ttydLastError}），终端暂不可用，稍后重试` +
+        `（请确认端口 ${cfg.terminal.ttydPort} 未被其他 ttyd 占用）`
+    );
+    scheduleTtydRetry();
   });
   console.log(`[sysprobe] ttyd 已拉起: 127.0.0.1:${cfg.terminal.ttydPort}  args=${args.join(' ')}`);
 }
 
+/** ttyd 启动失败时按退避策略重试（5s 起，上限 60s） */
+function scheduleTtydRetry() {
+  if (!cfg.terminal.enabled || shuttingDown || ttydRetryTimer) return;
+  ttydRetryDelay = ttydRetryDelay ? Math.min(ttydRetryDelay * 2, TTYD_RETRY_MAX) : TTYD_RETRY_MIN;
+  ttydRetryTimer = setTimeout(() => {
+    ttydRetryTimer = null;
+    startTtyd();
+  }, ttydRetryDelay);
+  ttydRetryTimer.unref?.();
+}
+
+/** 退出前清理 ttyd 子进程与重试定时器（systemd stop / Ctrl-C） */
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (ttydRetryTimer) {
+    clearTimeout(ttydRetryTimer);
+    ttydRetryTimer = null;
+  }
+  if (ttydProc) {
+    ttydProc.kill('SIGTERM');
+    ttydProc = null;
+  }
+  process.exit(0);
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 process.on('exit', () => {
   if (ttydProc) ttydProc.kill('SIGTERM');
 });
@@ -749,6 +802,10 @@ async function route(req, res, url) {
       return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
     }
     if (!cfg.terminal.enabled) return send(res, 503, { error: 'Terminal disabled' });
+    // 终端已启用但 ttyd 尚未就绪（未安装 / 端口被占用 / 正在重试）：明确区分于“未启用”
+    if (!ttydProc) {
+      return send(res, 503, { error: 'Terminal unavailable', detail: ttydLastError || 'ttyd 正在启动' });
+    }
     if (p === '/api/terminal/token') return proxyTerminalToken(req, res);
     return send(res, 404, { error: 'not found' });
   }
@@ -796,7 +853,7 @@ server.on('upgrade', (req, socket) => {
       else { socket.destroy(); return; }
     }
     if (p !== '/api/terminal/ws') { socket.destroy(); return; }
-    if (!cfg.terminal.enabled || !checkAuth(req)) { socket.destroy(); return; }
+    if (!cfg.terminal.enabled || !ttydProc || !checkAuth(req)) { socket.destroy(); return; }
     proxyTerminalWs(req, socket, url.search);
   } catch {
     socket.destroy();
