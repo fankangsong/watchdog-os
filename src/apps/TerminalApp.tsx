@@ -23,9 +23,9 @@ const WS_SUBPROTOCOL = 'tty';
 
 const enc = new TextEncoder();
 
-/* 字体大小可选项（px），默认 12 */
-const FONT_SIZES = [10, 12, 14, 16, 18];
-const DEFAULT_FONT_SIZE = 12;
+/* 字体大小可选项（px）。夜间/高分辨率场景下 18 仍显小，提供到 32 的可选项 */
+const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32];
+const DEFAULT_FONT_SIZE = 14;
 
 /* 字体族可选项：label 为菜单显示名，css 为 xterm fontFamily */
 const FONT_FAMILIES: { label: string; css: string }[] = [
@@ -34,7 +34,8 @@ const FONT_FAMILIES: { label: string; css: string }[] = [
   { label: 'Consolas', css: '"Consolas", monospace' },
   { label: 'Courier New', css: '"Courier New", monospace' },
 ];
-const DEFAULT_FONT_FAMILY = FONT_FAMILIES[0].css;
+/* 默认字体族：Courier New 笔画清晰、识别度高，日常命令输出观感更好 */
+const DEFAULT_FONT_FAMILY = FONT_FAMILIES[3].css;
 
 /**
  * 终端应用：xterm.js 直连 server.js 代理的 ttyd WebSocket。
@@ -125,6 +126,10 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
 
     let ro: ResizeObserver | null = null;
     let term: Terminal | null = null;
+    // 点击终端区域时主动把焦点还给 xterm（窗口焦点切换/菜单收起后可能丢失）。
+    // 必须在 try 外声明：若 try 中途抛错，清理函数引用到的仍是已初始化的绑定，
+    // 否则卸载时会触发 ReferenceError（TDZ）导致整桌崩溃（classicy Sad Mac）
+    const refocus = () => termRef.current?.focus();
     try {
       term = new Terminal({
         fontSize,
@@ -139,6 +144,10 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       term.loadAddon(fit);
       term.open(container);
       fit.fit();
+      // 立即聚焦：键盘输入只有在 xterm 获得焦点时才会触发 onData
+      term.focus();
+
+      container.addEventListener('pointerdown', refocus);
 
       // 键盘输入 → 0x30 + 文本 的二进制帧
       term.onData((data) => {
@@ -174,6 +183,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
 
     return () => {
       ro?.disconnect();
+      container.removeEventListener('pointerdown', refocus);
       wsRef.current?.close();
       wsRef.current = null;
       term?.dispose();
@@ -189,12 +199,23 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
     return () => clearTimeout(timer);
   }, [disabled, error, attempt]);
 
-  // 菜单切换字体大小/字体族：直接更新 xterm 选项并重新 fit（不重建终端，保留回滚缓冲）
+  // 菜单切换字体大小/字体族：直接更新 xterm 选项，随后强制重绘并重新 fit
+  // （不重建终端，保留回滚缓冲；xterm 6 下仅改 options 可能不刷新已渲染行）
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    if (term.options.fontSize !== fontSize) term.options.fontSize = fontSize;
-    if (term.options.fontFamily !== fontFamily) term.options.fontFamily = fontFamily;
+    let changed = false;
+    if (term.options.fontSize !== fontSize) {
+      term.options.fontSize = fontSize;
+      changed = true;
+    }
+    if (term.options.fontFamily !== fontFamily) {
+      term.options.fontFamily = fontFamily;
+      changed = true;
+    }
+    if (changed && term.rows > 0) {
+      term.refresh(0, term.rows - 1); // 强制重绘当前缓冲区，让新字体立即生效
+    }
     fitRef.current?.fit();
   }, [fontSize, fontFamily]);
 
