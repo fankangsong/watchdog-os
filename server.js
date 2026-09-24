@@ -66,6 +66,7 @@ cfg.terminal = Object.assign(
     ttydPath: 'ttyd',        // ttyd 可执行文件路径
     ttydPort: 7681,          // ttyd 监听端口（仅本机 127.0.0.1 访问）
     ttydArgs: ['bash'],      // ttyd 附加参数与要运行的 shell
+    wsl: false,              // Windows 下经由 WSL 运行 Linux 版 ttyd（忽略 ttydPath，固定用 wsl.exe）
   },
   cfg.terminal
 );
@@ -78,6 +79,9 @@ if (process.env.TERMINAL_ENABLED != null) {
 }
 if (process.env.TTYD_PATH) cfg.terminal.ttydPath = process.env.TTYD_PATH;
 if (process.env.TTYD_PORT) cfg.terminal.ttydPort = parseInt(process.env.TTYD_PORT, 10) || cfg.terminal.ttydPort;
+if (process.env.TTYD_WSL != null) {
+  cfg.terminal.wsl = ['1', 'true', 'yes', 'on'].includes(String(process.env.TTYD_WSL).toLowerCase());
+}
 
 if (!cfg.password) {
   console.error('[fatal] 未配置访问密码：请在 config.json 的 password 或 .env 的 PASSWORD 中设置');
@@ -611,17 +615,29 @@ let shuttingDown = false;     // 进程正在退出，停止子进程重试
 const TTYD_RETRY_MIN = 5000;  // 重试退避下限 ms
 const TTYD_RETRY_MAX = 60000; // 重试退避上限 ms
 
+/** WSL 模式的启动命令：先清理 WSL 内残留的 ttyd，再以登录环境拉起（~/.profile 的 PATH 生效）；
+ *  -W 开启可写（ttyd 1.7.x 起默认只读模式，不加则键盘输入无效） */
+const WSL_TTYD_CMD = 'pkill -x ttyd 2>/dev/null; exec ttyd -W "$@"';
+
 /**
  * 拉起 ttyd 子进程（仅监听 127.0.0.1）。
  * 失败不永久禁用终端：记录原因并退避重试（端口被占用、ttyd 卸载等场景可自愈）。
  */
 function startTtyd() {
   if (!cfg.terminal.enabled || shuttingDown || ttydProc) return;
-  const args = ['-i', '127.0.0.1', '-p', String(cfg.terminal.ttydPort), ...cfg.terminal.ttydArgs];
+  let cmd = cfg.terminal.ttydPath;
+  let args = ['-i', '127.0.0.1', '-p', String(cfg.terminal.ttydPort), ...cfg.terminal.ttydArgs];
+  if (cfg.terminal.wsl && process.platform === 'win32') {
+    // Windows 本地联调：经 WSL 运行 Linux 版 ttyd，WSL2 会把 WSL 内监听的端口
+    // 自动转发到 Windows 的 127.0.0.1；经 bash 登录环境启动以保证 ~/.local/bin 下的 ttyd 可见。
+    // 仅 Windows 生效：同一目录在 WSL 内运行时忽略该开关，走原生 ttyd。
+    cmd = 'wsl.exe';
+    args = ['-e', 'bash', '-lc', WSL_TTYD_CMD, 'bash', ...args];
+  }
   let proc;
   try {
     // stderr 保留用于诊断（如端口冲突时的 "Address already in use"），stdout 丢弃
-    proc = spawn(cfg.terminal.ttydPath, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    proc = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
   } catch (e) {
     ttydLastError = e.message;
     console.warn('[warn] ttyd 启动失败，终端暂不可用，稍后重试:', e.message);
@@ -665,6 +681,14 @@ function scheduleTtydRetry() {
   ttydRetryTimer.unref?.();
 }
 
+/** WSL 模式兜底：终止 Windows 侧 wsl.exe 不保证 WSL 内 ttyd 退出，需显式清理 Linux 侧进程 */
+function killWslTtyd() {
+  if (process.platform !== 'win32') return;
+  try {
+    spawn('wsl.exe', ['-e', 'pkill', '-x', 'ttyd'], { stdio: 'ignore', windowsHide: true });
+  } catch { /* 清理失败忽略 */ }
+}
+
 /** 退出前清理 ttyd 子进程与重试定时器（systemd stop / Ctrl-C） */
 function shutdown() {
   if (shuttingDown) return;
@@ -675,6 +699,7 @@ function shutdown() {
   }
   if (ttydProc) {
     ttydProc.kill('SIGTERM');
+    if (cfg.terminal.wsl) killWslTtyd();
     ttydProc = null;
   }
   process.exit(0);
@@ -682,7 +707,10 @@ function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 process.on('exit', () => {
-  if (ttydProc) ttydProc.kill('SIGTERM');
+  if (ttydProc) {
+    ttydProc.kill('SIGTERM');
+    if (cfg.terminal.wsl) killWslTtyd();
+  }
 });
 
 /** HTTP 代理：/api/terminal/token → http://127.0.0.1:{port}/token */

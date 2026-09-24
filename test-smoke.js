@@ -1,5 +1,5 @@
 /* 端到端冒烟测试：鉴权 + basePath */
-const BASE_HOST = 'http://localhost:3000';
+const BASE_HOST = process.env.BASE_HOST || 'http://localhost:3000';
 
 async function req(path, opts = {}, cookies = '') {
   const headers = Object.assign({}, opts.headers || {});

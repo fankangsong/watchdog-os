@@ -37,6 +37,25 @@ node server.js
 
 然后访问 Dashboard 打开 Terminal 窗口，输入字符会被 mock 回显（`mock-ttyd shell ready` 横幅）。
 
+### Windows 本地联调终端功能（WSL 运行真实 ttyd）
+
+比 mock 更接近生产：WSL 发行版（如 Ubuntu）内安装真实 ttyd，由 server.js 经 `wsl.exe` 拉起（`TTYD_WSL=1` / `terminal.wsl`，仅 Windows 生效，此时忽略 `TTYD_PATH`）。WSL2 会把 WSL 内监听的端口自动转发到 Windows 的 `127.0.0.1`，server.js 代理无需任何改动：
+
+```powershell
+# 1. WSL 内安装 ttyd（apt 或免 sudo 的静态二进制二选一）
+wsl -e bash -lc 'sudo apt-get install -y ttyd'
+# 或：
+wsl -e bash -lc 'mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 && chmod +x ~/.local/bin/ttyd'
+
+# 2. 启动服务（.env 加 TTYD_WSL=true，或临时设环境变量）
+$env:PASSWORD='test123'; $env:TERMINAL_ENABLED='true'; $env:TTYD_WSL='true'
+node server.js
+```
+
+- 实际启动命令为 `bash -lc 'pkill -x ttyd 2>/dev/null; exec ttyd -W "$@"' -i 127.0.0.1 -p <port> <ttydArgs...>`：先清理 WSL 内残留的 ttyd（server 被强杀后会遗留占用端口，下次启动自愈），再以登录环境拉起（`~/.profile` 的 PATH 生效，`~/.local/bin/ttyd` 可见）；`-W` 必需（ttyd 1.7.x 起默认只读，不加则键盘输入无效），要求 WSL 内 ttyd ≥ 1.7.x
+- 终端 shell 由 `ttydArgs` 决定（默认 `["bash"]`），工作目录为项目目录（wsl.exe 继承 Windows cwd）；建议 `["bash", "-l"]` 对齐 ssh 登录环境
+- ⚠️ `pkill` 不分端口：同机同时运行多个「负责拉起 ttyd 的 server.js 实例」（含 WSL 内原生运行的）会互相清理对方 ttyd 形成乒乓重启，请只跑一个实例
+
 注意：项目同时存在 `package-lock.json` 和 `pnpm-lock.yaml`，优先使用 **npm**。
 
 ## 后端配置
@@ -72,7 +91,7 @@ dist/                # 构建产物（勿手动修改）
 ### 终端模块（TerminalApp + ttyd）
 
 - `server.js` 启动时按 `terminal` 配置节 spawn ttyd 子进程（仅监听 127.0.0.1），收到 SIGTERM/SIGINT 时先 SIGTERM 清理子进程；ttyd 启动失败（未安装 / 端口被占用等）不会禁用终端，而是透传其 stderr 诊断信息并按 5s→60s 退避自动重试（主服务不受影响）
-- 配置：`terminal.enabled`（默认 false，可用 `TERMINAL_ENABLED` 环境变量开启）、`ttydPath`、`ttydPort`（默认 7681）、`ttydArgs`。⚠️ 端口不可与其他 ttyd 实例（如发行版自带的 `ttyd.service`）冲突，否则终端不可用
+- 配置：`terminal.enabled`（默认 false，可用 `TERMINAL_ENABLED` 环境变量开启）、`ttydPath`、`ttydPort`（默认 7681）、`ttydArgs`、`wsl`（Windows 下经 WSL 运行 Linux 版 ttyd，见上文 Windows 联调章节）。⚠️ 端口不可与其他 ttyd 实例（如发行版自带的 `ttyd.service`）冲突，否则终端不可用
 - `terminal.ttydArgs`：传给 ttyd 的要运行 shell 及参数，默认 `["bash"]`。⚠️ **坑**：ttyd 继承的是 systemd 的最小 PATH 且 `bash` 非登录 shell 不加载用户 profile，导致用户自行安装的命令（如 mise 管理的 `pi`、`~/.local/bin` 等）在 Dashboard 终端里「command not found」。服务器（tkp）上已改为 `["zsh", "-l"]`（在远端 `config.json` 配置，同步脚本不上传 config.json，不会回退），使终端与 ssh 登录环境一致（交互式登录 zsh 会加载 `~/.zshrc`，含 `eval "$(mise activate zsh)"`）
 - 鉴权：`/api/terminal/token`（HTTP 转发 ttyd /token）与 `/api/terminal/ws`（upgrade 裸 TCP 管道转发到 ttyd /ws）均先走 `checkAuth` JWT 校验，再判启用状态（401 优先于 503）；`503 Terminal disabled` 表示配置未启用，`503 Terminal unavailable` 表示 ttyd 进程未就绪（前端会显示浮层并每 5s 自动重连）
 - 前端 `src/apps/TerminalApp.tsx`：xterm.js（@xterm/xterm + @xterm/addon-fit）直连代理后的 WebSocket，实现 ttyd 二进制帧协议（服务端首字节 `0` 输出 / `1` 标题；客户端 `0` 输入 / `1` resize + 首条 JSON 认证消息）。握手必须声明子协议 `tty`（`new WebSocket(url, 'tty')`），1.6.x / 1.7.x 均要求，否则连接会被立即关闭（黑屏无输出）
