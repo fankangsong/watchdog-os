@@ -257,3 +257,108 @@ html, body, #root {
 .sp-cellres-bar { width: 44px; height: 6px; background: rgba(0, 0, 0, 0.15); border-radius: 3px; overflow: hidden; flex-shrink: 0; }
 .sp-cellres-bar span { display: block; height: 100%; border-radius: 3px; }
 .sp-cmd { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- 文件管理器 / 文本编辑器 ---------- */
+.sp-fm { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+.sp-fm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 0 0 auto; }
+.sp-fm-toolbar-divider { flex: 0 0 auto; align-self: stretch; margin: 2px 3px; border-left: 1px solid rgba(0, 0, 0, 0.35); border-right: 1px solid rgba(255, 255, 255, 0.8); }
+.sp-fm-path { flex: 1 1 200px; min-width: 150px; }
+.sp-fm-path input { box-sizing: border-box; width: 100%; height: calc(var(--hig-button-height) - var(--window-border-size) * 2); padding: 0 5px; font-size: 12px; font-family: var(--mono-font, monospace); }
+.sp-fm-split { flex: 1 1 auto; min-height: 0; }
+/* 分割条上下与容器对齐（覆盖 classicy 默认的上下 margin） */
+.sp-fm-split .classicySplitViewDivider { margin: 0; }
+.sp-fm-side { height: 100%; overflow: auto; padding: 6px 6px 8px 8px; box-sizing: border-box; background: #ece9e2; }
+.sp-fm-side-title { margin: 6px 0 3px; font-size: 12px; font-weight: 700; color: #333; }
+.sp-fm-empty { padding: 2px 4px 6px; font-size: 12px; color: #777; }
+.sp-fm-fav { display: flex; align-items: center; gap: 2px; }
+.sp-fm-fav-btn { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; border: none; background: none; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.sp-fm-fav-btn:hover { background: rgba(0, 0, 0, 0.08); }
+.sp-fm-fav-btn img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
+.sp-fm-fav-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-fm-fav-del { padding: 2px 5px; border: none; background: none; font-size: 13px; line-height: 1; color: #666; cursor: pointer; }
+.sp-fm-fav-del:hover { color: #c00; }
+.sp-fm-main { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+.sp-fm-table { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
+.sp-fm-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.sp-fm-name img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
+.sp-fm-uploads { flex: 0 0 auto; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); }
+.sp-fm-upload-row { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 1px 0; }
+.sp-fm-upload-name { width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }
+.sp-fm-upload-bar { flex: 1 1 auto; }
+.sp-fm-status { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 10px; padding: 4px 6px 6px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: #444; }
+.sp-fm-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 预览窗口 */
+.sp-fm-preview { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+.sp-fm-preview-toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+.sp-fm-preview-toolbar .sp-dim { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-fm-preview-body { position: relative; display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-height: 0; overflow: auto; background: #fff; border: 1px solid rgba(0, 0, 0, 0.35); }
+.sp-fm-img { background: repeating-conic-gradient(#e9e9e9 0% 25%, #ffffff 0% 50%) 50% / 16px 16px; }
+.sp-fm-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.sp-fm-md { display: block; }
+.sp-fm-code { display: block; }
+
+/* 对话框遮罩（重命名/新建/打开文件） */
+.sp-dialog-mask { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.25); }
+.sp-dialog { width: 360px; max-width: 90vw; background: #e3e0da; border: 2px solid #fff; outline: 1px solid #000; box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35); }
+.sp-dialog-title { height: 24px; border-bottom: 1px solid #000; background: repeating-linear-gradient(0deg, #d9d5cd 0px, #d9d5cd 1px, #ece9e2 1px, #ece9e2 2px); font-size: 12px; font-weight: 700; line-height: 24px; text-align: center; }
+.sp-dialog-body { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.sp-dialog-recent { max-height: 160px; overflow: auto; border: 1px solid rgba(0, 0, 0, 0.2); background: #fff; padding: 2px; }
+.sp-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
+/* 设置对话框：label 左、控件右的行式布局 */
+.sp-dialog-field { display: flex; align-items: center; gap: 8px; }
+.sp-dialog-field > label { flex: 0 0 auto; min-width: 40px; font-size: 12px; font-weight: 700; }
+.sp-dialog-field > :not(label) { flex: 1 1 auto; min-width: 0; }
+
+/* 文本编辑器 */
+.sp-editor { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+.sp-editor-body { display: flex; flex: 1 1 auto; min-height: 0; gap: 6px; }
+.sp-editor-code { height: 100%; min-width: 0; flex: 1 1 auto; }
+.sp-editor-preview { height: 100%; min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+.sp-editor-empty { display: flex; flex: 1 1 auto; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #555; font-size: 13px; }
+.sp-editor-status { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 10px; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: #444; }
+.sp-editor-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* CodeMirror 容器 */
+.sp-code-editor { height: 100%; min-height: 0; overflow: hidden; border: 1px solid rgba(0, 0, 0, 0.35); }
+.sp-code-editor .cm-editor { height: 100%; }
+.sp-code-editor .cm-editor.cm-focused { outline: none; }
+
+/* Markdown 预览排版 */
+.sp-md-preview { height: 100%; box-sizing: border-box; padding: 10px 14px; overflow: auto; font-size: 13px; line-height: 1.65; color: #1d1d1f; background: #fff; }
+.sp-md-preview h1, .sp-md-preview h2, .sp-md-preview h3, .sp-md-preview h4 { margin: 14px 0 8px; line-height: 1.3; }
+.sp-md-preview h1 { font-size: 20px; border-bottom: 1px solid rgba(0, 0, 0, 0.15); padding-bottom: 4px; }
+.sp-md-preview h2 { font-size: 17px; border-bottom: 1px solid rgba(0, 0, 0, 0.1); padding-bottom: 3px; }
+.sp-md-preview h3 { font-size: 15px; }
+.sp-md-preview h4 { font-size: 13px; }
+.sp-md-preview p { margin: 6px 0; }
+.sp-md-preview a { color: #0969da; }
+.sp-md-preview code { padding: 1px 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.07); font-family: var(--mono-font, monospace); font-size: 12px; }
+.sp-md-preview pre { padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
+.sp-md-preview pre code { padding: 0; background: none; }
+.sp-md-preview blockquote { margin: 6px 0; padding: 2px 12px; border-left: 3px solid rgba(0, 0, 0, 0.25); color: #555; }
+.sp-md-preview ul, .sp-md-preview ol { margin: 6px 0; padding-left: 22px; }
+.sp-md-preview table { border-collapse: collapse; margin: 8px 0; }
+.sp-md-preview th, .sp-md-preview td { padding: 4px 10px; border: 1px solid rgba(0, 0, 0, 0.25); }
+.sp-md-preview th { background: rgba(0, 0, 0, 0.06); }
+.sp-md-preview img { max-width: 100%; }
+.sp-md-preview hr { border: none; border-top: 1px solid rgba(0, 0, 0, 0.2); }
+
+/* ---------- 桌面图标"已打开"态修正 ----------
+   classicy 默认在应用窗口打开后把桌面图标渲染为轮廓棋盘网纹（图标本体 opacity:0 +
+   backdrop-filter 反色），图标内容完全消失，观感是"蜂窝方块"且无法辨识应用。
+   这里保留 dither 网纹（维持"已打开"语义），让图标以半透明叠加在网纹之上，
+   同时移除反色 backdrop（避免黑块）并把网纹底衬改为白色（经典黑白棋盘）。 */
+.classicyDesktopIconOpen .classicyDesktopIconMaskOuter,
+.classicyDesktopIconActiveAndOpen .classicyDesktopIconMaskOuter {
+  background: var(--color-white) !important;
+}
+.classicyDesktopIconOpen .classicyDesktopIconMaskOuter .classicyDesktopIconMask,
+.classicyDesktopIconActiveAndOpen .classicyDesktopIconMaskOuter .classicyDesktopIconMask {
+  backdrop-filter: none !important;
+  background-blend-mode: normal;
+}
+.classicyDesktopIconOpen .classicyDesktopIconMaskOuter .classicyDesktopIconMask img,
+.classicyDesktopIconActiveAndOpen .classicyDesktopIconMaskOuter .classicyDesktopIconMask img {
+  opacity: 0.5 !important;
+}

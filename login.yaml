@@ -1,0 +1,9 @@
+- generic [ref=e4]:
+  - generic [ref=e5]: kjzx2298153
+  - generic [ref=e6]:
+    - generic [ref=e8]:
+      - button "Access Password" [ref=e9]
+      - textbox "Access Password" [ref=e11]:
+        - /placeholder: Enter password
+    - paragraph [ref=e12]
+    - button "Sign In" [ref=e14]

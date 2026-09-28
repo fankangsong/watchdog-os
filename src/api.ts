@@ -138,3 +138,114 @@ export async function login(password: string): Promise<void> {
 export async function logout(): Promise<void> {
   await fetch('./api/logout', { method: 'POST' }).catch(() => {});
 }
+
+/* ---------- 文件管理（/api/fs/*）---------- */
+
+export type FsPreviewable = 'image' | 'text' | 'markdown' | 'none';
+
+/** 目录条目（/api/fs/list 返回） */
+export interface FsEntry {
+  name: string;
+  path: string;
+  type: 'dir' | 'file';
+  size: number;
+  mtime: number;
+  mode: string;
+  previewable: FsPreviewable;
+}
+
+export interface FsListResult {
+  path: string;
+  roots: string[];
+  entries: FsEntry[];
+}
+
+/** /api/fs/read 返回：tooLarge（超 2MB）或 binary（含 NUL 字节）时不含 content */
+export interface FsReadResult {
+  path: string;
+  name: string;
+  size: number;
+  mtime: number;
+  content?: string;
+  tooLarge?: boolean;
+  binary?: boolean;
+}
+
+const enc = encodeURIComponent;
+
+export const fsList = (path: string) => request<FsListResult>(`./api/fs/list?path=${enc(path)}`);
+
+export const fsRead = (path: string) => request<FsReadResult>(`./api/fs/read?path=${enc(path)}`);
+
+export const fsWrite = (path: string, content: string) =>
+  request<{ ok: true; size: number; mtime: number }>(`./api/fs/write?path=${enc(path)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    body: content,
+  });
+
+export const fsMkdir = (path: string) =>
+  request<{ ok: true }>('./api/fs/mkdir', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+
+export const fsDelete = (path: string) =>
+  request<{ ok: true }>('./api/fs/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+
+export const fsRename = (path: string, name: string) =>
+  request<{ ok: true; path: string }>('./api/fs/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, name }),
+  });
+
+export const fsGetFavorites = () => request<{ favorites: string[] }>('./api/fs/favorites');
+
+export const fsSetFavorites = (favorites: string[]) =>
+  request<{ ok: true; favorites: string[] }>('./api/fs/favorites', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ favorites }),
+  });
+
+/** 图片内联预览地址；download=1 时走附件下载（HttpOnly Cookie 鉴权天然可用） */
+export const fsRawUrl = (path: string, download = false) =>
+  `./api/fs/raw?path=${enc(path)}${download ? '&download=1' : ''}`;
+
+/** 上传单个文件（XHR 以获得上传进度）；409 同名冲突时以 overwrite 重试 */
+export function fsUpload(
+  dir: string,
+  file: File,
+  overwrite = false,
+  onProgress?: (loaded: number, total: number) => void
+): { promise: Promise<{ ok: true; path: string; name: string; size: number }>; abort: () => void } {
+  const xhr = new XMLHttpRequest();
+  const promise = new Promise<{ ok: true; path: string; name: string; size: number }>((resolve, reject) => {
+    xhr.open(
+      'POST',
+      `./api/fs/upload?path=${enc(dir)}&name=${enc(file.name)}${overwrite ? '&overwrite=1' : ''}`
+    );
+    xhr.responseType = 'json';
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded, e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status === 401) return reject(new Unauthorized());
+      const data = xhr.response as { ok?: boolean; error?: string; path?: string; name?: string; size?: number } | null;
+      if (xhr.status >= 200 && xhr.status < 300 && data?.ok) {
+        return resolve({ ok: true, path: data.path || '', name: data.name || file.name, size: data.size || file.size });
+      }
+      reject(new Error(data?.error || `HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error('网络错误，上传失败'));
+    xhr.onabort = () => reject(new Error('上传已取消'));
+    xhr.send(file);
+  });
+  return { promise, abort: () => xhr.abort() };
+}
