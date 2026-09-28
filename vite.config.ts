@@ -12,6 +12,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // ⚠️ 必须用 terser：esbuild 压缩会把 @xterm/xterm 中 requestMode 里的
+    // `let r;` 声明删掉，留下 `q = {}` 未声明赋值，ES 模块严格模式下抛
+    // "assignment to undeclared variable"，导致终端解析管线中断（vim 等
+    // 发送 DECRQM `CSI ? 12 $ p` 后画面卡死、看似键盘无响应）。
+    minify: 'terser',
   },
   server: {
     port: 5173,
