@@ -134,6 +134,8 @@ export interface CodeEditorProps {
   fontSize?: number;
   fontFamily?: string;
   readOnly?: boolean;
+  /** 自动换行：长行折行适应宽度，不出现横向滚动条 */
+  wordWrap?: boolean;
   className?: string;
   /** 暴露 EditorView（父组件实现撤销/重做按钮） */
   onReady?: (view: EditorView) => void;
@@ -149,6 +151,7 @@ export function CodeEditor({
   fontSize = 14,
   fontFamily,
   readOnly = false,
+  wordWrap = false,
   className,
   onReady,
   onStats,
@@ -159,6 +162,7 @@ export function CodeEditor({
   const fontCpt = useRef(new Compartment());
   const roCpt = useRef(new Compartment());
   const langCpt = useRef(new Compartment());
+  const wrapCpt = useRef(new Compartment());
   const cbs = useRef({ onChange, onStats, onReady });
   cbs.current = { onChange, onStats, onReady };
 
@@ -201,6 +205,7 @@ export function CodeEditor({
           themeCpt.current.of(themeExtension(theme)),
           fontCpt.current.of(fontExtension(fontSize, fontFamily)),
           roCpt.current.of(readOnlyExtension(readOnly)),
+          wrapCpt.current.of(wordWrap ? EditorView.lineWrapping : []),
           langCpt.current.of([]),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) cbs.current.onChange?.(u.state.doc.toString());
@@ -250,6 +255,13 @@ export function CodeEditor({
   useEffect(() => {
     viewRef.current?.dispatch({ effects: roCpt.current.reconfigure(readOnlyExtension(readOnly)) });
   }, [readOnly]);
+
+  // 自动换行开关动态切换
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: wrapCpt.current.reconfigure(wordWrap ? EditorView.lineWrapping : []),
+    });
+  }, [wordWrap]);
 
   // 语言包按 path 动态加载（并发竞态防护：仅应用最后一次请求结果）
   useEffect(() => {

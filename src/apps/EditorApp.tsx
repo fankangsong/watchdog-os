@@ -29,16 +29,18 @@ interface EditorPrefs {
   theme: EditorThemeId;
   fontSize: number;
   fontFamily: string;
+  wordWrap: boolean;
 }
 
 function loadPrefs(): EditorPrefs {
-  const def: EditorPrefs = { theme: 'dracula', fontSize: 14, fontFamily: EDITOR_FONTS[0].value };
+  const def: EditorPrefs = { theme: 'dracula', fontSize: 14, fontFamily: EDITOR_FONTS[0].value, wordWrap: false };
   try {
     const j = JSON.parse(localStorage.getItem(PREFS_KEY) || '');
     return {
       theme: EDITOR_THEMES.some((t) => t.id === j.theme) ? j.theme : def.theme,
       fontSize: Math.min(24, Math.max(10, parseInt(j.fontSize, 10) || def.fontSize)),
       fontFamily: typeof j.fontFamily === 'string' ? j.fontFamily : def.fontFamily,
+      wordWrap: typeof j.wordWrap === 'boolean' ? j.wordWrap : def.wordWrap,
     };
   } catch {
     return def;
@@ -77,7 +79,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
   const [error, setError] = useState('');
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [stats, setStats] = useState({ line: 1, col: 1, size: 0 });
-  const [preview, setPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [openDialog, setOpenDialog] = useState(false);
   const [openInput, setOpenInput] = useState('');
   const [recent, setRecent] = useState<string[]>(loadRecent);
@@ -116,7 +118,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         setContent(r.content ?? '');
         setDirty(false);
         setSavedAt(null);
-        setPreview(isMdPath(r.path));
+        setShowPreview(isMdPath(r.path));
         setOpenDialog(false);
         setRecent((prev) => {
           const next = [r.path, ...prev.filter((x) => x !== r.path)].slice(0, 8);
@@ -235,22 +237,20 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         menuChildren: [
           { id: 'ed-m-undo', title: '撤销', keyboardShortcut: 'Cmd+Z', onClickFunc: () => viewRef.current && undo(viewRef.current) },
           { id: 'ed-m-redo', title: '重做', keyboardShortcut: 'Cmd+Shift+Z', onClickFunc: () => viewRef.current && redo(viewRef.current) },
-          // Markdown 预览开关（仅 Markdown 文件显示，对齐原工具栏行为）
-          ...(isMd
-            ? [
-                { id: 'spacer' },
-                { id: 'ed-m-preview', title: 'Markdown 预览', checked: preview, onClickFunc: () => setPreview((v) => !v) },
-              ]
-            : []),
         ],
       },
       {
         id: 'ed-settings',
         title: '设置',
-        menuChildren: [{ id: 'ed-m-prefs', title: '编辑器设置…', onClickFunc: () => setSettingsOpen(true) }],
+        menuChildren: [
+          { id: 'ed-m-wrap', title: '自动换行', checked: prefs.wordWrap, onClickFunc: () => setPrefs((p) => ({ ...p, wordWrap: !p.wordWrap })) },
+          { id: 'ed-m-preview', title: '显示预览', checked: showPreview, onClickFunc: () => setShowPreview((v) => !v) },
+          { id: 'spacer' },
+          { id: 'ed-m-prefs', title: '编辑器设置…', onClickFunc: () => setSettingsOpen(true) },
+        ],
       },
     ],
-    [path, save, isMd, preview]
+    [path, save, prefs.wordWrap, showPreview]
   );
 
   const editorNode = (
@@ -264,6 +264,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
       theme={prefs.theme}
       fontSize={prefs.fontSize}
       fontFamily={prefs.fontFamily}
+      wordWrap={prefs.wordWrap}
       onReady={(v) => (viewRef.current = v)}
       onStats={setStats}
       className="sp-editor-code"
@@ -302,11 +303,11 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
                 打开文件…
               </ClassicyButton>
             </div>
-          ) : preview && isMd ? (
+          ) : showPreview ? (
             <ClassicySplitView direction="horizontal" defaultSizes={[55, 45]} minPaneSize={200} className="sp-editor-body">
               {editorNode}
               <div className="sp-editor-preview">
-                <MarkdownPreview source={content} />
+                {isMd ? <MarkdownPreview source={content} /> : <pre className="sp-editor-plain">{content}</pre>}
               </div>
             </ClassicySplitView>
           ) : (

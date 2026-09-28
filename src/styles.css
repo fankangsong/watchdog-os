@@ -315,6 +315,8 @@ html, body, #root {
 .sp-editor-body { display: flex; flex: 1 1 auto; min-height: 0; gap: 6px; }
 .sp-editor-code { height: 100%; min-width: 0; flex: 1 1 auto; }
 .sp-editor-preview { height: 100%; min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+/* 非 Markdown 文件的预览：等宽原文，同样自适应换行 */
+.sp-editor-plain { flex: 1 1 auto; min-height: 0; margin: 0; padding: 10px 14px; overflow: auto; box-sizing: border-box; font-family: var(--mono-font, monospace); font-size: 13px; line-height: 1.6; color: #1d1d1f; background: #fff; white-space: pre-wrap; word-break: break-word; }
 .sp-editor-empty { display: flex; flex: 1 1 auto; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #555; font-size: 13px; }
 .sp-editor-status { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 10px; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: #444; }
 .sp-editor-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
