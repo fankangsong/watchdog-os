@@ -1,15 +1,15 @@
-# AGENTS.md — srv-dashboard 项目指南
+# AGENTS.md — watchdog-os 项目指南
 
 本文件为 AI 编码代理（以及新加入的开发者）提供本项目的关键上下文。修改代码前请先阅读本文件。
 
 ## 项目概述
 
-**srv-dashboard** 是一个系统探针监控应用（Classicy 桌面版），用于采集并展示服务器的 CPU / 内存 / 交换分区 / 硬件温度 / 磁盘使用率 / Docker 容器 / 进程列表等指标。
+**watchdog-os** 是一个系统探针监控应用（Classicy 桌面版），用于采集并展示服务器的 CPU / 内存 / 交换分区 / 硬件温度 / 磁盘使用率 / Docker 容器 / 进程列表等指标。
 
 - 版本：2.0.0，许可证：MIT
 - 前端：React 19 + TypeScript + Vite，UI 组件库为 `classicy`（仿 Mac OS 9 桌面风格）
 - 后端：`server.js` —— **零依赖** Node.js 原生 HTTP 服务（无 Express 等框架）
-- 部署：支持 basePath 子路径（如 `/tkp/`），可置于 Nginx 反向代理之后；Linux 下通过 systemd（`run.sh` 管理 `srv-dashboard` 服务）
+- 部署：支持 basePath 子路径（如 `/tkp/`），可置于 Nginx 反向代理之后；Linux 下通过 systemd（`run.sh` 管理 `watchdog-os` 服务）
 
 ## 常用命令
 

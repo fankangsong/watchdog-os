@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# run.sh - srv-dashboard 服务管理脚本
+# run.sh - watchdog-os 服务管理脚本
 # 用法: ./run.sh {start|restart|stop|status}
 
-SERVICE=srv-dashboard
+SERVICE=watchdog-os
 
 usage() {
   echo "用法: $0 {start|restart|stop|status}"

@@ -1,5 +1,5 @@
 {
-  "name": "srv-dashboard",
+  "name": "watchdog-os",
   "version": "2.0.0",
   "description": "系统探针监控应用（Classicy 桌面版）",
   "main": "server.js",

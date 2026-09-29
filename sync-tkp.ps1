@@ -1,10 +1,10 @@
-# 同步到 tkp 服务器（/root/srv-dashboard，端口 1234）
+# 同步到 tkp 服务器（/root/watchdog-os，端口 1234）
 # 用法： ./sync-tkp.ps1
 # 前置：已配置 ssh 别名 tkp；远端 run.sh 由 systemd 驱动
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $remote = 'tkp'
-$remoteDir = '/root/srv-dashboard'
+$remoteDir = '/root/watchdog-os'
 
 Write-Host '[1/5] 构建前端...'
 Push-Location $root
@@ -24,5 +24,5 @@ ssh $remote "cd $remoteDir && ./run.sh restart"
 
 Write-Host '[5/5] 验证...'
 Start-Sleep -Seconds 2
-ssh $remote "curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:1234/tkp/ && systemctl is-active srv-dashboard"
+ssh $remote "curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:1234/tkp/ && systemctl is-active watchdog-os"
 Write-Host '同步完成'
