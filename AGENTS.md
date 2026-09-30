@@ -19,6 +19,7 @@ npm run build     # 构建产物到 dist/
 npm run preview   # 预览构建产物
 npm start         # 启动生产后端（node server.js，默认端口 3000）
 node test-fs-api.js                  # 文件管理 API 冒烟测试（自起自停 server 子进程）
+node test-runner-api.js              # Runner API 冒烟测试（自起自停 server 子进程，无 bash 时跳过）
 ./run.sh start|restart|stop|status   # Linux 服务器上的 systemd 服务管理
 ```
 
@@ -72,13 +73,15 @@ node server.js
 
 其余可配置项：`collectInterval`（2000ms）、`dockerInterval`（5000ms）、`processInterval`（10000ms）、`processTopN`（50）。
 
+Runner（脚本任务构建）：config.json 的 `runner` 节 / 环境变量 `RUNNER_ENABLED` / `RUNNER_SCRIPT` / `RUNNER_SHELL`（默认 `bash`）控制，`scriptPath` 为必配的脚本绝对路径且只接受服务端配置；日志写 `data/runner.log`（超过 `maxLogBytes` 归档为 `.old`）。
+
 ## 目录结构与关键约定
 
 ```
 server.js            # 零依赖后端：采集指标、鉴权、静态文件服务、SSE/轮询 API、终端代理、文件管理 API
 public/              # ⚠️ 旧版零依赖前端（server.js 回退用），不是 Vite 静态资源目录
 src/                 # React 前端源码
-  apps/              # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FileManagerApp（文件管理器）、EditorApp（文本编辑器）
+  apps/              # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FileManagerApp（文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）
   components/        # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板
   hooks/             # usePolling —— 数据轮询 Hook
   api.ts             # 后端 API 封装（含 getTerminalToken、/api/fs/* 文件管理）
@@ -98,6 +101,14 @@ dist/                # 构建产物（勿手动修改）
 - 鉴权：`/api/terminal/token`（HTTP 转发 ttyd /token）与 `/api/terminal/ws`（upgrade 裸 TCP 管道转发到 ttyd /ws）均先走 `checkAuth` JWT 校验，再判启用状态（401 优先于 503）；`503 Terminal disabled` 表示配置未启用，`503 Terminal unavailable` 表示 ttyd 进程未就绪（前端会显示浮层并每 5s 自动重连）
 - 前端 `src/apps/TerminalApp.tsx`：xterm.js（@xterm/xterm + @xterm/addon-fit）直连代理后的 WebSocket，实现 ttyd 二进制帧协议（服务端首字节 `0` 输出 / `1` 标题；客户端 `0` 输入 / `1` resize + 首条 JSON 认证消息）。握手必须声明子协议 `tty`（`new WebSocket(url, 'tty')`），1.6.x / 1.7.x 均要求，否则连接会被立即关闭（黑屏无输出）
 - WS 代理为裸 TCP 管道（`net.connect` 改写请求行后双向 pipe），不实现 WS 帧编解码；修改升级逻辑时保持 Cookie 不外传、对端 socket 对称销毁
+
+### Runner（脚本任务构建，RunnerApp + `/api/runner/*`）
+
+- 后端 `server.js` 以 `spawn(shell, [脚本名])`（cwd 为脚本所在目录；用相对名 + cwd 而非绝对路径，兼容 Windows Git Bash 的 POSIX 路径限制）执行服务端配置的脚本（生产为 running_page 的 `build.sh`），stdout/stderr 合并落盘 `data/runner.log`，构建开始写分隔头、结束写 `[exit code N]`；同时只允许一个任务（内存单槽锁，重复触发 409），`SIGINT/SIGTERM/exit` 时对运行中任务 SIGTERM
+- API（统一 `checkAuth`，401 优先）：`POST /api/runner/start`（立即返回不阻塞；未启用 503 `Runner disabled`、重复 409、脚本不存在 400）、`GET /api/runner/status?lines=N`（信息性接口，未启用也 200 返回 `enabled:false`；含 running/job/last 摘要与日志尾部，lines 上限 2000）、`POST /api/runner/stop`（SIGTERM 中断，空闲 409）
+- 安全约定：脚本路径只来自服务端 `config.json`（`runner.scriptPath`）或 `RUNNER_SCRIPT` 环境变量，客户端不可传路径；能触发 = 能登录（与终端/文件管理同级鉴权）
+- 前端 `RunnerApp`：状态区（Idle/Running/上次结果）+ Build/Stop 按钮 + 等宽日志区；轮询间隔运行中 2s、空闲 10s，新日志自动滚底
+- ⚠️ `build.sh` 含 `git push` 与 COS 上传等真实发布动作，Windows 本机验证 UI 时不要点击 Build
 
 ### 文件管理器 / 文本编辑器（FileManagerApp / EditorApp + `/api/fs/*`）
 
@@ -131,3 +142,4 @@ dist/                # 构建产物（勿手动修改）
 - 前端：`npm run build` 确认无 TS / 构建错误（可用 `npx tsc --noEmit` 做全量类型检查）。
 - 后端：`npm start` 后用密码登录，确认指标接口正常返回。
 - 文件管理 API：`node test-fs-api.js` 全部 PASS（鉴权/列表/读写/上传/收藏/越权防护等 17 项）。
+- Runner API：`node test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
