@@ -249,3 +249,42 @@ export function fsUpload(
   });
   return { promise, abort: () => xhr.abort() };
 }
+
+/* ---------- Runner（脚本任务触发，如 running_page build.sh）---------- */
+
+/** /api/runner/status 返回的 job：运行中 exitCode/finishedAt 为 null */
+export interface RunnerJob {
+  id: string;
+  startedAt: number;
+  script?: string;
+  exitCode?: number | null;
+  finishedAt?: number | null;
+}
+
+/** 最近一次结束的任务摘要 */
+export interface RunnerLast {
+  id: string;
+  startedAt: number;
+  finishedAt: number;
+  exitCode: number | null;
+  failed: boolean;
+  durationMs: number;
+}
+
+export interface RunnerStatus {
+  enabled: boolean;
+  script: string;
+  running: boolean;
+  job: RunnerJob | null;
+  last: RunnerLast | null;
+  log: string;
+}
+
+export const fetchRunnerStatus = () =>
+  request<RunnerStatus>('./api/runner/status?lines=400');
+
+export const startRunnerBuild = () =>
+  request<{ ok: true; jobId: string; startedAt: number }>('./api/runner/start', { method: 'POST' });
+
+export const stopRunnerBuild = () =>
+  request<{ ok: true; job: RunnerJob | null }>('./api/runner/stop', { method: 'POST' });
