@@ -72,6 +72,17 @@ cfg.terminal = Object.assign(
   cfg.terminal
 );
 if (!Array.isArray(cfg.terminal.ttydArgs)) cfg.terminal.ttydArgs = ['bash'];
+/* Runner 配置：远程触发脚本任务（如 running_page 的 build.sh）。
+   scriptPath 为必配项且只允许服务端配置（config.json / RUNNER_SCRIPT），客户端不可传路径 */
+cfg.runner = Object.assign(
+  {
+    enabled: false,               // 是否启用 Runner API
+    scriptPath: '',               // 要执行的脚本绝对路径（必配）
+    shell: 'bash',                // 执行 shell（Linux 服务器默认 bash）
+    maxLogBytes: 5 * 1024 * 1024, // 日志轮转阈值，超过则 rename 为 .old
+  },
+  cfg.runner
+);
 if (process.env.PORT) cfg.port = parseInt(process.env.PORT, 10);
 if (process.env.PASSWORD) cfg.password = process.env.PASSWORD;
 if (process.env.BASE_PATH) cfg.basePath = process.env.BASE_PATH;
@@ -83,6 +94,11 @@ if (process.env.TTYD_PORT) cfg.terminal.ttydPort = parseInt(process.env.TTYD_POR
 if (process.env.TTYD_WSL != null) {
   cfg.terminal.wsl = ['1', 'true', 'yes', 'on'].includes(String(process.env.TTYD_WSL).toLowerCase());
 }
+if (process.env.RUNNER_ENABLED != null) {
+  cfg.runner.enabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.RUNNER_ENABLED).toLowerCase());
+}
+if (process.env.RUNNER_SCRIPT) cfg.runner.scriptPath = process.env.RUNNER_SCRIPT;
+if (process.env.RUNNER_SHELL) cfg.runner.shell = process.env.RUNNER_SHELL;
 
 if (!cfg.password) {
   console.error('[fatal] 未配置访问密码：请在 config.json 的 password 或 .env 的 PASSWORD 中设置');
@@ -690,6 +706,127 @@ function killWslTtyd() {
   } catch { /* 清理失败忽略 */ }
 }
 
+/* ---------------- Runner（脚本任务：远程触发 + 日志回读）---------------- */
+const RUNNER_LOG_DIR = path.join(__dirname, 'data');
+const RUNNER_LOG_FILE = path.join(RUNNER_LOG_DIR, 'runner.log');
+const RUNNER_LOG_OLD = RUNNER_LOG_FILE + '.old';
+let runnerProc = null;  // 当前脚本子进程；null 表示空闲
+let runnerJob = null;   // 当前 job 元信息 { id, startedAt, script }
+let runnerLast = null;  // 最近一次结束的 job 摘要 { id, startedAt, finishedAt, exitCode, failed, durationMs }
+
+/** 生成 job id：YYYYMMDD-HHmmss-xxxx（本地时间 + 4 位随机 hex） */
+function runnerNewJobId() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const rnd = crypto.randomBytes(2).toString('hex');
+  return (
+    `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}` +
+    `-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${rnd}`
+  );
+}
+
+/**
+ * 启动脚本任务。返回 { job } 或 { error, ... }；错误码由路由映射：
+ * 'Job already running'→409、'Script not found'→400、其余→500（'Runner disabled' 已由路由先行拦截，此处为防御）
+ */
+function startRunnerJob() {
+  const r = cfg.runner;
+  if (runnerProc) return { error: 'Job already running', job: runnerJob };
+  if (!r.enabled || !r.scriptPath) return { error: 'Runner disabled' };
+  const scriptAbs = path.resolve(r.scriptPath);
+  let st = null;
+  try {
+    st = fs.statSync(scriptAbs);
+  } catch { /* 不存在 → 下方 400 */ }
+  if (!st || !st.isFile()) return { error: 'Script not found' };
+
+  try { fs.mkdirSync(RUNNER_LOG_DIR, { recursive: true }); } catch { /* 已存在忽略 */ }
+  // 日志轮转：上次日志超阈值则归档为 .old（构建日志量大，防止单文件无限增长）
+  try {
+    if (fs.existsSync(RUNNER_LOG_FILE) && fs.statSync(RUNNER_LOG_FILE).size > r.maxLogBytes) {
+      fs.renameSync(RUNNER_LOG_FILE, RUNNER_LOG_OLD);
+    }
+  } catch { /* 轮转失败不阻塞构建 */ }
+
+  const job = { id: runnerNewJobId(), startedAt: Date.now(), script: scriptAbs };
+  try {
+    fs.appendFileSync(RUNNER_LOG_FILE, `\n===== [${new Date(job.startedAt).toISOString()}] job ${job.id}\n===== $ ${r.shell} ${scriptAbs}\n`, 'utf8');
+  } catch { /* 日志失败不阻塞构建 */ }
+
+  let proc;
+  try {
+    // 用相对文件名 + cwd 定位脚本：Windows 下 Git Bash 不识别 C:\ 绝对路径（exit 127），
+    // Linux 绝对路径虽可用，但相对名 + cwd 在两平台行为一致；build.sh 类脚本用 BASH_SOURCE 自定位目录，不受影响
+    proc = spawn(r.shell, [path.basename(scriptAbs)], {
+      cwd: path.dirname(scriptAbs),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+  } catch (e) {
+    try { fs.appendFileSync(RUNNER_LOG_FILE, `[spawn error] ${e.message}\n`, 'utf8'); } catch { /* 忽略 */ }
+    return { error: 'Spawn failed', detail: e.message };
+  }
+  runnerProc = proc;
+  runnerJob = job;
+  const append = (c) => {
+    try { fs.appendFileSync(RUNNER_LOG_FILE, c, 'utf8'); } catch { /* 磁盘异常丢日志不崩服务 */ }
+  };
+  proc.stdout.on('data', append);
+  proc.stderr.on('data', append);
+  proc.on('error', (e) => append(`[spawn error] ${e.message}\n`));
+  proc.on('exit', (code, signal) => {
+    append(`[exit code ${code === null ? `null(${signal})` : code}]\n`);
+    if (runnerProc !== proc) return;
+    const finishedAt = Date.now();
+    runnerLast = {
+      id: job.id,
+      startedAt: job.startedAt,
+      finishedAt,
+      exitCode: code,
+      failed: code !== 0,
+      durationMs: finishedAt - job.startedAt,
+    };
+    runnerProc = null;
+    runnerJob = null;
+  });
+  console.log(`[sysprobe] runner 已启动: job=${job.id} script=${scriptAbs}`);
+  return { job };
+}
+
+/** 停止当前任务（SIGTERM）；有任务返回 true */
+function stopRunnerJob() {
+  if (runnerProc) {
+    runnerProc.kill('SIGTERM');
+    return true;
+  }
+  return false;
+}
+
+/** 读日志尾部 lines 行（文件受 maxLogBytes 轮转约束，整体读入取尾即可） */
+function runnerReadLog(lines) {
+  try {
+    const arr = fs.readFileSync(RUNNER_LOG_FILE, 'utf8').split('\n');
+    // 文件以换行结尾时 split 会多出一个尾部空串，先去掉再取尾，保证 lines=1 能取到最后一行内容
+    if (arr.length && arr[arr.length - 1] === '') arr.pop();
+    return arr.slice(Math.max(0, arr.length - lines)).join('\n');
+  } catch {
+    return '';
+  }
+}
+
+/** 组装 status 响应体（lines 已由路由裁剪） */
+function runnerStatusPayload(lines) {
+  return {
+    enabled: !!(cfg.runner.enabled && cfg.runner.scriptPath),
+    script: cfg.runner.scriptPath || '',
+    running: !!runnerProc,
+    job: runnerJob ? { ...runnerJob, exitCode: null, finishedAt: null } : null,
+    last: runnerLast,
+    log: runnerReadLog(lines),
+  };
+}
+
 /** 退出前清理 ttyd 子进程与重试定时器（systemd stop / Ctrl-C） */
 function shutdown() {
   if (shuttingDown) return;
@@ -703,6 +840,10 @@ function shutdown() {
     if (cfg.terminal.wsl) killWslTtyd();
     ttydProc = null;
   }
+  if (runnerProc) {
+    try { runnerProc.kill('SIGTERM'); } catch { /* 已退出忽略 */ }
+    runnerProc = null;
+  }
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
@@ -711,6 +852,9 @@ process.on('exit', () => {
   if (ttydProc) {
     ttydProc.kill('SIGTERM');
     if (cfg.terminal.wsl) killWslTtyd();
+  }
+  if (runnerProc) {
+    try { runnerProc.kill('SIGTERM'); } catch { /* 已退出忽略 */ }
   }
 });
 
@@ -1230,6 +1374,36 @@ async function route(req, res, url) {
       return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
     }
     return fsRoute(req, res, p, url);
+  }
+
+  /* ---- Runner API（脚本任务触发，统一 JWT 鉴权）---- */
+  if (p.startsWith('/api/runner/')) {
+    if (!checkAuth(req)) {
+      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+    }
+    // status 是信息性接口：未启用时也返回 200 + enabled=false，便于前端区分"未配置"与"服务异常"
+    if (p === '/api/runner/status' && req.method === 'GET') {
+      const q = url.searchParams;
+      let lines = parseInt(q.get('lines') || '300', 10);
+      if (!Number.isFinite(lines) || lines < 1) lines = 300;
+      lines = Math.min(lines, 2000);
+      return send(res, 200, runnerStatusPayload(lines));
+    }
+    if (!cfg.runner.enabled || !cfg.runner.scriptPath) {
+      return send(res, 503, { error: 'Runner disabled' });
+    }
+    if (p === '/api/runner/start' && req.method === 'POST') {
+      const r = startRunnerJob();
+      if (r.error === 'Job already running') return send(res, 409, { error: r.error, job: r.job });
+      if (r.error === 'Script not found') return send(res, 400, { error: r.error });
+      if (r.error) return send(res, 500, { error: r.error, detail: r.detail || '' });
+      return send(res, 200, { ok: true, jobId: r.job.id, startedAt: r.job.startedAt, script: r.job.script });
+    }
+    if (p === '/api/runner/stop' && req.method === 'POST') {
+      if (!stopRunnerJob()) return send(res, 409, { error: 'No job running' });
+      return send(res, 200, { ok: true, job: runnerJob });
+    }
+    return send(res, 404, { error: 'not found' });
   }
 
   /* ---- 静态页面 ---- */
