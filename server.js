@@ -759,7 +759,16 @@ function startRunnerJob() {
     // Linux 绝对路径虽可用，但相对名 + cwd 在两平台行为一致；build.sh 类脚本用 BASH_SOURCE 自定位目录，不受影响
     proc = spawn(r.shell, [path.basename(scriptAbs)], {
       cwd: path.dirname(scriptAbs),
-      env: process.env,
+      // 注入 git safe.directory：服务用户（如 systemd root）与仓库属主不一致时，
+      // git 会报 "detected dubious ownership in repository" 而失败。
+      // 用 GIT_CONFIG_* 环境变量注入，不依赖运行用户的 HOME/全局 gitconfig；
+      // 脚本路径只来自服务端配置，放开所有权检查不扩大攻击面。
+      env: {
+        ...process.env,
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'safe.directory',
+        GIT_CONFIG_VALUE_0: '*',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
