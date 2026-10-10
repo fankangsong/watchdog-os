@@ -765,6 +765,9 @@ function startRunnerJob() {
       // 脚本路径只来自服务端配置，放开所有权检查不扩大攻击面。
       env: {
         ...process.env,
+        // systemd 服务环境默认无 HOME，git 等工具会因此读不到 ~/.gitconfig
+        // （报 "unable to auto-detect email address"）；无 HOME 时从 passwd 兜底解析
+        HOME: process.env.HOME || os.homedir(),
         GIT_CONFIG_COUNT: '1',
         GIT_CONFIG_KEY_0: 'safe.directory',
         GIT_CONFIG_VALUE_0: '*',

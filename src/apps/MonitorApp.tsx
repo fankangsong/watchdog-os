@@ -9,7 +9,7 @@ import { ProcessPanel } from '../components/ProcessPanel';
 const APP_ID = 'srv-monitor.app';
 const APP_NAME = 'System Monitor';
 
-const INTERVALS = [2, 5, 10, 30];
+const INTERVALS = [1, 2, 5, 10, 30];
 
 // 窗口1：系统信息 + 资源使用率 + 系统进程
 export function MonitorApp({ onLogout }: { onLogout: () => void }) {
