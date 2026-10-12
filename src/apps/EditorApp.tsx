@@ -1,6 +1,6 @@
 // 文本编辑器：CodeMirror 6 + 社区主题（Dracula / GitHub / VSCode）。
 // 保存（Ctrl/Cmd+S）/ 撤销 / 重做 / 查找（Mod-F）/ Markdown 分栏预览；
-// 主题、字号、字体偏好持久化 localStorage；支持从文件管理器联动打开（editorBridge）。
+// 主题、字号、字体、自动换行、预览开关偏好持久化 localStorage；支持从文件管理器联动打开（editorBridge）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { redo, undo } from '@codemirror/commands';
 import type { EditorView } from '@codemirror/view';
@@ -31,10 +31,11 @@ interface EditorPrefs {
   fontSize: number;
   fontFamily: string;
   wordWrap: boolean;
+  showPreview: boolean;
 }
 
 function loadPrefs(): EditorPrefs {
-  const def: EditorPrefs = { theme: 'dracula', fontSize: 14, fontFamily: EDITOR_FONTS[0].value, wordWrap: false };
+  const def: EditorPrefs = { theme: 'dracula', fontSize: 14, fontFamily: EDITOR_FONTS[0].value, wordWrap: false, showPreview: false };
   try {
     const j = JSON.parse(localStorage.getItem(PREFS_KEY) || '');
     return {
@@ -42,6 +43,7 @@ function loadPrefs(): EditorPrefs {
       fontSize: Math.min(24, Math.max(10, parseInt(j.fontSize, 10) || def.fontSize)),
       fontFamily: typeof j.fontFamily === 'string' ? j.fontFamily : def.fontFamily,
       wordWrap: typeof j.wordWrap === 'boolean' ? j.wordWrap : def.wordWrap,
+      showPreview: typeof j.showPreview === 'boolean' ? j.showPreview : def.showPreview,
     };
   } catch {
     return def;
@@ -80,7 +82,6 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
   const [error, setError] = useState('');
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [stats, setStats] = useState({ line: 1, col: 1, size: 0 });
-  const [showPreview, setShowPreview] = useState(false);
   const [openDialog, setOpenDialog] = useState(false);
   const [openInput, setOpenInput] = useState('');
   const [recent, setRecent] = useState<string[]>(loadRecent);
@@ -119,7 +120,8 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         setContent(r.content ?? '');
         setDirty(false);
         setSavedAt(null);
-        setShowPreview(isMdPath(r.path));
+        // Markdown 文件自动开启预览；非 Markdown 保持用户当前选择（记住状态）
+        if (isMdPath(r.path)) setPrefs((p) => (p.showPreview ? p : { ...p, showPreview: true }));
         setOpenDialog(false);
         setRecent((prev) => {
           const next = [r.path, ...prev.filter((x) => x !== r.path)].slice(0, 8);
@@ -247,13 +249,13 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         title: '设置',
         menuChildren: [
           { id: 'ed-m-wrap', title: '自动换行', checked: prefs.wordWrap, onClickFunc: () => setPrefs((p) => ({ ...p, wordWrap: !p.wordWrap })) },
-          { id: 'ed-m-preview', title: '显示预览', checked: showPreview, onClickFunc: () => setShowPreview((v) => !v) },
+          { id: 'ed-m-preview', title: '显示预览', checked: prefs.showPreview, onClickFunc: () => setPrefs((p) => ({ ...p, showPreview: !p.showPreview })) },
           { id: 'spacer' },
           { id: 'ed-m-prefs', title: '编辑器设置…', onClickFunc: () => setSettingsOpen(true) },
         ],
       },
     ],
-    [path, save, prefs.wordWrap, showPreview]
+    [path, save, prefs.wordWrap, prefs.showPreview]
   );
 
   const editorNode = (
@@ -306,7 +308,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
                 打开文件…
               </ClassicyButton>
             </div>
-          ) : showPreview ? (
+          ) : prefs.showPreview ? (
             <ClassicySplitView direction="horizontal" defaultSizes={[55, 45]} minPaneSize={200} className="sp-editor-body">
               {editorNode}
               <div className="sp-editor-preview">

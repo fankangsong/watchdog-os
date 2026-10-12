@@ -584,7 +584,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
   );
 
   return (
-    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow={MAIN_WIN} showDesktopIcon={false}>
+    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow={MAIN_WIN}>
       <ClassicyWindow
         id={MAIN_WIN}
         title={`${APP_NAME}${current ? ' · ' + (baseName(current) || current) : ''}`}
