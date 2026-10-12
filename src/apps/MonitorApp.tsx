@@ -5,6 +5,7 @@ import { usePolling } from '../hooks/usePolling';
 import { SystemInfoPanel } from '../components/SystemInfoPanel';
 import { ResourcesPanel } from '../components/ResourcesPanel';
 import { ProcessPanel } from '../components/ProcessPanel';
+import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-monitor.app';
 const APP_NAME = 'System Monitor';
@@ -37,6 +38,11 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
 
   const appMenu = useMemo(
     () => [
+      {
+        id: 'monitor-menu',
+        title: APP_NAME,
+        menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.applications.systemProfiler.app)],
+      },
       {
         id: 'sys',
         title: 'System',

@@ -15,6 +15,8 @@ import {
 } from 'classicy';
 import { getTerminalToken, TerminalUnavailable, Unauthorized } from '../api';
 
+import { quitMenuItem } from '../quitMenuItem';
+
 const APP_ID = 'srv-terminal.app';
 const APP_NAME = 'Terminal';
 const ICON = ClassicyIcons.system.network.terminal;
@@ -304,6 +306,8 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
               onClickFunc: () => setFontFamily(font.css),
             })),
           },
+          { id: 'term-sep' },
+          quitMenuItem(APP_ID, APP_NAME, ICON),
         ],
       },
       {

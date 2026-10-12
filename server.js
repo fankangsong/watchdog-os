@@ -1379,10 +1379,15 @@ async function fsRoute(req, res, p, url) {
       return;
     }
 
-    /* PUT /api/fs/write：保存文本内容（body 为 UTF-8 原文） */
+    /* PUT /api/fs/write：保存文本内容（body 为 UTF-8 原文）。
+       ?create=1 为「新建文件」语义：目标已存在时返回 409，避免误覆盖已有内容。 */
     if (p === '/api/fs/write' && method === 'PUT') {
       const abs = fsResolve(q.get('path'));
       if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
+      if (q.get('create') === '1') {
+        const exists = await fsp.stat(abs).catch(() => null);
+        if (exists) return send(res, 409, { error: '同名文件已存在' });
+      }
       let body;
       try {
         body = await readBody(req, FS_MAX_TEXT + 1);

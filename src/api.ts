@@ -177,8 +177,9 @@ export const fsList = (path: string) => request<FsListResult>(`./api/fs/list?pat
 
 export const fsRead = (path: string) => request<FsReadResult>(`./api/fs/read?path=${enc(path)}`);
 
-export const fsWrite = (path: string, content: string) =>
-  request<{ ok: true; size: number; mtime: number }>(`./api/fs/write?path=${enc(path)}`, {
+/** create=1 时为「新建文件」语义：目标已存在返回 409，避免误覆盖 */
+export const fsWrite = (path: string, content: string, create = false) =>
+  request<{ ok: true; size: number; mtime: number }>(`./api/fs/write?path=${enc(path)}${create ? '&create=1' : ''}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     body: content,

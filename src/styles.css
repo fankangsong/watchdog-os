@@ -305,6 +305,10 @@ html, body, #root {
 .sp-dialog-body { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
 .sp-dialog-recent { max-height: 160px; overflow: auto; border: 1px solid rgba(0, 0, 0, 0.2); background: #fff; padding: 2px; }
 .sp-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
+/* 对话框内 ClassicyInput 的左置 label：input 为 width:100% 的 flex 项会挤压 label，
+   这里禁止 label 收缩换行，保持单行展示 */
+.sp-dialog .classicyLabelLeft .classicyControlLabelHolder { flex: 0 0 auto; }
+.sp-dialog .classicyLabelLeft .classicyControlLabel { white-space: nowrap; }
 /* 设置对话框：label 左、控件右的行式布局 */
 .sp-dialog-field { display: flex; align-items: center; gap: 8px; }
 .sp-dialog-field > label { flex: 0 0 auto; min-width: 40px; font-size: 12px; font-weight: 700; }

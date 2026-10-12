@@ -9,6 +9,7 @@ import {
 } from 'classicy';
 import { fetchPrinter, Unauthorized, type PrinterInfo, type PrinterJob, type PrinterState } from '../api';
 import { usePolling } from '../hooks/usePolling';
+import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-printer.app';
 const APP_NAME = 'Printer';
@@ -142,6 +143,11 @@ export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
 
   const appMenu = useMemo(
     () => [
+      {
+        id: 'printer-menu',
+        title: APP_NAME,
+        menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.printer)],
+      },
       {
         id: 'sys',
         title: 'System',
