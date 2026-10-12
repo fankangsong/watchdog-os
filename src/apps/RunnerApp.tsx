@@ -10,6 +10,7 @@ import {
 } from 'classicy';
 import { fetchRunnerStatus, startRunnerBuild, stopRunnerBuild, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
+import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-runner.app';
 const APP_NAME = 'Runner';
@@ -52,6 +53,11 @@ export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
   }, [poll.data?.log]);
 
   const appMenu = [
+    {
+      id: 'runner-menu',
+      title: APP_NAME,
+      menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal)],
+    },
     {
       id: 'sys',
       title: 'System',

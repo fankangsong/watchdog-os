@@ -1,4 +1,4 @@
-// 文件管理器 → 文本编辑器 联动桥：
+// Finder（文件管理器）→ 文本编辑器 联动桥：
 // 记录待打开路径并打开/聚焦编辑器窗口；窗口内容挂载时消费 pendingPath，
 // 若窗口已打开则通过 DOM 事件即时通知加载（两条路径互补，避免竞态）。
 import { ClassicyIcons, dispatch } from 'classicy';
@@ -18,7 +18,7 @@ export function takePendingEditorPath(): string | null {
   return p;
 }
 
-/** 从文件管理器等外部打开编辑器指定文件 */
+/** 从 Finder 等外部打开编辑器指定文件 */
 export function openInEditor(path: string) {
   pendingPath = path;
   // 打开（或聚焦）编辑器 App

@@ -11,12 +11,29 @@ import { MonitorApp } from './apps/MonitorApp';
 import { DockerApp } from './apps/DockerApp';
 import { ImcolinApp } from './apps/ImcolinApp';
 import { TerminalApp } from './apps/TerminalApp';
-import { FileManagerApp } from './apps/FileManagerApp';
+import { FinderApp } from './apps/FinderApp';
 import { EditorApp } from './apps/EditorApp';
 import { RunnerApp } from './apps/RunnerApp';
 import { PrinterApp } from './apps/PrinterApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
+
+// 一次性迁移：classicy 把桌面状态持久化在 localStorage 的 classicyDesktopState，
+// 应用更名（FileManager → Finder）后旧 id `srv-filemanager.app` 的注册条目仍留在快照里，
+// 会在桌面持续渲染旧「File Manager」图标。这里在桌面启动前把残留条目清掉。
+try {
+  const raw = localStorage.getItem('classicyDesktopState');
+  if (raw) {
+    const state = JSON.parse(raw);
+    const apps = state?.System?.Manager?.Applications?.apps;
+    if (apps && 'srv-filemanager.app' in apps) {
+      delete apps['srv-filemanager.app'];
+      localStorage.setItem('classicyDesktopState', JSON.stringify(state));
+    }
+  }
+} catch {
+  // 解析失败不影响启动（classicy 自身会因 schema 校验失败回退默认状态）
+}
 
 // Zustand v5 将 setState 等 API 挂在 create 返回的 hook 函数对象上，
 // 而 useAppManager() 调用得到的是状态本身；这里显式收敛成所需的写入接口。
@@ -64,7 +81,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
   return null;
 }
 
-// 桌面：系统监控 / Docker / imcolin.fan / 终端 / 文件管理器 / 文本编辑器 / Runner / 打印机
+// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Finder / 文本编辑器 / Runner / 打印机
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   return (
     <ClassicyAppManagerProvider
@@ -81,7 +98,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
         <DockerApp onLogout={onLogout} />
         <ImcolinApp onLogout={onLogout} />
         <TerminalApp onLogout={onLogout} />
-        <FileManagerApp onLogout={onLogout} />
+        <FinderApp onLogout={onLogout} />
         <EditorApp onLogout={onLogout} />
         <RunnerApp onLogout={onLogout} />
         <PrinterApp onLogout={onLogout} />

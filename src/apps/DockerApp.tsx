@@ -3,6 +3,7 @@ import { ClassicyApp, ClassicyControlGroup, ClassicyIcons, ClassicyWindow } from
 import { fetchDocker, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
 import { DockerTable } from '../components/DockerTable';
+import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-docker.app';
 const APP_NAME = 'Docker';
@@ -17,6 +18,11 @@ export function DockerApp({ onLogout }: { onLogout?: () => void }) {
 
   const appMenu = useMemo(
     () => [
+      {
+        id: 'docker-menu',
+        title: APP_NAME,
+        menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal)],
+      },
       {
         id: 'sys',
         title: 'System',

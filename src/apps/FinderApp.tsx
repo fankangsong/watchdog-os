@@ -1,5 +1,6 @@
-// 文件管理器：左侧收藏夹 + 目录树（懒加载展开），右侧文件列表（名称/大小/修改时间/权限），
-// 支持上传（进度/覆盖确认）、新建文件夹、重命名、删除、下载，以及图片/文本/Markdown 预览窗口。
+// Finder（文件管理器）：左侧收藏夹 + 目录树（懒加载展开），右侧文件列表（名称/大小/修改时间/权限），
+// 支持上传（进度/覆盖确认）、新建文件夹、新建文本文件、重命名（可改扩展名）、删除、下载，
+// 以及图片/文本/Markdown 预览窗口。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ClassicyAlert,
@@ -27,17 +28,19 @@ import {
   fsRename,
   fsSetFavorites,
   fsUpload,
+  fsWrite,
   logout,
   Unauthorized,
 } from '../api';
 import type { FsEntry } from '../api';
 import { fmtBytes } from '../format';
 import { openInEditor } from '../editorBridge';
+import { quitMenuItem } from '../quitMenuItem';
 import { CodeEditor } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 
-const APP_ID = 'srv-filemanager.app';
-const APP_NAME = 'File Manager';
+const APP_ID = 'srv-finder.app';
+const APP_NAME = 'Finder';
 const MAIN_WIN = 'fm-main';
 const ICON = ClassicyIcons.system.folders.directory;
 const FILE_ICON = ClassicyIcons.system.files.file;
@@ -100,9 +103,12 @@ interface FmAlert {
   buttons: Array<{ id: string; label: string; role?: 'default' | 'cancel' | 'normal'; onClick?: () => void }>;
 }
 
-type FmDialog = { kind: 'mkdir'; value: string } | { kind: 'rename'; value: string; target: FsEntry };
+type FmDialog =
+  | { kind: 'mkdir'; value: string }
+  | { kind: 'newfile'; value: string }
+  | { kind: 'rename'; value: string; target: FsEntry };
 
-export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
+export function FinderApp({ onLogout }: { onLogout: () => void }) {
   const [roots, setRoots] = useState<string[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [current, setCurrent] = useState('');
@@ -371,6 +377,14 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
       if (dialog.kind === 'mkdir') {
         if (!name || !current) return;
         await fsMkdir(joinPath(current, name));
+      } else if (dialog.kind === 'newfile') {
+        if (!name || !current) return;
+        // 文件名必须是纯名称（可含扩展名），禁止路径分隔符与相对路径片段
+        if (/[\\/]/.test(name) || name === '.' || name === '..') {
+          stopAlert('新建文件失败', '文件名不能包含路径分隔符');
+          return;
+        }
+        await fsWrite(joinPath(current, name), '', true);
       } else if (dialog.kind === 'rename') {
         if (!name) return;
         const target = dialog.target;
@@ -386,7 +400,10 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
       await fetchDir(current);
     } catch (e) {
       if (e instanceof Unauthorized) return handleLogout();
-      stopAlert(dialog.kind === 'mkdir' ? '新建文件夹失败' : '重命名失败', (e as Error).message);
+      stopAlert(
+        dialog.kind === 'mkdir' ? '新建文件夹失败' : dialog.kind === 'newfile' ? '新建文件失败' : '重命名失败',
+        (e as Error).message
+      );
     }
   }, [dialog, dialogValue, current, favorites, applyFavorites, fetchDir, handleLogout, stopAlert]);
 
@@ -409,6 +426,12 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
   const goUp = useCallback(() => {
     navigate(parentPath(current), false);
   }, [navigate, current]);
+
+  // 新建文本文件对话框（预填默认名，可在输入时修改扩展名）
+  const openNewFileDialog = useCallback(() => {
+    setDialogValue('新建文本.txt');
+    setDialog({ kind: 'newfile', value: '新建文本.txt' });
+  }, []);
 
   const columns: Array<ClassicyTableColumn<FsEntry>> = useMemo(
     () => [
@@ -507,6 +530,12 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
             setDialog({ kind: 'mkdir', value: '' });
           },
         },
+        {
+          id: 'fm-cm-newfile',
+          title: '新建文本文件…',
+          disabled: !current,
+          onClickFunc: openNewFileDialog,
+        },
         { id: 'fm-cm-upload', title: '上传文件…', disabled: !current, onClickFunc: () => fileInputRef.current?.click() },
         { id: 'fm-cm-refresh', title: '刷新', onClickFunc: () => void fetchDir(current) }
       );
@@ -520,7 +549,7 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
       }
     }
     return items;
-  }, [selectedEntries, current, favPaths, openEntry, downloadEntries, requestDelete, fetchDir, toggleFavorite]);
+  }, [selectedEntries, current, favPaths, openEntry, downloadEntries, requestDelete, fetchDir, toggleFavorite, openNewFileDialog]);
 
   const appMenu = useMemo(
     () => [
@@ -536,7 +565,10 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
               setDialog({ kind: 'mkdir', value: '' });
             },
           },
+          { id: 'fm-m-newfile', title: '新建文本文件…', onClickFunc: openNewFileDialog },
           { id: 'fm-m-upload', title: '上传文件…', onClickFunc: () => fileInputRef.current?.click() },
+          { id: 'fm-m-sep' },
+          quitMenuItem(APP_ID, APP_NAME, ICON),
         ],
       },
       {
@@ -548,11 +580,11 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
         ],
       },
     ],
-    [showHidden, current, fetchDir]
+    [showHidden, current, fetchDir, openNewFileDialog]
   );
 
   return (
-    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow={MAIN_WIN}>
+    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow={MAIN_WIN} showDesktopIcon={false}>
       <ClassicyWindow
         id={MAIN_WIN}
         title={`${APP_NAME}${current ? ' · ' + (baseName(current) || current) : ''}`}
@@ -590,6 +622,9 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
               }}
             >
               新建文件夹
+            </ClassicyButton>
+            <ClassicyButton buttonSize="small" disabled={!current} onClickFunc={openNewFileDialog}>
+              新建文本
             </ClassicyButton>
             <ClassicyButton buttonSize="small" disabled={!current} onClickFunc={() => fileInputRef.current?.click()}>
               上传
@@ -721,13 +756,15 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
             }}
           >
             <div className="sp-dialog">
-              <div className="sp-dialog-title">{dialog.kind === 'mkdir' ? '新建文件夹' : '重命名'}</div>
+              <div className="sp-dialog-title">
+                {dialog.kind === 'mkdir' ? '新建文件夹' : dialog.kind === 'newfile' ? '新建文本文件' : '重命名'}
+              </div>
               <div className="sp-dialog-body">
                 <ClassicyInput
                   id="fm-dialog-name"
                   key={dialog.kind + dialog.value}
                   prefillValue={dialog.value}
-                  labelTitle={dialog.kind === 'mkdir' ? '名称' : '新名称'}
+                  labelTitle={dialog.kind === 'rename' ? '新名称' : dialog.kind === 'newfile' ? '文件名' : '名称'}
                   labelPosition="left"
                   onChangeFunc={(e) => setDialogValue(e.target.value)}
                   onEnterFunc={() => void submitDialog()}
@@ -735,7 +772,7 @@ export function FileManagerApp({ onLogout }: { onLogout: () => void }) {
                 <div className="sp-dialog-actions">
                   <ClassicyButton onClickFunc={() => setDialog(null)}>取消</ClassicyButton>
                   <ClassicyButton isDefault onClickFunc={() => void submitDialog()}>
-                    {dialog.kind === 'mkdir' ? '创建' : '重命名'}
+                    {dialog.kind === 'rename' ? '重命名' : '创建'}
                   </ClassicyButton>
                 </div>
               </div>
@@ -828,7 +865,7 @@ function PreviewWindow({
   return (
     <ClassicyWindow
       id={winId}
-      appId="srv-filemanager.app"
+      appId={APP_ID}
       title={`预览 · ${entry.name}`}
       icon={iconFor(entry)}
       closable

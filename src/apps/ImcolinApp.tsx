@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ClassicyApp, ClassicyButton, ClassicyButtonToolbar, ClassicyButtonToolbarGroup, ClassicyIcons, ClassicyWindow } from 'classicy';
+import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-imcolin.app';
 const APP_NAME = 'imcolin.fan';
@@ -72,6 +73,11 @@ export function ImcolinApp({ onLogout }: { onLogout?: () => void }) {
 
   const appMenu = useMemo(
     () => [
+      {
+        id: 'imcolin-menu',
+        title: APP_NAME,
+        menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.applications.internetExplorer.app)],
+      },
       {
         id: 'sys',
         title: 'System',

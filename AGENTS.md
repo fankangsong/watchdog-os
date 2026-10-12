@@ -81,11 +81,11 @@ Runner（脚本任务构建）：config.json 的 `runner` 节 / 环境变量 `RU
 server.js            # 零依赖后端：采集指标、鉴权、静态文件服务、SSE/轮询 API、终端代理、文件管理 API
 public/              # ⚠️ 旧版零依赖前端（server.js 回退用），不是 Vite 静态资源目录
 src/                 # React 前端源码
-  apps/              # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FileManagerApp（文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）
+  apps/              # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Finder，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）
   components/        # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板
   hooks/             # usePolling —— 数据轮询 Hook
   api.ts             # 后端 API 封装（含 getTerminalToken、/api/fs/* 文件管理）
-  editorBridge.ts    # 文件管理器 → 文本编辑器 跨应用打开文件的联动桥
+  editorBridge.ts    # Finder → 文本编辑器 跨应用打开文件的联动桥
   Desktop.tsx        # 桌面布局
   LoginApp.tsx       # 登录
   format.ts          # 格式化工具
@@ -110,12 +110,12 @@ dist/                # 构建产物（勿手动修改）
 - 前端 `RunnerApp`：状态区（Idle/Running/上次结果）+ Build/Stop 按钮 + 等宽日志区；轮询间隔运行中 2s、空闲 10s，新日志自动滚底
 - ⚠️ `build.sh` 含 `git push` 与 COS 上传等真实发布动作，Windows 本机验证 UI 时不要点击 Build
 
-### 文件管理器 / 文本编辑器（FileManagerApp / EditorApp + `/api/fs/*`）
+### Finder（文件管理器）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`）
 
-- 后端 `server.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`favorites`（GET/PUT，持久化到 `data/favorites.json`，临时文件 + rename 原子写）
+- 后端 `server.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`favorites`（GET/PUT，持久化到 `data/favorites.json`，临时文件 + rename 原子写）
 - 安全约定：所有路径经 `path.resolve` 规范化并校验在允许根内（`FS_ROOTS` 环境变量可覆盖，默认 Windows 为项目盘符 + C 盘、POSIX 为 `/`）；根目录禁止删除/重命名；文件名清洗只取 basename
 - ⚠️ **Windows ReFS/Dev Drive 坑**：刚写入文件的 `stat.size` 可能是预分配值（元数据延迟），`raw` 接口因此**不设 Content-Length**（chunked 读到 EOF）；`list` 的大小列在 Dev Drive 上刚写入时也可能短暂虚高，生产 Linux 无此问题
-- 前端 `FileManagerApp`：SplitView 左（收藏夹 + ClassicyTree 目录树懒加载）/ 右（ClassicyTable 多选文件列表：名称/大小/修改时间/权限），工具栏 + 右键菜单（打开/编辑/下载/重命名/删除/收藏），上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
+- 前端 `FinderApp`：SplitView 左（收藏夹 + ClassicyTree 目录树懒加载）/ 右（ClassicyTable 多选文件列表：名称/大小/修改时间/权限），工具栏 + 右键菜单（打开/编辑/下载/重命名（可改扩展名）/删除/收藏/新建文件夹/新建文本文件），上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
 - 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify），主题/字号/字体偏好存 localStorage，未保存关闭有 `onBeforeClose` veto 确认
 - 跨应用联动：`src/editorBridge.ts` 的 `openInEditor(path)` —— 记录 pendingPath + dispatch `ClassicyAppOpen`/`ClassicyWindowOpen` + DOM 事件双通道（挂载消费 pending、已挂载走事件），避免竞态
 
@@ -141,5 +141,5 @@ dist/                # 构建产物（勿手动修改）
 
 - 前端：`npm run build` 确认无 TS / 构建错误（可用 `npx tsc --noEmit` 做全量类型检查）。
 - 后端：`npm start` 后用密码登录，确认指标接口正常返回。
-- 文件管理 API：`node test-fs-api.js` 全部 PASS（鉴权/列表/读写/上传/收藏/越权防护等 17 项）。
+- 文件管理 API：`node test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/收藏/越权防护等 20 项）。
 - Runner API：`node test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。

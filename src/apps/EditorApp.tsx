@@ -20,6 +20,7 @@ import type { EditorThemeId } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 import { fmtBytes } from '../format';
 import { EDITOR_APP_ID, EDITOR_APP_NAME, EDITOR_ICON, EDITOR_OPEN_EVENT, EDITOR_WIN_ID, takePendingEditorPath } from '../editorBridge';
+import { quitMenuItem } from '../quitMenuItem';
 
 const PREFS_KEY = 'srv-editor-prefs';
 const RECENT_KEY = 'srv-editor-recent';
@@ -229,6 +230,8 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
             },
           },
           { id: 'ed-m-save', title: '保存', keyboardShortcut: 'Cmd+S', onClickFunc: () => void save() },
+          { id: 'ed-m-sep' },
+          quitMenuItem(EDITOR_APP_ID, EDITOR_APP_NAME, EDITOR_ICON),
         ],
       },
       {

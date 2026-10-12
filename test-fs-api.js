@@ -35,7 +35,8 @@ async function waitHealth() {
 
 (async () => {
   const child = spawn(process.execPath, ['server.js'], {
-    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123' },
+    // FS_ROOTS 限定到临时目录：让「越权路径 403」在 Windows / POSIX 上都可稳定触发
+    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123', FS_ROOTS: TMP },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
   try {
@@ -91,6 +92,25 @@ async function waitHealth() {
     // read
     const rd = await (await fetch(`${BASE}/api/fs/read?path=${encodeURIComponent(file)}`, { headers: H })).json();
     ok('read content', rd.content === text);
+
+    // write?create=1：新建语义 —— 不存在时创建空文件；目标已存在时 409 且不覆盖原内容
+    const nf = path.join(TMP, '新建文本.txt');
+    const cr1 = await fetch(`${BASE}/api/fs/write?path=${encodeURIComponent(nf)}&create=1`, {
+      method: 'PUT',
+      headers: { ...H, 'content-type': 'text/plain; charset=utf-8' },
+      body: '',
+    });
+    ok('write create new', cr1.status === 200 && fs.existsSync(nf), `status=${cr1.status}`);
+    const cr2 = await fetch(`${BASE}/api/fs/write?path=${encodeURIComponent(file)}&create=1`, {
+      method: 'PUT',
+      headers: { ...H, 'content-type': 'text/plain; charset=utf-8' },
+      body: '',
+    });
+    ok(
+      'write create conflict 409',
+      cr2.status === 409 && fs.readFileSync(file, 'utf8') === text,
+      `status=${cr2.status}`
+    );
 
     // list & previewable & mode
     const lst = await (await fetch(`${BASE}/api/fs/list?path=${encodeURIComponent(TMP)}`, { headers: H })).json();
@@ -159,8 +179,19 @@ async function waitHealth() {
     ).json();
     ok('rename', rn.ok === true && fs.existsSync(path.join(TMP, 'b.txt')));
 
-    // 越权路径防护
-    const bad = await fetch(`${BASE}/api/fs/list?path=${encodeURIComponent('E:\\')}`, { headers: H });
+    // rename 可修改扩展名（b.txt → b.md）
+    const rn2 = await (
+      await fetch(`${BASE}/api/fs/rename`, {
+        method: 'POST',
+        headers: { ...H, 'content-type': 'application/json' },
+        body: JSON.stringify({ path: path.join(TMP, 'b.txt'), name: 'b.md' }),
+      })
+    ).json();
+    ok('rename with extension change', rn2.ok === true && fs.existsSync(path.join(TMP, 'b.md')));
+
+    // 越权路径防护（允许根外路径：Windows 用其他盘符，POSIX 用根目录本身）
+    const outside = process.platform === 'win32' ? 'E:\\' : '/';
+    const bad = await fetch(`${BASE}/api/fs/list?path=${encodeURIComponent(outside)}`, { headers: H });
     ok('traversal guard 403', bad.status === 403, `status=${bad.status}`);
     const badRoot = await fetch(`${BASE}/api/fs/delete`, {
       method: 'POST',
@@ -169,20 +200,22 @@ async function waitHealth() {
     });
     ok('delete root forbidden 403', badRoot.status === 403, `status=${badRoot.status}`);
 
-    // 清理
+    // 清理（允许根本身禁止删除，故删除根内此前创建的 sub 目录；TMP 最后本地清理）
+    const delTarget = path.join(TMP, 'sub');
     const del = await (
       await fetch(`${BASE}/api/fs/delete`, {
         method: 'POST',
         headers: { ...H, 'content-type': 'application/json' },
-        body: JSON.stringify({ path: TMP }),
+        body: JSON.stringify({ path: delTarget }),
       })
     ).json();
-    ok('delete dir', del.ok === true && !fs.existsSync(TMP));
+    ok('delete dir', del.ok === true && !fs.existsSync(delTarget));
     await fetch(`${BASE}/api/fs/favorites`, {
       method: 'PUT',
       headers: { ...H, 'content-type': 'application/json' },
       body: JSON.stringify({ favorites: [] }),
     });
+    fs.rmSync(TMP, { recursive: true, force: true });
   } finally {
     child.kill('SIGTERM');
   }
