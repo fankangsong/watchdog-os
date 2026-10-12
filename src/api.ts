@@ -288,3 +288,47 @@ export const startRunnerBuild = () =>
 
 export const stopRunnerBuild = () =>
   request<{ ok: true; job: RunnerJob | null }>('./api/runner/stop', { method: 'POST' });
+
+/* ---------- Printer（CUPS 打印机与任务监控）---------- */
+
+export interface PrinterInfo {
+  name: string;
+  model: string;
+  /** idle 空闲 / processing 打印中 / stopped 已停止 */
+  state: string;
+  /** 缺纸、卡纸等状态原因（"none" 表示正常） */
+  stateReasons: string;
+  /** CUPS 的附加状态说明（如 "Unable to open USB device"） */
+  stateMessage: string;
+  accepting: boolean;
+  deviceUri: string;
+  /** device-uri 为 usb:// 即配置为 USB 连接 */
+  usbConfigured: boolean;
+  /** 与 lpinfo -v 枚举的物理设备比对得出：USB 线是否已连接 */
+  usbConnected: boolean;
+}
+
+/** 一条打印任务（打印中 / 历史通用） */
+export interface PrinterJob {
+  id: string;
+  printer: string;
+  name: string;
+  user: string;
+  /** 发起打印的设备（客户端 IP） */
+  host: string;
+  state: string;
+  sizeKB: number;
+  createdMs: number;
+  completedMs: number | null;
+}
+
+export interface PrinterState {
+  available: boolean;
+  collectedAt?: number;
+  printers: PrinterInfo[];
+  activeJobs: PrinterJob[];
+  history: PrinterJob[];
+  error?: string;
+}
+
+export const fetchPrinter = () => request<PrinterState>('./api/printer');
