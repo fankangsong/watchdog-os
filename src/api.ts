@@ -333,3 +333,139 @@ export interface PrinterState {
 }
 
 export const fetchPrinter = () => request<PrinterState>('./api/printer');
+
+/* ---------- Chat（Hermes 聊天代理，/api/chat/*）---------- */
+
+export interface ChatStatus {
+  enabled: boolean;
+  baseUrl: string;
+}
+
+/** 发送给模型的消息（OpenAI 格式，无状态协议：每次全量重传会话历史） */
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export const fetchChatStatus = () => request<ChatStatus>('./api/chat/status');
+
+/** 从错误响应中提取可读信息（兼容 OpenAI 风格 error.message 与后端 { error } / { detail }） */
+async function chatHttpError(r: Response): Promise<string> {
+  const data = (await r.json().catch(() => null)) as
+    | { error?: { message?: string } | string; detail?: string; message?: string }
+    | null;
+  const msg =
+    (typeof data?.error === 'object' ? data.error.message : data?.error) ||
+    data?.detail ||
+    data?.message ||
+    `HTTP ${r.status}`;
+  return msg;
+}
+
+/**
+ * 非流式对话：返回完整回复文本。
+ * 上游/代理错误（503 等）以 Error 抛出，message 为可读信息。
+ */
+export async function sendChatMessage(messages: ChatMessage[], signal?: AbortSignal): Promise<string> {
+  const r = await fetch('./api/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, stream: false }),
+    signal,
+  });
+  if (r.status === 401) throw new Unauthorized();
+  if (!r.ok) throw new Error(await chatHttpError(r));
+  const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  return data?.choices?.[0]?.message?.content ?? '';
+}
+
+export interface ChatStreamHandlers {
+  messages: ChatMessage[];
+  signal?: AbortSignal;
+  /** 正文增量（choices[0].delta.content） */
+  onDelta?: (text: string) => void;
+  /** 推理内容增量（choices[0].delta.reasoning_content） */
+  onReasoning?: (text: string) => void;
+  /** 工具执行进度（自定义事件 data: {"type":"hermes.tool.progress", ...}），字段容错解析 */
+  onToolProgress?: (data: Record<string, unknown>) => void;
+  /** 流结束（收到 [DONE] 或连接关闭；用户 abort 也归入正常结束） */
+  onDone?: () => void;
+  /** 请求/流错误 */
+  onError?: (e: Error) => void;
+}
+
+/**
+ * 流式对话：fetch + ReadableStream 解析 SSE 帧（text/event-stream）。
+ * - 处理跨 chunk 的行缓冲（半行数据留到下次拼接）
+ * - data: [DONE] 结束；hermes.tool.progress 自定义事件按 JSON 容错解析
+ * - onError 回调后 promise 正常 resolve，不向调用方抛异常
+ */
+export async function streamChat({
+  messages,
+  signal,
+  onDelta,
+  onReasoning,
+  onToolProgress,
+  onDone,
+  onError,
+}: ChatStreamHandlers): Promise<void> {
+  try {
+    const r = await fetch('./api/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, stream: true }),
+      signal,
+    });
+    if (r.status === 401) throw new Unauthorized();
+    if (!r.ok) throw new Error(await chatHttpError(r));
+    if (!r.body) throw new Error('响应不含数据流');
+
+    const handleLine = (line: string) => {
+      if (!line.startsWith('data:')) return;
+      const payload = line.slice(5).trim();
+      if (!payload) return;
+      if (payload === '[DONE]') return; // 结束由连接关闭统一收口
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(payload) as Record<string, unknown>;
+      } catch {
+        return; // 非 JSON 行容错忽略
+      }
+      if (data.type === 'hermes.tool.progress') {
+        onToolProgress?.(data);
+        return;
+      }
+      const delta = (data as { choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }> })
+        ?.choices?.[0]?.delta;
+      if (typeof delta?.content === 'string' && delta.content) onDelta?.(delta.content);
+      if (typeof delta?.reasoning_content === 'string' && delta.reasoning_content) {
+        onReasoning?.(delta.reasoning_content);
+      }
+    };
+
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).replace(/\r$/, '');
+        buf = buf.slice(nl + 1);
+        handleLine(line);
+      }
+    }
+    buf += dec.decode(); // 冲刷解码器残存的半行
+    if (buf) handleLine(buf.replace(/\r$/, ''));
+    onDone?.();
+  } catch (e) {
+    // 用户主动停止（AbortController.abort）视为正常结束，保留已收到的部分回复
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      onDone?.();
+      return;
+    }
+    onError?.(e instanceof Error ? e : new Error(String(e)));
+  }
+}

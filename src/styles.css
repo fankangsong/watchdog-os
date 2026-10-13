@@ -350,6 +350,31 @@ html, body, #root {
 .sp-md-preview img { max-width: 100%; }
 .sp-md-preview hr { border: none; border-top: 1px solid rgba(0, 0, 0, 0.2); }
 
+/* ---------- 聊天（Hermes 代理） ---------- */
+.sp-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.sp-chat-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; background: rgba(255, 255, 255, 0.55); border: 1px solid rgba(0, 0, 0, 0.2); }
+.sp-chat-row { display: flex; }
+.sp-chat-row.user { justify-content: flex-end; }
+.sp-chat-bubble { max-width: 82%; min-width: 0; box-sizing: border-box; border: 1px solid rgba(0, 0, 0, 0.35); box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.12); padding: 5px 10px; font-size: 13px; line-height: 1.6; overflow-wrap: break-word; }
+.sp-chat-bubble.user { background: #ccccff; }
+.sp-chat-bubble.assistant { background: #fff; }
+.sp-chat-bubble.error { background: #ffdddd; }
+.sp-chat-user-text { white-space: pre-wrap; word-break: break-word; }
+/* 助手气泡内嵌 Markdown 预览：去掉外层留白与高度约束，融入气泡 */
+.sp-chat-bubble.assistant .sp-md-preview { height: auto; padding: 2px 0; background: transparent; }
+.sp-chat-empty { margin: auto; color: #777; font-size: 13px; }
+.sp-chat-tool { font-size: 11px; font-style: italic; color: #555; margin-bottom: 2px; }
+.sp-chat-reasoning { margin: 2px 0; font-size: 11px; }
+.sp-chat-reasoning summary { cursor: pointer; color: #666; user-select: none; }
+.sp-chat-reasoning-body { margin-top: 4px; padding: 4px 8px; background: rgba(0, 0, 0, 0.05); border: 1px dashed rgba(0, 0, 0, 0.2); white-space: pre-wrap; word-break: break-word; color: #555; max-height: 220px; overflow: auto; }
+.sp-chat-err { color: #c00; white-space: pre-wrap; word-break: break-word; }
+.sp-chat-cursor { color: #333; animation: sp-chat-blink 1s steps(1) infinite; }
+@keyframes sp-chat-blink { 50% { opacity: 0; } }
+.sp-chat-input { flex: 0 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid rgba(0, 0, 0, 0.2); background: #ece9e2; }
+.sp-chat-textarea { flex: 1 1 auto; box-sizing: border-box; resize: none; height: 56px; padding: 4px 6px; font: inherit; font-size: 13px; line-height: 1.5; }
+.sp-chat-disabled { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; color: #555; font-size: 13px; }
+.sp-chat-disabled-tip { color: #9a9a9a; word-break: break-all; }
+
 /* ---------- 桌面图标"已打开"态修正 ----------
    classicy 默认在应用窗口打开后把桌面图标渲染为轮廓棋盘网纹（图标本体 opacity:0 +
    backdrop-filter 反色），图标内容完全消失，观感是"蜂窝方块"且无法辨识应用。

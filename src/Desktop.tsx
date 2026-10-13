@@ -15,6 +15,7 @@ import { FinderApp } from './apps/FinderApp';
 import { EditorApp } from './apps/EditorApp';
 import { RunnerApp } from './apps/RunnerApp';
 import { PrinterApp } from './apps/PrinterApp';
+import { ChatApp } from './apps/ChatApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 
@@ -81,7 +82,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
   return null;
 }
 
-// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Finder / 文本编辑器 / Runner / 打印机
+// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Finder / 文本编辑器 / Runner / 打印机 / 聊天
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   return (
     <ClassicyAppManagerProvider
@@ -102,6 +103,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
         <EditorApp onLogout={onLogout} />
         <RunnerApp onLogout={onLogout} />
         <PrinterApp onLogout={onLogout} />
+        <ChatApp onLogout={onLogout} />
       </ClassicyDesktop>
       <AppleMenuLogoutItem onLogout={onLogout} />
     </ClassicyAppManagerProvider>
