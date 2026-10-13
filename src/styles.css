@@ -208,8 +208,8 @@ html, body, #root {
 .sp-ctrl { flex: 1 1 0; min-width: 0; }
 .sp-ctrl > * { width: 100%; }
 .sp-ctrl select { width: 100%; }
-.sp-dim { color: #6b6b6b; font-size: 12px; }
-.sp-pulse { color: #a00; font-size: 12px; }
+.sp-dim { color: var(--color-system-05); font-size: 12px; }
+.sp-pulse { color: var(--color-alert); font-size: 12px; }
 
 /* ---------- 系统信息（ClassicyControlGroup 内 label/value 行） ---------- */
 .sp-info-row {
@@ -260,50 +260,59 @@ html, body, #root {
 
 /* ---------- 文件管理器 / 文本编辑器 ---------- */
 .sp-fm { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
-.sp-fm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 0 0 auto; }
-.sp-fm-toolbar-divider { flex: 0 0 auto; align-self: stretch; margin: 2px 3px; border-left: 1px solid rgba(0, 0, 0, 0.35); border-right: 1px solid rgba(255, 255, 255, 0.8); }
+.sp-fm-toolbar { flex-wrap: wrap; align-items: center; gap: 4px; }
 .sp-fm-path { flex: 1 1 200px; min-width: 150px; }
 .sp-fm-path input { box-sizing: border-box; width: 100%; height: calc(var(--hig-button-height) - var(--window-border-size) * 2); padding: 0 5px; font-size: 12px; font-family: var(--mono-font, monospace); }
 .sp-fm-split { flex: 1 1 auto; min-height: 0; }
 /* 分割条上下与容器对齐（覆盖 classicy 默认的上下 margin） */
 .sp-fm-split .classicySplitViewDivider { margin: 0; }
-.sp-fm-side { height: 100%; overflow: auto; padding: 6px 6px 8px 8px; box-sizing: border-box; background: #ece9e2; }
-.sp-fm-side-title { margin: 6px 0 3px; font-size: 12px; font-weight: 700; color: #333; }
-.sp-fm-empty { padding: 2px 4px 6px; font-size: 12px; color: #777; }
-.sp-fm-fav { display: flex; align-items: center; gap: 2px; }
+.sp-fm-side { height: 100%; overflow: auto; padding: 6px 6px 8px 8px; box-sizing: border-box; background: var(--color-system-01); }
+.sp-fm-side-title { margin: 6px 0 3px; font-size: 12px; font-weight: 700; color: var(--color-system-06); }
+.sp-fm-empty { padding: 2px 4px 6px; font-size: 12px; color: var(--color-system-05); }
+/* 主表格区空目录占位：在表格区域内居中 */
+.sp-fm-empty-dir { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0; }
+/* 收藏夹/最近文件行按钮（FinderApp 收藏夹已组件化为 ClassicyTree，EditorApp「最近打开」仍在用） */
 .sp-fm-fav-btn { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; border: none; background: none; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .sp-fm-fav-btn:hover { background: rgba(0, 0, 0, 0.08); }
 .sp-fm-fav-btn img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
 .sp-fm-fav-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-fm-fav-del { padding: 2px 5px; border: none; background: none; font-size: 13px; line-height: 1; color: #666; cursor: pointer; }
-.sp-fm-fav-del:hover { color: #c00; }
+.sp-fm-fav-del { padding: 2px 5px; border: none; background: none; font-size: 13px; line-height: 1; color: var(--color-system-05); cursor: pointer; }
+.sp-fm-fav-del:hover { color: var(--color-alert); }
 .sp-fm-main { display: flex; flex-direction: column; height: 100%; min-width: 0; }
 .sp-fm-table { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
 .sp-fm-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .sp-fm-name img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
+/* 选中态对齐 OS8 经典 Finder 列表视图（覆盖默认整行高亮）：
+   行背景还原，只高亮名称标签（白字 + system-07 底），行内图标压暗 */
+.sp-fm-table .sp-fm-row-selected { color: inherit; background: transparent; }
+.sp-fm-table .sp-fm-row-selected .sp-fm-name { color: var(--color-white); background: var(--color-system-07); }
+.sp-fm-table .sp-fm-row-selected .sp-fm-name img { filter: contrast(0.75) brightness(0.5); }
 .sp-fm-uploads { flex: 0 0 auto; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); }
 .sp-fm-upload-row { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 1px 0; }
 .sp-fm-upload-name { width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }
 .sp-fm-upload-bar { flex: 1 1 auto; }
-.sp-fm-status { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 10px; padding: 4px 6px 6px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: #444; }
+.sp-fm-status { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 10px; padding: 4px 6px 6px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: var(--color-system-06); }
 .sp-fm-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 状态栏加载态：斑马纹进度条替换纯文本「读取中…」 */
+.sp-fm-status-main { display: inline-block; max-width: 60%; vertical-align: bottom; }
+.sp-fm-status-main .classicyProgress { width: 200px; vertical-align: middle; }
 
 /* 预览窗口 */
 .sp-fm-preview { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
 .sp-fm-preview-toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
 .sp-fm-preview-toolbar .sp-dim { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-fm-preview-body { position: relative; display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-height: 0; overflow: auto; background: #fff; border: 1px solid rgba(0, 0, 0, 0.35); }
-.sp-fm-img { background: repeating-conic-gradient(#e9e9e9 0% 25%, #ffffff 0% 50%) 50% / 16px 16px; }
+.sp-fm-preview-body { position: relative; display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-height: 0; overflow: auto; background: var(--color-white); border: 1px solid rgba(0, 0, 0, 0.35); }
+.sp-fm-img { background: repeating-conic-gradient(var(--color-system-01) 0% 25%, var(--color-white) 0% 50%) 50% / 16px 16px; }
 .sp-fm-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .sp-fm-md { display: block; }
 .sp-fm-code { display: block; }
 
 /* 对话框遮罩（重命名/新建/打开文件） */
 .sp-dialog-mask { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.25); }
-.sp-dialog { width: 360px; max-width: 90vw; background: #e3e0da; border: 2px solid #fff; outline: 1px solid #000; box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35); }
-.sp-dialog-title { height: 24px; border-bottom: 1px solid #000; background: repeating-linear-gradient(0deg, #d9d5cd 0px, #d9d5cd 1px, #ece9e2 1px, #ece9e2 2px); font-size: 12px; font-weight: 700; line-height: 24px; text-align: center; }
+.sp-dialog { width: 360px; max-width: 90vw; background: var(--color-system-02); border: 2px solid var(--color-white); outline: 1px solid var(--color-black); box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35); }
+.sp-dialog-title { height: 24px; border-bottom: 1px solid var(--color-black); background: repeating-linear-gradient(0deg, var(--color-system-03) 0px, var(--color-system-03) 1px, var(--color-system-01) 1px, var(--color-system-01) 2px); font-size: 12px; font-weight: 700; line-height: 24px; text-align: center; }
 .sp-dialog-body { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
-.sp-dialog-recent { max-height: 160px; overflow: auto; border: 1px solid rgba(0, 0, 0, 0.2); background: #fff; padding: 2px; }
+.sp-dialog-recent { max-height: 160px; overflow: auto; border: 1px solid rgba(0, 0, 0, 0.2); background: var(--color-white); padding: 2px; }
 .sp-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
 /* 对话框内 ClassicyInput 的左置 label：input 为 width:100% 的 flex 项会挤压 label，
    这里禁止 label 收缩换行，保持单行展示 */
