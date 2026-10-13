@@ -379,6 +379,17 @@ export async function sendChatMessage(messages: ChatMessage[], signal?: AbortSig
   return data?.choices?.[0]?.message?.content ?? '';
 }
 
+/** delta.tool_calls 按 index 分片累积后的单个调用视图 */
+export interface StreamToolCall {
+  index: number;
+  /** 首片携带的调用 id（后续片可能省略） */
+  id?: string;
+  /** 首片携带的函数名（后续片可能省略） */
+  name?: string;
+  /** 各分片 arguments 字符串按序拼接，可能不完整 */
+  arguments: string;
+}
+
 export interface ChatStreamHandlers {
   messages: ChatMessage[];
   signal?: AbortSignal;
@@ -388,6 +399,14 @@ export interface ChatStreamHandlers {
   onReasoning?: (text: string) => void;
   /** 工具执行进度（自定义事件 data: {"type":"hermes.tool.progress", ...}），字段容错解析 */
   onToolProgress?: (data: Record<string, unknown>) => void;
+  /**
+   * 所有成功解析的 SSE JSON 事件整包透传（含未知 data.type / event: 行声明的事件）。
+   * 前向兼容通道：hermes 私有协议新增事件时无需改本函数。
+   * evName 为 SSE `event:` 字段行声明的类型（hermes 的工具事件用该方式传输，data JSON 内无 type 字段）。
+   */
+  onEvent?: (data: Record<string, unknown>, evName?: string) => void;
+  /** delta.tool_calls 分片累积后的当前快照（按 index 升序全量回调） */
+  onToolCall?: (calls: StreamToolCall[]) => void;
   /** 流结束（收到 [DONE] 或连接关闭；用户 abort 也归入正常结束） */
   onDone?: () => void;
   /** 请求/流错误 */
@@ -406,6 +425,8 @@ export async function streamChat({
   onDelta,
   onReasoning,
   onToolProgress,
+  onEvent,
+  onToolCall,
   onDone,
   onError,
 }: ChatStreamHandlers): Promise<void> {
@@ -420,7 +441,16 @@ export async function streamChat({
     if (!r.ok) throw new Error(await chatHttpError(r));
     if (!r.body) throw new Error('响应不含数据流');
 
+    // delta.tool_calls 分片累积状态（每次 streamChat 调用独立，无跨流污染）
+    const toolCallMap = new Map<number, StreamToolCall>();
+    // 当前 SSE event: 字段行声明的类型（作用于紧随其后的 data 行，处理后重置）
+    let eventName: string | undefined;
+
     const handleLine = (line: string) => {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim() || undefined;
+        return;
+      }
       if (!line.startsWith('data:')) return;
       const payload = line.slice(5).trim();
       if (!payload) return;
@@ -429,18 +459,39 @@ export async function streamChat({
       try {
         data = JSON.parse(payload) as Record<string, unknown>;
       } catch {
+        eventName = undefined;
         return; // 非 JSON 行容错忽略
       }
-      if (data.type === 'hermes.tool.progress') {
+      // 通用事件通道：所有解析成功的事件整包透传（含 event: 行声明的类型），放在分流之前
+      onEvent?.(data, eventName);
+      // hermes 工具进度：优先 data.type，回退到 SSE event: 行（真实协议为后者，data JSON 内无 type）
+      const evType = typeof data.type === 'string' ? data.type : eventName;
+      if (evType === 'hermes.tool.progress') {
         onToolProgress?.(data);
+        eventName = undefined;
         return;
       }
-      const delta = (data as { choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }> })
+      const delta = (data as { choices?: Array<{ delta?: { content?: string; reasoning_content?: string; tool_calls?: unknown } }> })
         ?.choices?.[0]?.delta;
+      // OpenAI 标准工具调用分片：按 index 累积（id/name 首片取值，arguments 字符串拼接）
+      if (Array.isArray(delta?.tool_calls)) {
+        (delta.tool_calls as Array<Record<string, unknown>>).forEach((c, i) => {
+          const idx = typeof c.index === 'number' ? c.index : i;
+          const fn = (c.function ?? {}) as Record<string, unknown>;
+          const cur = toolCallMap.get(idx) ?? { index: idx, arguments: '' };
+          if (typeof c.id === 'string' && c.id) cur.id = c.id;
+          if (typeof fn.name === 'string' && fn.name) cur.name = fn.name;
+          if (typeof fn.arguments === 'string') cur.arguments += fn.arguments;
+          toolCallMap.set(idx, cur);
+        });
+        onToolCall?.([...toolCallMap.values()].sort((a, b) => a.index - b.index));
+        // 不提前 return：同一 delta 可能同时携带 tool_calls 与 content/reasoning
+      }
       if (typeof delta?.content === 'string' && delta.content) onDelta?.(delta.content);
       if (typeof delta?.reasoning_content === 'string' && delta.reasoning_content) {
         onReasoning?.(delta.reasoning_content);
       }
+      eventName = undefined; // data 行处理完毕，event: 类型不向后泄漏
     };
 
     const reader = r.body.getReader();

@@ -397,6 +397,19 @@ html, body, #root {
 .sp-chat-reasoning { margin: 2px 0; font-size: 11px; }
 .sp-chat-reasoning summary { cursor: pointer; color: #666; user-select: none; }
 .sp-chat-reasoning-body { margin-top: 4px; padding: 4px 8px; background: rgba(0, 0, 0, 0.05); border: 1px dashed rgba(0, 0, 0, 0.2); white-space: pre-wrap; word-break: break-word; color: #555; max-height: 220px; overflow: auto; }
+/* 工具调用时间线：折叠列表，每步 名称+状态+耗时，可展开入参/结果详情 */
+.sp-chat-tools { margin: 2px 0; font-size: 11px; }
+.sp-chat-tools summary { cursor: pointer; color: #666; user-select: none; }
+.sp-chat-tools-live { margin-left: 4px; color: #c60; animation: sp-chat-blink 1s steps(1) infinite; }
+.sp-chat-tools-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+.sp-chat-tools-step { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: #555; flex-wrap: wrap; }
+.sp-chat-tools-step-name { font-family: 'Menlo', 'Consolas', monospace; }
+.sp-chat-tools-step.running .sp-chat-tools-step-state { color: #333; font-style: italic; }
+.sp-chat-tools-step.error .sp-chat-tools-step-state { color: #c00; }
+.sp-chat-tools-detail { flex: 1 1 100%; }
+.sp-chat-tools-detail summary { cursor: pointer; color: #888; }
+.sp-chat-tools-detail-label { margin-top: 3px; color: #888; }
+.sp-chat-tools-detail pre { margin: 1px 0 0; padding: 4px 8px; background: rgba(0, 0, 0, 0.05); border: 1px dashed rgba(0, 0, 0, 0.2); font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; color: #555; max-height: 160px; overflow: auto; }
 .sp-chat-err { color: #c00; white-space: pre-wrap; word-break: break-word; }
 .sp-chat-cursor { color: #333; animation: sp-chat-blink 1s steps(1) infinite; }
 @keyframes sp-chat-blink { 50% { opacity: 0; } }
