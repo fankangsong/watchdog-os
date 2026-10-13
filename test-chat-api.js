@@ -88,6 +88,18 @@ const mock = http.createServer((req, res) => {
       res.write('data: {"choices":[{"delta":{"content":" world"}}]}\n\n');
       return res.end('data: [DONE]\n\n');
     }
+    if (j.streamTools) {
+      // SSE：真实 hermes 协议——工具进度经 event: 字段行声明（data JSON 内无 type 字段），
+      // 另含 OpenAI 标准 tool_calls 分片与 data.type 风格未知事件，验证纯管道无损透传
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('event: hermes.tool.progress\ndata: {"tool":"terminal","emoji":"\\ud83d\\udcbb","label":"date","toolCallId":"call_1","status":"running"}\n\n');
+      res.write('event: hermes.tool.progress\ndata: {"tool":"terminal","toolCallId":"call_1","status":"completed"}\n\n');
+      res.write('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"web_search","arguments":"{\\"q\\":"}}]}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"cats\\"}"}}]}}]}\n\n');
+      res.write('data: {"type":"hermes.unknown.v2","foo":"bar"}\n\n');
+      res.write('data: {"choices":[{"delta":{"content":"done"}}]}\n\n');
+      return res.end('data: [DONE]\n\n');
+    }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({
       id: 'chatcmpl-mock-1',
@@ -149,6 +161,17 @@ async function postCompletions(H, payload) {
     const text = await r2.text();
     ok('stream content-type', r2.status === 200 && ct.includes('text/event-stream'), ct);
     ok('stream chunks + DONE', text.includes('"content":"hello"') && text.includes('"content":" world"') && text.includes('data: [DONE]'), `len=${text.length}`);
+
+    /* ---- 流式 SSE：工具事件 / tool_calls 分片 / 未知事件无损透传 ---- */
+    const r2t = await postCompletions(H, { streamTools: true, messages: [] });
+    const textT = await r2t.text();
+    ok('stream tools passthrough', r2t.status === 200 && textT.includes('event: hermes.tool.progress'), `status=${r2t.status}`);
+    ok('stream toolCallId passthrough', textT.includes('"toolCallId":"call_1"') && textT.includes('"status":"completed"'), '');
+    ok('stream tool_calls chunks passthrough',
+      textT.includes('"name":"web_search"') && textT.includes('{\\"q\\":') && textT.includes('\\"cats\\"}'),
+      '');
+    ok('stream unknown event passthrough', textT.includes('hermes.unknown.v2'), '');
+    ok('stream tools DONE', textT.includes('data: [DONE]') && textT.includes('"content":"done"'), '');
 
     /* ---- 上游 500 透传 ---- */
     const r3 = await postCompletions(H, { fail: true, messages: [] });
