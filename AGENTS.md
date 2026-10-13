@@ -128,6 +128,74 @@ dist/                # 构建产物（勿手动修改）
 5. **basePath**：后端与前端均需支持子路径部署，新增 API 路由时注意挂载在 `BASE` 前缀之下。
 6. **Node 版本**：`engines` 要求 `>=18.15`。
 
+## 菜单设计规范（macOS / classicy）
+
+> 参照 classicy 内置 Finder（Macintosh HD）示例应用的菜单与 macOS HIG 制定。所有应用（新增或改造）的菜单栏必须遵循本节规范；界面文案统一使用英文（代码注释仍用中文）。
+
+### 菜单栏结构
+
+菜单栏由 `ClassicyDesktop` 自动渲染，**应用只负责提供 `appMenu`**，不要自己拼装整条菜单栏。最终结构（从左到右）：
+
+```
+[Apple 菜单] [应用名菜单] [File] [Edit] [View] [应用特有菜单…] [Help] [应用切换器] [小组件]
+```
+
+- **Apple 菜单**：系统渲染。`About {AppName}` 自动从 appMenu 中 id 以 `_about` 结尾（或 title 为 `About`）的项提升而来；其后是 `systemMenu` 注入项。本项目已在 `src/Desktop.tsx` 统一注入 `Sign Out`——**各 app 不得再自建 System/Sign Out 菜单**。
+- **Help 菜单**：系统渲染（含 About Balloon Help… / Show|Hide Balloons ⌥H）。应用需要增加帮助项时，用 `useClassicyHelpMenu(appId, items)` 注册（`items` 必须用 `useMemo` 保持引用稳定），**不要在 appMenu 里自建 Help 菜单**。
+- **应用名菜单**：appMenu 的第一组，title 为应用名，只放应用级命令，不放具体功能。
+
+### 各菜单组的标准内容（新功能按类别归位）
+
+| 菜单组 | 应放入 | 参考示例（Finder） |
+|---|---|---|
+| 应用名菜单（第一组） | `About X`（`useClassicyAboutMenu` 的 `aboutMenuItem`，自动提升进 Apple 菜单）、spacer、`Preferences…`、spacer、`Quit`（`quitMenuItem`） | About Finder / Quit |
+| File | 文档与对象生命周期：New / Open… / Save / Close / Rename… / 上传下载等 | Close Window、Close All Windows |
+| Edit | 文本与选择：Undo / Redo / Cut / Copy / Paste / Select All / Find。**有文本输入的 app 直接用 `useClassicyEditMenu(idPrefix)`**（作用于最后聚焦的文本框）；仅当操作对象不是文本框（如 Finder 的文件选择）才自建并内联实现 | Select All ⌘A（仅列表视图可用时 enabled）、spacer、Preferences… |
+| View | 显示方式：视图切换（View as Icons / View as List）、显示/隐藏元素（Show Hidden Files）、排序、Refresh、缩放。视图切换组内互斥项用 `checked` 标记当前项 | View as Icons / View as List |
+| 应用特有菜单 | 仅当上述分组都不合适（如 Terminal 的 Font Size / Font Family、Chat 的会话管理），放在 View 之后、Help 之前 | — |
+| Help（系统渲染） | 经 `useClassicyHelpMenu` 注册：帮助文档、快捷键说明等 | Show/Hide Balloon Help |
+
+- 关键 Hook / 工具（均从 `classicy` 导入）：`useClassicyAboutMenu`（返回 `{ aboutMenuItem, aboutWindow }`，`aboutWindow` 需渲染进组件树）、`useClassicyEditMenu`、`useClassicyHelpMenu`、`useClassicyWindowClose`；项目封装 `src/quitMenuItem.ts`（Quit 项，走 `ClassicyAppClose`）。菜单关闭窗口用 `closeWindowMenuItemHelper` / `closeAllWindowsMenuItemHelper`。
+
+### 菜单项书写规则
+
+1. **数据结构** `ClassicyMenuItem`：`id`（必填）、`title`、`disabled`、`checked`、`keyboardShortcut`、`event`+`eventData`（声明式派发 store action）或 `onClickFunc`（本地处理）、`menuChildren`（子菜单）、`balloon`。
+2. **id 命名**：`<app前缀>-m-<命令>`（如 `fm-m-newdir`、`ed-m-save`），全局唯一；分隔线固定 `{ id: 'spacer' }`，不要出现在组首/组尾/连续（渲染器会清理，但源数据也要干净）。
+3. **文案**：英文 Title Case，动词开头；直接执行的命令不加标点（`Save`、`Refresh`），**会再弹出对话框的命令以 `…` 结尾**（`New Folder…`、`Open…`、`Preferences…`）；破坏性命令（`Delete…`）同样加 `…` 且执行前必须确认弹窗。
+4. **切换项**：二选一——要么固定标题 + `checked` 表达状态（`Show Hidden Files` checked），要么双态标题（`Show Balloon Help` / `Hide Balloon Help`）。**禁止手动拼 `✓ ` 前缀**，一律用 `checked` 字段。
+5. **快捷键**：符号字形风格 `⌘S`、`⇧⌘Z`、`⌥H`（⌘ Cmd、⇧ Shift、⌥ Option、⌃ Control），**禁止 `Cmd+S` 写法**；浏览器已占用的组合不要绑定。
+6. **可用性**：命令暂不可执行时保留菜单项并置 `disabled`（如 Finder 的 Select All 在图标视图置灰），不要按状态隐藏菜单项。
+7. **性能**：`appMenu` 一律 `useMemo` 记忆化（classicy 的 Help 注册与菜单渲染依赖引用稳定）。
+
+### 新增应用菜单的最小模板
+
+```tsx
+const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
+
+const appMenu: ClassicyMenuItem[] = useMemo(() => [
+  {
+    id: 'x-menu',                    // 1. 应用名菜单
+    title: APP_NAME,
+    menuChildren: [
+      aboutMenuItem,                 // 自动提升进 Apple 菜单
+      { id: 'spacer' },
+      quitMenuItem(APP_ID, APP_NAME, ICON),
+    ],
+  },
+  {
+    id: 'x-file',                    // 2. File：按需
+    title: 'File',
+    menuChildren: [/* … */],
+  },
+  // 3. Edit（有文本输入则用 hook）：useClassicyEditMenu('x') 返回的项
+  // 4. View / 应用特有菜单：按需
+], [/* 依赖 */]);
+
+// 组件树内渲染 {aboutWindow}；帮助项经 useClassicyHelpMenu 注册
+```
+
+反例（禁止）：在 appMenu 里自建 `System > Sign Out`（Apple 菜单已有）；手动 `✓ ` 前缀；`Cmd+S` 快捷键写法；中文菜单文案；把具体功能命令塞进应用名菜单。
+
 ## 编码风格
 
 - 前端使用 TypeScript + React 函数组件 + Hooks；类型定义尽量内联在文件中。
