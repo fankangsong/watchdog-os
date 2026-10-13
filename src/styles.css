@@ -266,6 +266,14 @@ html, body, #root {
 .sp-fm-split { flex: 1 1 auto; min-height: 0; }
 /* 分割条上下与容器对齐（覆盖 classicy 默认的上下 margin） */
 .sp-fm-split .classicySplitViewDivider { margin: 0; }
+
+/* Files 主窗口：钉死内容区高度链。窗口 contents 为 block + overflow:auto，
+   工具栏与 height:100% 的 SplitView 叠加会整体溢出，底部（表格横向滚动条、状态栏）
+   被推出视口、横向滚动条随内容收缩。改为 flex column 并禁用窗口级滚动，
+   让 SplitView 恒占剩余高度：表格横向滚动条始终贴窗口底部（状态栏上方） */
+#srv-finder\.app_fm-main > .classicyWindowContents { overflow: hidden; }
+#srv-finder\.app_fm-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
+#srv-finder\.app_fm-main .classicyWindowContentsInner > .classicyButtonToolbar { flex: 0 0 auto; }
 .sp-fm-side { height: 100%; overflow: auto; padding: 6px 6px 8px 8px; box-sizing: border-box; background: var(--color-system-01); }
 .sp-fm-side-title { margin: 6px 0 3px; font-size: 12px; font-weight: 700; color: var(--color-system-06); }
 .sp-fm-empty { padding: 2px 4px 6px; font-size: 12px; color: var(--color-system-05); }
@@ -280,6 +288,9 @@ html, body, #root {
 .sp-fm-fav-del:hover { color: var(--color-alert); }
 .sp-fm-main { display: flex; flex-direction: column; height: 100%; min-width: 0; }
 .sp-fm-table { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
+/* classicy 的 .classicyTableContainer 默认相对定位、高度随内容收缩（横向滚动条贴内容底部）；
+   钉满表格区高度，使横向滚动条始终位于窗口最底部（状态栏上方），不随文件数量变化 */
+.sp-fm-table > .classicyTableContainer { height: 100%; }
 .sp-fm-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .sp-fm-name img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
 /* 选中态对齐 OS8 经典 Finder 列表视图（覆盖默认整行高亮）：
@@ -297,15 +308,25 @@ html, body, #root {
 .sp-fm-status-main { display: inline-block; max-width: 60%; vertical-align: bottom; }
 .sp-fm-status-main .classicyProgress { width: 200px; vertical-align: middle; }
 
-/* 预览窗口 */
+/* 预览窗口（工具栏已移除，编辑/下载/视图切换迁入窗口菜单栏） */
 .sp-fm-preview { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
-.sp-fm-preview-toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
-.sp-fm-preview-toolbar .sp-dim { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-fm-preview-body { position: relative; display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-height: 0; overflow: auto; background: var(--color-white); border: 1px solid rgba(0, 0, 0, 0.35); }
 .sp-fm-img { background: repeating-conic-gradient(var(--color-system-01) 0% 25%, var(--color-white) 0% 50%) 50% / 16px 16px; }
 .sp-fm-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .sp-fm-md { display: block; }
 .sp-fm-code { display: block; }
+/* 代码预览：宿主 .sp-code-editor 默认 content-box，height:100% + 上下 border 会产生
+   2px 微溢出，令预览容器出现第二条纵向滚动条。border 计入高度并禁外层滚动，
+   滚动只交给 CodeMirror 的 .cm-scroller，保证窗口内始终只有一条滚动条 */
+.sp-fm-code { overflow: hidden; }
+.sp-fm-code > .sp-code-editor { box-sizing: border-box; border: 0; }
+
+/* Get Info 属性窗口 */
+.sp-fm-info { display: grid; gap: 6px; align-content: start; padding: 10px 14px; font-size: 12px; }
+.sp-fm-info-row { display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: baseline; }
+.sp-fm-info-label { color: var(--color-system-04, #666); text-align: right; }
+.sp-fm-info-value { word-break: break-all; }
+.sp-fm-info-path { font-family: Consolas, Menlo, monospace; }
 
 /* 对话框遮罩（重命名/新建/打开文件） */
 .sp-dialog-mask { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.25); }

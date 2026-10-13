@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ClassicyApp,
   ClassicyButton,
@@ -7,6 +7,7 @@ import {
   ClassicyControlGroup,
   ClassicyIcons,
   ClassicyWindow,
+  useClassicyAboutMenu,
 } from 'classicy';
 import { fetchRunnerStatus, startRunnerBuild, stopRunnerBuild, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
@@ -31,6 +32,8 @@ export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
   // 轮询间隔：运行中 2s、空闲 10s（interval 变化会重启 usePolling 定时器）
   const [intervalMs, setIntervalMs] = useState(10000);
   const poll = usePolling(fetchRunnerStatus, intervalMs);
+
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal);
   const running = poll.data?.running === true;
   const enabled = poll.data?.enabled === true;
 
@@ -52,18 +55,20 @@ export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [poll.data?.log]);
 
-  const appMenu = [
-    {
-      id: 'runner-menu',
-      title: APP_NAME,
-      menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal)],
-    },
-    {
-      id: 'sys',
-      title: 'System',
-      menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: () => onLogout?.() }],
-    },
-  ];
+  const appMenu = useMemo(
+    () => [
+      {
+        id: 'runner-menu',
+        title: APP_NAME,
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal),
+        ],
+      },
+    ],
+    [aboutMenuItem]
+  );
 
   const onStart = async () => {
     setBusy(true);
@@ -176,6 +181,7 @@ export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
           </div>
         </ClassicyControlGroup>
       </ClassicyWindow>
+      {aboutWindow}
     </ClassicyApp>
   );
 }

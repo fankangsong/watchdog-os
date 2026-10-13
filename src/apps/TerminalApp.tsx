@@ -12,6 +12,7 @@ import {
   ClassicyInput,
   ClassicyPopUpMenu,
   ClassicyWindow,
+  useClassicyAboutMenu,
 } from 'classicy';
 import { getTerminalToken, TerminalUnavailable, Unauthorized } from '../api';
 
@@ -273,50 +274,60 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
 
   const reconnect = useCallback(() => setAttempt((a) => a + 1), []);
 
-  // 桌面顶部菜单栏（窗口聚焦时显示）：Terminal > Settings… / Reconnect / Font Size / Font Family + System > Sign Out
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
+
+  // 桌面顶部菜单栏（窗口聚焦时显示）：应用名菜单 + Session/Font 特有菜单；Sign Out 由 Apple 菜单全局提供
   const appMenu = useMemo(
     () => [
       {
-        id: 'terminal',
-        title: 'Terminal',
+        id: 'terminal-menu',
+        title: APP_NAME,
         menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
           {
-            id: 'settings',
+            id: 'terminal-m-settings',
             title: 'Settings…',
             onClickFunc: () => setSettingsOpen(true),
           },
           { id: 'spacer' },
-          { id: 'reconnect', title: 'Reconnect', onClickFunc: reconnect },
-          {
-            id: 'font-size',
-            title: 'Font Size',
-            menuChildren: FONT_SIZES.map((size) => ({
-              id: `font-size-${size}`,
-              // 当前选中项以 ✓ 标记
-              title: `${fontSize === size ? '✓ ' : ''}${size} px`,
-              onClickFunc: () => setFontSize(size),
-            })),
-          },
-          {
-            id: 'font-family',
-            title: 'Font Family',
-            menuChildren: FONT_FAMILIES.map((font) => ({
-              id: `font-family-${font.label.replace(/\s+/g, '-').toLowerCase()}`,
-              title: `${fontFamily === font.css ? '✓ ' : ''}${font.label}`,
-              onClickFunc: () => setFontFamily(font.css),
-            })),
-          },
-          { id: 'term-sep' },
           quitMenuItem(APP_ID, APP_NAME, ICON),
         ],
       },
       {
-        id: 'sys',
-        title: 'System',
-        menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: handleLogout }],
+        id: 'terminal-session',
+        title: 'Session',
+        menuChildren: [{ id: 'terminal-m-reconnect', title: 'Reconnect', onClickFunc: reconnect }],
+      },
+      {
+        id: 'terminal-font',
+        title: 'Font',
+        menuChildren: [
+          {
+            id: 'terminal-m-font-size',
+            title: 'Font Size',
+            menuChildren: FONT_SIZES.map((size) => ({
+              id: `terminal-m-font-size-${size}`,
+              // 选中态用 checked 字段渲染 ✓，不手拼前缀
+              title: `${size} px`,
+              checked: fontSize === size,
+              onClickFunc: () => setFontSize(size),
+            })),
+          },
+          {
+            id: 'terminal-m-font-family',
+            title: 'Font Family',
+            menuChildren: FONT_FAMILIES.map((font) => ({
+              id: `terminal-m-font-family-${font.label.replace(/\s+/g, '-').toLowerCase()}`,
+              title: font.label,
+              checked: fontFamily === font.css,
+              onClickFunc: () => setFontFamily(font.css),
+            })),
+          },
+        ],
       },
     ],
-    [reconnect, handleLogout, fontSize, fontFamily]
+    [aboutMenuItem, reconnect, fontSize, fontFamily]
   );
 
   return (
@@ -355,6 +366,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
           </div>
         )}
       </ClassicyWindow>
+      {aboutWindow}
       {/* 设置对话框：菜单 Terminal > Settings… 打开；使用草稿状态，点「好」才生效，取消/关闭则丢弃 */}
       {settingsOpen && (
         <TerminalSettingsDialog

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ClassicyApp, ClassicyButton, ClassicyButtonToolbar, ClassicyButtonToolbarGroup, ClassicyIcons, ClassicyWindow } from 'classicy';
+import { ClassicyApp, ClassicyButton, ClassicyButtonToolbar, ClassicyButtonToolbarGroup, ClassicyIcons, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
 import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-imcolin.app';
@@ -24,8 +24,9 @@ function detectIframeUrl(sinceMs: number, untilMs: number): string | null {
 }
 
 // 应用：内嵌 imcolin.fan 网页，带 后退/前进 按钮
-export function ImcolinApp({ onLogout }: { onLogout?: () => void }) {
+export function ImcolinApp() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.applications.internetExplorer.app);
   const [history, setHistory] = useState<string[]>([HOME_URL]);
   const [index, setIndex] = useState(0);
   // 与 setState 同步的 ref，避免 load 回调里拿到过期闭包
@@ -76,15 +77,14 @@ export function ImcolinApp({ onLogout }: { onLogout?: () => void }) {
       {
         id: 'imcolin-menu',
         title: APP_NAME,
-        menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.applications.internetExplorer.app)],
-      },
-      {
-        id: 'sys',
-        title: 'System',
-        menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: () => onLogout?.() }],
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.applications.internetExplorer.app),
+        ],
       },
     ],
-    [onLogout]
+    [aboutMenuItem]
   );
 
   const canBack = index > 0;
@@ -122,6 +122,7 @@ export function ImcolinApp({ onLogout }: { onLogout?: () => void }) {
           <iframe ref={iframeRef} className="sp-web-frame" src={HOME_URL} title={APP_NAME} onLoad={onFrameLoad} />
         </div>
       </ClassicyWindow>
+      {aboutWindow}
     </ClassicyApp>
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClassicyApp, ClassicyButton, ClassicyControlGroup, ClassicyIcons, ClassicyPopUpMenu, ClassicyWindow } from 'classicy';
+import { ClassicyApp, ClassicyButton, ClassicyControlGroup, ClassicyIcons, ClassicyPopUpMenu, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
 import { fetchMetrics, fetchProcesses, logout, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
 import { SystemInfoPanel } from '../components/SystemInfoPanel';
@@ -16,6 +16,8 @@ const INTERVALS = [1, 2, 5, 10, 30];
 export function MonitorApp({ onLogout }: { onLogout: () => void }) {
   const [intervalSec, setIntervalSec] = useState(5);
   const [paused, setPaused] = useState(false);
+
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.applications.systemProfiler.app);
 
   const metricsPoll = usePolling(fetchMetrics, intervalSec * 1000, !paused);
   const procsPoll = usePolling(fetchProcesses, intervalSec * 1000, !paused);
@@ -41,15 +43,14 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
       {
         id: 'monitor-menu',
         title: APP_NAME,
-        menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.applications.systemProfiler.app)],
-      },
-      {
-        id: 'sys',
-        title: 'System',
-        menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: handleLogout }],
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.applications.systemProfiler.app),
+        ],
       },
     ],
-    [handleLogout]
+    [aboutMenuItem]
   );
 
   const m = metricsPoll.data;
@@ -117,6 +118,7 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
           <ProcessPanel processes={procsPoll.data} />
         </div>
       </ClassicyWindow>
+      {aboutWindow}
     </ClassicyApp>
   );
 }

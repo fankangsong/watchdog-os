@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ClassicyApp, ClassicyButton, ClassicyIcons, ClassicyWindow } from 'classicy';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ClassicyApp, ClassicyButton, ClassicyIcons, ClassicyWindow, useClassicyAboutMenu, useClassicyEditMenu } from 'classicy';
 import {
   fetchChatStatus,
   streamChat,
@@ -69,6 +69,10 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
   const [thinkStart, setThinkStart] = useState<number | null>(null);
   const [thinkSec, setThinkSec] = useState(0);
   const [thinkTool, setThinkTool] = useState('');
+
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
+  // 消息输入为标准 textarea，编辑命令由 classicy 作用于最后聚焦的文本框
+  const editMenuItem = useClassicyEditMenu('chat');
 
   // 自动滚动：用户上滚（离底超过阈值）时暂停拉底，回到底部附近自动恢复
   const listRef = useRef<HTMLDivElement>(null);
@@ -214,22 +218,26 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     }
   };
 
-  const appMenu = [
-    {
-      id: 'chat-menu',
-      title: APP_NAME,
-      menuChildren: [
-        { id: 'chat-new', title: '新建会话', onClickFunc: newSession },
-        { id: 'chat-sep' },
-        quitMenuItem(APP_ID, APP_NAME, ICON),
-      ],
-    },
-    {
-      id: 'sys',
-      title: 'System',
-      menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: handleLogout }],
-    },
-  ];
+  const appMenu = useMemo(
+    () => [
+      {
+        id: 'chat-menu',
+        title: APP_NAME,
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ICON),
+        ],
+      },
+      editMenuItem,
+      {
+        id: 'chat-session',
+        title: 'Session',
+        menuChildren: [{ id: 'chat-m-new', title: 'New Session…', onClickFunc: newSession }],
+      },
+    ],
+    [aboutMenuItem, editMenuItem, newSession]
+  );
 
   return (
     <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="chat-main">
@@ -324,6 +332,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
           </div>
         )}
       </ClassicyWindow>
+      {aboutWindow}
     </ClassicyApp>
   );
 }
