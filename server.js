@@ -6,6 +6,7 @@
  *  - 采集 CPU / 内存 / 交换分区 / 硬件温度 / 磁盘使用率
  *  - 采集 Docker 容器列表与资源占用（docker stats）
  *  - 文件管理：目录浏览 / 上传下载 / 文本读写 / 收藏夹（/api/fs/*）
+ *  - 聊天代理：OpenAI 兼容 API 转发到 hermes agent（/api/chat/*，支持 SSE 流式）
  *  - 文本密码鉴权（REST + 静态页面统一校验）
  *  - basePath 前缀支持，可置于 Nginx 反向代理子路径之后
  *
@@ -110,6 +111,27 @@ cfg.printer = Object.assign(
 );
 if (process.env.PRINTER_ENABLED != null) {
   cfg.printer.enabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.PRINTER_ENABLED).toLowerCase());
+}
+/* Hermes 聊天代理配置：把 OpenAI 兼容的聊天补全请求转发到局域网 hermes agent。
+   baseUrl / apiKey / model 仅服务端持有，任何接口响应不回传 apiKey */
+cfg.hermes = Object.assign(
+  {
+    enabled: false,                        // 是否启用聊天代理（HERMES_ENABLED 可覆盖）
+    baseUrl: 'http://192.168.100.20:8642', // hermes agent 的 OpenAI 兼容 API 地址
+    apiKey: '',                            // 上游 Bearer Token（可为空）
+    model: 'hermes-agent',                 // 客户端未指定 model 时注入的默认模型
+    timeoutMs: 300000,                     // 上游请求超时 ms（agent 执行工具可能很久）
+  },
+  cfg.hermes
+);
+if (process.env.HERMES_ENABLED != null) {
+  cfg.hermes.enabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.HERMES_ENABLED).toLowerCase());
+}
+if (process.env.HERMES_BASE_URL) cfg.hermes.baseUrl = process.env.HERMES_BASE_URL;
+if (process.env.HERMES_API_KEY != null) cfg.hermes.apiKey = process.env.HERMES_API_KEY;
+if (process.env.HERMES_MODEL) cfg.hermes.model = process.env.HERMES_MODEL;
+if (process.env.HERMES_TIMEOUT_MS) {
+  cfg.hermes.timeoutMs = parseInt(process.env.HERMES_TIMEOUT_MS, 10) || cfg.hermes.timeoutMs;
 }
 
 if (!cfg.password) {
@@ -1101,6 +1123,98 @@ function proxyTerminalWs(req, clientSocket, search) {
   upstream.on('close', teardown);
 }
 
+/* ---------------- Hermes 聊天代理（OpenAI 兼容 API 转发）---------------- */
+
+/**
+ * 转发聊天补全请求到 hermes 上游（POST {baseUrl}/v1/chat/completions）。
+ *  - 请求体原样透传（客户端可带 stream:true）；未传 model 时注入 config 的 model
+ *  - 非流式：整体收集上游响应后回传（透传状态码与 Content-Type）
+ *  - 流式：SSE 逐块 pipe 透传
+ *  - 客户端提前断开 → destroy 上游请求，避免 agent 继续空跑
+ *  - 超时 → 504；连接类错误（ECONNREFUSED 等）→ 503；上游 4xx/5xx → 原样透传
+ *  - apiKey 仅用于构造上游 Authorization 头，不写入任何响应
+ */
+function proxyHermesChat(req, res, bodyBuf) {
+  const h = cfg.hermes;
+  let upstreamUrl;
+  try {
+    upstreamUrl = new URL('/v1/chat/completions', h.baseUrl);
+  } catch {
+    return send(res, 503, { error: 'Hermes unavailable', detail: 'hermes.baseUrl 配置非法' });
+  }
+  const isHttps = upstreamUrl.protocol === 'https:';
+  const lib = isHttps ? https : http;
+
+  // model 处理：客户端未传时注入 config.model，传了则以客户端为准
+  let payload = bodyBuf;
+  try {
+    const j = JSON.parse(bodyBuf.toString('utf8') || '{}');
+    if (j && typeof j === 'object' && !j.model) {
+      j.model = h.model;
+      payload = Buffer.from(JSON.stringify(j), 'utf8');
+    }
+  } catch { /* 非 JSON 请求体原样透传，由上游报错并透传 */ }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Content-Length': payload.length,
+  };
+  if (h.apiKey) headers.Authorization = `Bearer ${h.apiKey}`;
+
+  const upReq = lib.request(
+    {
+      protocol: upstreamUrl.protocol,
+      hostname: upstreamUrl.hostname,
+      port: upstreamUrl.port || (isHttps ? 443 : 80),
+      path: upstreamUrl.pathname + upstreamUrl.search,
+      method: 'POST',
+      headers,
+      timeout: h.timeoutMs,
+    },
+    (upRes) => {
+      const status = upRes.statusCode || 502;
+      // 上游 4xx/5xx：整体收集后原样透传状态码与 body
+      if (status >= 400) {
+        const chunks = [];
+        upRes.on('data', (c) => chunks.push(c));
+        upRes.on('end', () => {
+          send(res, status, Buffer.concat(chunks), {
+            'Content-Type': upRes.headers['content-type'] || 'application/json; charset=utf-8',
+          });
+        });
+        upRes.on('error', () => res.destroy());
+        return;
+      }
+      // 2xx：流式/非流式统一逐块 pipe（SSE 透传），透传上游 Content-Type
+      res.writeHead(status, {
+        'Content-Type': upRes.headers['content-type'] || 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      upRes.on('error', () => res.destroy());
+      upRes.pipe(res);
+    }
+  );
+  // 客户端提前断开 → 中断上游，避免 hermes 继续空跑
+  res.on('close', () => {
+    if (!res.writableEnded) upReq.destroy();
+  });
+  // 上游超时 → 504（流式已开始输出时只能直接断开）
+  upReq.on('timeout', () => {
+    upReq.destroy();
+    if (!res.headersSent) send(res, 504, { error: 'Hermes timeout' });
+    else res.destroy();
+  });
+  // 连接类错误（ECONNREFUSED / EHOSTUNREACH / ETIMEDOUT 等）→ 503
+  upReq.on('error', (e) => {
+    if (res.headersSent || res.writableEnded) {
+      res.destroy();
+      return;
+    }
+    send(res, 503, { error: 'Hermes unavailable', detail: e.message });
+  });
+  upReq.end(payload);
+}
+
 /* ---------------- 文件管理（零依赖 fs API） ---------------- */
 /* 允许浏览的根目录：默认 Windows 列出项目所在盘符与 C 盘，POSIX 为根目录；
    可用环境变量 FS_ROOTS 覆盖（按 path.delimiter 分隔，如 "C:\;D:\" 或 "/data:/home"）。 */
@@ -1606,6 +1720,28 @@ async function route(req, res, url) {
     if (p === '/api/runner/stop' && req.method === 'POST') {
       if (!stopRunnerJob()) return send(res, 409, { error: 'No job running' });
       return send(res, 200, { ok: true, job: runnerJob });
+    }
+    return send(res, 404, { error: 'not found' });
+  }
+
+  /* ---- Hermes 聊天代理（OpenAI 兼容 API 转发，统一 JWT 鉴权）---- */
+  if (p === '/api/chat/status' || p === '/api/chat/completions') {
+    if (!checkAuth(req)) {
+      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+    }
+    // status 是信息性接口：未启用时也返回 200 + enabled=false，便于前端区分"未配置"与"服务异常"（不含 apiKey）
+    if (p === '/api/chat/status' && req.method === 'GET') {
+      return send(res, 200, { enabled: !!cfg.hermes.enabled, baseUrl: cfg.hermes.baseUrl });
+    }
+    if (!cfg.hermes.enabled) return send(res, 503, { error: 'Hermes chat disabled' });
+    if (p === '/api/chat/completions' && req.method === 'POST') {
+      let body;
+      try {
+        body = await readBody(req, 8 * 1024 * 1024); // 聊天消息（可能含图片 base64）允许较大 body
+      } catch {
+        return send(res, 413, { error: 'body too large' });
+      }
+      return proxyHermesChat(req, res, Buffer.from(body, 'utf8'));
     }
     return send(res, 404, { error: 'not found' });
   }

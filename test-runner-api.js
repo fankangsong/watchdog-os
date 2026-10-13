@@ -37,6 +37,19 @@ async function waitHealth() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 等待端口释放：child.kill 是异步的，立刻重启下一个实例会 EADDRINUSE */
+async function waitPortFree(timeoutMs = 10000) {
+  for (let i = 0; i < timeoutMs / 100; i++) {
+    try {
+      await fetch(`${BASE}/api/health`);
+    } catch {
+      return true; // 连接被拒 → 监听已关闭
+    }
+    await sleep(100);
+  }
+  return false;
+}
+
 /** bash 可用性探测（Windows 无 Git Bash 时跳过整个测试） */
 function bashAvailable() {
   return new Promise((resolve) => {
@@ -50,7 +63,7 @@ function startServer(extraEnv) {
   // server.js 用脚本自身目录的绝对路径启动，cwd 固定为项目根，不依赖调用方所在目录
   return spawn(process.execPath, [path.join(__dirname, 'server.js')], {
     cwd: __dirname,
-    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123', ...extraEnv },
+    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123', BASE_PATH: '/', ...extraEnv },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
 }
@@ -85,9 +98,10 @@ async function waitDone(H, timeoutMs = 15000) {
     return;
   }
   fs.mkdirSync(TMP, { recursive: true });
-  // 同一脚本路径，三个阶段重写内容（脚本路径只来自服务端配置，客户端不可传）
+  // 同一脚本路径，三个阶段重写内容（脚本路径只来自服务端配置，客户端不可传）。
+  // 首个脚本带 sleep：跑得太快会让「dup start 409 / status running」断言来不及在运行窗口内发出
   const scriptPath = path.join(TMP, 'build.sh');
-  fs.writeFileSync(scriptPath, '#!/bin/bash\necho hello build\necho "second line"\n', 'utf8');
+  fs.writeFileSync(scriptPath, '#!/bin/bash\necho hello build\nsleep 0.6\necho "second line"\n', 'utf8');
 
   let child = startServer({ RUNNER_ENABLED: '1', RUNNER_SCRIPT: scriptPath, RUNNER_SHELL: 'bash' });
   try {
@@ -142,6 +156,7 @@ async function waitDone(H, timeoutMs = 15000) {
     ok('stop terminated', !!done3 && done3.running === false && done3.last !== null, done3 && done3.last ? `exit=${done3.last.exitCode}` : '');
   } finally {
     child.kill('SIGTERM');
+    await waitPortFree();
   }
 
   /* ---- 实例 2：脚本不存在 → 400 ---- */
@@ -154,10 +169,11 @@ async function waitDone(H, timeoutMs = 15000) {
     ok('script missing 400', r2.status === 400, `status=${r2.status}`);
   } finally {
     child.kill('SIGTERM');
+    await waitPortFree();
   }
 
-  /* ---- 实例 3：未启用 → 503 ---- */
-  child = startServer({});
+  /* ---- 实例 3：未启用 → 503（显式 RUNNER_ENABLED=0，防止本机 config.json 的 runner.enabled 泄漏）---- */
+  child = startServer({ RUNNER_ENABLED: '0' });
   try {
     ok('server3 health', await waitHealth());
     const H3 = await login();

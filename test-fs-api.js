@@ -36,7 +36,7 @@ async function waitHealth() {
 (async () => {
   const child = spawn(process.execPath, ['server.js'], {
     // FS_ROOTS 限定到临时目录：让「越权路径 403」在 Windows / POSIX 上都可稳定触发
-    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123', FS_ROOTS: TMP },
+    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123', FS_ROOTS: TMP, BASE_PATH: '/' },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
   try {
