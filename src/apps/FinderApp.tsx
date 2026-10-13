@@ -5,15 +5,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ClassicyAlert,
   ClassicyApp,
+  ClassicyBalloonHelp,
+  ClassicyBevelButton,
   ClassicyButton,
+  ClassicyButtonToolbar,
+  ClassicyButtonToolbarGroup,
   ClassicyCheckbox,
   ClassicyContextualMenuTarget,
+  ClassicyForm,
+  ClassicyFormButtonRow,
   ClassicyIcons,
   ClassicyInput,
   ClassicyProgressBar,
   ClassicySplitView,
   ClassicyTable,
   ClassicyTree,
+  ClassicyTriangle,
   ClassicyWindow,
   dispatch,
 } from 'classicy';
@@ -43,16 +50,140 @@ const APP_ID = 'srv-finder.app';
 const APP_NAME = 'Finder';
 const MAIN_WIN = 'fm-main';
 const ICON = ClassicyIcons.system.folders.directory;
-const FILE_ICON = ClassicyIcons.system.files.file;
-const TEXT_ICON = ClassicyIcons.system.files.fileText;
-const IMAGE_ICON = ClassicyIcons.system.files.photo;
+const DRIVE_ICON = ClassicyIcons.system.drives.disk;
+const FAV_ICON = ClassicyIcons.system.folders.favorites;
+const ICON_BACK = ClassicyIcons.applications.internetExplorer.backward;
+const ICON_UP = ClassicyIcons.ui.menuDropdownArrowUp;
+const ICON_REFRESH = ClassicyIcons.applications.internetExplorer.refresh;
+const ICON_UPLOAD = ClassicyIcons.applications.internetExplorer.documentMoveToFolder;
+const ICON_DOWNLOAD = ClassicyIcons.applications.internetExplorer.documentDownload;
+const ICON_RENAME = ClassicyIcons.applications.internetExplorer.editor;
 const MAX_PREVIEWS = 3;
 
+/** 文件种类：驱动行图标、种类列文案与扩展名细分映射 */
+type FileKind =
+  | 'folder'
+  | 'image'
+  | 'text'
+  | 'markdown'
+  | 'script'
+  | 'audio'
+  | 'video'
+  | 'application'
+  | 'archive'
+  | 'font'
+  | 'document'
+  | 'other';
+
+// 扩展名 → 种类（大小写不敏感）；未命中时回退到后端 previewable 标记
+const EXT_KIND: Record<string, FileKind> = {
+  png: 'image',
+  jpg: 'image',
+  jpeg: 'image',
+  gif: 'image',
+  svg: 'image',
+  webp: 'image',
+  bmp: 'image',
+  ico: 'image',
+  txt: 'text',
+  md: 'markdown',
+  js: 'script',
+  mjs: 'script',
+  cjs: 'script',
+  ts: 'script',
+  tsx: 'script',
+  jsx: 'script',
+  py: 'script',
+  sh: 'script',
+  bash: 'script',
+  zsh: 'script',
+  json: 'script',
+  yaml: 'script',
+  yml: 'script',
+  css: 'script',
+  scss: 'script',
+  html: 'script',
+  htm: 'script',
+  xml: 'script',
+  sql: 'script',
+  c: 'script',
+  h: 'script',
+  cpp: 'script',
+  hpp: 'script',
+  cc: 'script',
+  go: 'script',
+  rs: 'script',
+  java: 'script',
+  rb: 'script',
+  php: 'script',
+  lua: 'script',
+  mp3: 'audio',
+  wav: 'audio',
+  flac: 'audio',
+  aac: 'audio',
+  ogg: 'audio',
+  mp4: 'video',
+  mov: 'video',
+  avi: 'video',
+  mkv: 'video',
+  app: 'application',
+  exe: 'application',
+  command: 'application',
+  zip: 'archive',
+  tar: 'archive',
+  gz: 'archive',
+  tgz: 'archive',
+  bz2: 'archive',
+  '7z': 'archive',
+  rar: 'archive',
+  ttf: 'font',
+  otf: 'font',
+  pdf: 'document',
+  doc: 'document',
+  docx: 'document',
+  xls: 'document',
+  xlsx: 'document',
+  ppt: 'document',
+  pptx: 'document',
+  rtf: 'document',
+};
+
+const KIND_META: Record<FileKind, { label: string; icon: string }> = {
+  folder: { label: '文件夹', icon: ClassicyIcons.system.folders.directory },
+  image: { label: '图片', icon: ClassicyIcons.system.files.photo },
+  text: { label: '文本文档', icon: ClassicyIcons.system.files.fileText },
+  markdown: { label: 'Markdown', icon: ClassicyIcons.system.files.note },
+  script: { label: '脚本', icon: ClassicyIcons.system.files.script },
+  audio: { label: '音频', icon: ClassicyIcons.system.files.sound },
+  video: { label: '视频', icon: ClassicyIcons.system.files.slideshow },
+  application: { label: '应用程序', icon: ClassicyIcons.system.files.application },
+  archive: { label: '压缩包', icon: ClassicyIcons.system.folders.compressed },
+  font: { label: '字体', icon: ClassicyIcons.system.folders.fonts },
+  document: { label: '文档', icon: ClassicyIcons.system.files.document },
+  other: { label: '其他', icon: ClassicyIcons.system.files.file },
+};
+
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i > 0 ? name.slice(i + 1).toLowerCase() : '';
+}
+
+function kindFor(entry: FsEntry): FileKind {
+  if (entry.type === 'dir') return 'folder';
+  return (
+    EXT_KIND[extOf(entry.name)] ??
+    (entry.previewable === 'image'
+      ? 'image'
+      : entry.previewable === 'markdown'
+        ? 'markdown'
+        : entry.previewable === 'text'
+          ? 'text'
+          : 'other')
+  );
+}
+
 function iconFor(entry: FsEntry): string {
-  if (entry.type === 'dir') return ICON;
-  if (entry.previewable === 'image') return IMAGE_ICON;
-  if (entry.previewable === 'text' || entry.previewable === 'markdown') return TEXT_ICON;
-  return FILE_ICON;
+  return KIND_META[kindFor(entry)].icon;
 }
 
 /** 预览窗口 id：路径转安全 id */
@@ -82,11 +213,18 @@ function baseName(p: string): string {
   return i >= 0 ? norm.slice(i + 1) : norm;
 }
 
+/** Finder 风格日期：今天「今天 HH:mm」，今年非今天「M月D日 HH:mm」，往年「YYYY年M月D日」 */
 function fmtDate(ms: number): string {
   const d = new Date(ms);
   if (isNaN(+d)) return '—';
   const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  const now = new Date();
+  const today =
+    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (today) return `今天 ${hm}`;
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
 interface UploadTask {
@@ -283,6 +421,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
     async (list: FsEntry[]) => {
       try {
         for (const e of list) await fsDelete(e.path);
+        for (const e of list) childrenCache.current.delete(e.path);
         childrenCache.current.delete(current);
         const del = new Set(list.map((e) => e.path));
         if (favorites.some((f) => del.has(f))) {
@@ -407,11 +546,25 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
     }
   }, [dialog, dialogValue, current, favorites, applyFavorites, fetchDir, handleLogout, stopAlert]);
 
-  const selectedEntries = useMemo(() => entries.filter((e) => selected.includes(e.path)), [entries, selected]);
+  // 选中条目索引：主列表 + 懒加载缓存（内联展开的子行也纳入选中与操作范围）
+  const entryIndex = useMemo(() => {
+    const m = new Map<string, FsEntry>();
+    for (const e of entries) m.set(e.path, e);
+    for (const kids of childrenCache.current.values()) for (const e of kids) m.set(e.path, e);
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, treeVersion]);
+  const selectedEntries = useMemo(
+    () => selected.map((id) => entryIndex.get(id)).filter((e): e is FsEntry => !!e),
+    [selected, entryIndex]
+  );
   const visibleEntries = useMemo(
     () => (showHidden ? entries : entries.filter((e) => !e.name.startsWith('.'))),
     [entries, showHidden]
   );
+  // 表格行数组：treeVersion 变化时强制新引用，让 ClassicyTable 重新求值 getSubRows
+  //（子目录懒加载完成后立即在已展开的父行下渲染子行）
+  const tableRows = useMemo(() => [...visibleEntries], [visibleEntries, treeVersion]);
   const favPaths = useMemo(() => new Set(favorites.map((f) => f.replace(/[\\/]+$/, ''))), [favorites]);
 
   const goBack = useCallback(() => {
@@ -439,11 +592,29 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
         id: 'name',
         title: '名称',
         accessor: (r) => r.name,
-        render: (r) => (
-          <span className="sp-fm-name">
-            <img src={iconFor(r)} alt="" />
-            {r.name}
-          </span>
+        // table-layout:fixed 下宽度按比例分配，名称列给大宽度以占据剩余空间
+        width: 400,
+        render: (r, ex) => (
+          // 与 classicy 内建 Finder 列表视图一致：disclosure 三角 + 按深度缩进
+          <div
+            className="classicyFileBrowserViewTableRowContainer"
+            style={{ paddingLeft: `calc(var(--window-control-size) * ${ex.depth})` }}
+          >
+            <span className="classicyFileBrowserViewTableDisclosure">
+              {ex.canExpand && (
+                <span
+                  className="classicyFileBrowserViewTableDisclosureTriangle"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ClassicyTriangle direction="right" open={ex.isExpanded} onToggle={ex.toggle} />
+                </span>
+              )}
+            </span>
+            <span className="sp-fm-name">
+              <img src={iconFor(r)} alt="" />
+              {r.name}
+            </span>
+          </div>
         ),
       },
       {
@@ -451,38 +622,67 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
         title: '大小',
         accessor: (r) => (r.type === 'dir' ? -1 : r.size),
         align: 'right',
+        width: 90,
         render: (r) => (r.type === 'dir' ? '—' : fmtBytes(r.size)),
       },
       {
         id: 'mtime',
         title: '修改时间',
         accessor: (r) => r.mtime,
+        width: 150,
         render: (r) => (r.mtime ? fmtDate(r.mtime) : '—'),
       },
-      { id: 'mode', title: '权限', accessor: (r) => r.mode },
+      {
+        id: 'kind',
+        title: '种类',
+        accessor: (r) => kindFor(r),
+        width: 120,
+        render: (r) => <span title={`权限：${r.mode}`}>{KIND_META[kindFor(r)].label}</span>,
+      },
     ],
     []
   );
 
   // 目录树节点：未加载的目录显示占位节点，展开时懒加载
   const treeNodes: ClassicyTreeNode[] = useMemo(() => {
-    const build = (path: string, label: string): ClassicyTreeNode => {
+    const build = (path: string, label: string, icon: string): ClassicyTreeNode => {
       const kids = childrenCache.current.get(path);
       const childDirs = kids ? kids.filter((e) => e.type === 'dir') : null;
       return {
         id: path,
         label,
-        leftIcon: ICON,
+        leftIcon: icon,
         // 分支节点单击即选中并导航（默认 false 是切换展开）
         branchSelectable: true,
         children: childDirs
-          ? childDirs.map((d) => build(d.path, d.name))
+          ? childDirs.map((d) => build(d.path, d.name, ICON))
           : [{ id: `${path}::loading`, label: '加载中…', disabled: true }],
       };
     };
-    return roots.map((r) => build(r, r === '/' ? '根目录' : r));
+    // 挂载点/树根用磁盘图标，子目录用文件夹图标
+    return roots.map((r) => build(r, r === '/' ? '根目录' : r, DRIVE_ICON));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roots, treeVersion]);
+
+  // 收藏夹单层树节点：label 用末级目录名，行内 × 按钮取消收藏（沿用原收藏逻辑）
+  const favNodes: ClassicyTreeNode[] = useMemo(
+    () =>
+      favorites.map((f) => ({
+        id: f,
+        label: baseName(f) || f,
+        leftIcon: FAV_ICON,
+        buttons: [
+          {
+            label: '×',
+            onClickFunc: (e) => {
+              e.stopPropagation();
+              toggleFavorite(f);
+            },
+          },
+        ],
+      })),
+    [favorites, toggleFavorite]
+  );
 
   // 右键菜单：有选中项时针对条目操作，否则针对当前目录
   const menuItems: ClassicyMenuItem[] = useMemo(() => {
@@ -601,53 +801,110 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
         appMenu={appMenu}
       >
         <div className="sp-fm">
-          <div className="sp-fm-toolbar">
-            <ClassicyButton buttonSize="small" onClickFunc={goBack} disabled={backStack.length === 0}>
-              ◀ 后退
-            </ClassicyButton>
-            <ClassicyButton buttonSize="small" onClickFunc={goUp} disabled={!current}>
-              ▲ 上级
-            </ClassicyButton>
-            <span className="sp-fm-toolbar-divider" aria-hidden="true" />
-            <ClassicyButton buttonSize="small" onClickFunc={() => void fetchDir(current)}>
-              刷新
-            </ClassicyButton>
-            <span className="sp-fm-toolbar-divider" aria-hidden="true" />
-            <ClassicyButton
-              buttonSize="small"
-              disabled={!current}
-              onClickFunc={() => {
-                setDialogValue('');
-                setDialog({ kind: 'mkdir', value: '' });
-              }}
-            >
-              新建文件夹
-            </ClassicyButton>
-            <ClassicyButton buttonSize="small" disabled={!current} onClickFunc={openNewFileDialog}>
-              新建文本
-            </ClassicyButton>
-            <ClassicyButton buttonSize="small" disabled={!current} onClickFunc={() => fileInputRef.current?.click()}>
-              上传
-            </ClassicyButton>
-            <span className="sp-fm-toolbar-divider" aria-hidden="true" />
-            <ClassicyButton buttonSize="small" disabled={!selectedEntries.length} onClickFunc={() => downloadEntries(selectedEntries)}>
-              下载
-            </ClassicyButton>
-            <ClassicyButton buttonSize="small" disabled={!selectedEntries.length} onClickFunc={() => requestDelete(selectedEntries)}>
-              删除
-            </ClassicyButton>
-            <ClassicyButton
-              buttonSize="small"
-              disabled={selectedEntries.length !== 1}
-              onClickFunc={() => {
-                const t = selectedEntries[0];
-                if (!t) return;
-                setDialogValue(t.name);
-                setDialog({ kind: 'rename', value: t.name, target: t });
-              }}
-            >
-              重命名
-            </ClassicyButton>
+          <ClassicyButtonToolbar size="small" className="sp-fm-toolbar">
+            <ClassicyButtonToolbarGroup>
+              <ClassicyBalloonHelp content="后退到上一个目录">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ICON_BACK}
+                  iconAlt="后退"
+                  disabled={backStack.length === 0}
+                  onClickFunc={goBack}
+                />
+              </ClassicyBalloonHelp>
+              <ClassicyBalloonHelp content="转到上一级目录">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ICON_UP}
+                  iconAlt="上级"
+                  disabled={!current}
+                  onClickFunc={goUp}
+                />
+              </ClassicyBalloonHelp>
+              <ClassicyBalloonHelp content="重新读取当前目录">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ICON_REFRESH}
+                  iconAlt="刷新"
+                  onClickFunc={() => void fetchDir(current)}
+                />
+              </ClassicyBalloonHelp>
+            </ClassicyButtonToolbarGroup>
+            <ClassicyButtonToolbarGroup>
+              <ClassicyBalloonHelp content="在当前目录新建文件夹">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ICON}
+                  iconAlt="新建文件夹"
+                  disabled={!current}
+                  onClickFunc={() => {
+                    setDialogValue('');
+                    setDialog({ kind: 'mkdir', value: '' });
+                  }}
+                />
+              </ClassicyBalloonHelp>
+              <ClassicyBalloonHelp content="新建文本文件">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ClassicyIcons.system.files.fileText}
+                  iconAlt="新建文本"
+                  disabled={!current}
+                  onClickFunc={openNewFileDialog}
+                />
+              </ClassicyBalloonHelp>
+              <ClassicyBalloonHelp content="上传文件到当前目录">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ICON_UPLOAD}
+                  iconAlt="上传"
+                  disabled={!current}
+                  onClickFunc={() => fileInputRef.current?.click()}
+                />
+              </ClassicyBalloonHelp>
+            </ClassicyButtonToolbarGroup>
+            <ClassicyButtonToolbarGroup>
+              <ClassicyBalloonHelp content="下载选中的文件">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ICON_DOWNLOAD}
+                  iconAlt="下载"
+                  disabled={!selectedEntries.length}
+                  onClickFunc={() => downloadEntries(selectedEntries)}
+                />
+              </ClassicyBalloonHelp>
+              <ClassicyBalloonHelp content="删除选中的项目">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ClassicyIcons.system.desktop.trashEmpty}
+                  iconAlt="删除"
+                  disabled={!selectedEntries.length}
+                  onClickFunc={() => requestDelete(selectedEntries)}
+                />
+              </ClassicyBalloonHelp>
+              <ClassicyBalloonHelp content="重命名选中的项目">
+                <ClassicyBevelButton
+                  bevelWidth="small"
+                  square
+                  icon={ICON_RENAME}
+                  iconAlt="重命名"
+                  disabled={selectedEntries.length !== 1}
+                  onClickFunc={() => {
+                    const t = selectedEntries[0];
+                    if (!t) return;
+                    setDialogValue(t.name);
+                    setDialog({ kind: 'rename', value: t.name, target: t });
+                  }}
+                />
+              </ClassicyBalloonHelp>
+            </ClassicyButtonToolbarGroup>
             <div className="sp-fm-path">
               <ClassicyInput
                 id="fm-path"
@@ -662,7 +919,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
               />
             </div>
             <ClassicyCheckbox id="fm-hidden" checked={showHidden} label="隐藏文件" onClickFunc={setShowHidden} />
-          </div>
+          </ClassicyButtonToolbar>
 
           <ClassicySplitView direction="horizontal" defaultSizes={[26, 74]} minPaneSize={180} className="sp-fm-split">
             <div className="sp-fm-side">
@@ -670,17 +927,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
               {favorites.length === 0 ? (
                 <div className="sp-fm-empty">右键目录可添加收藏</div>
               ) : (
-                favorites.map((f) => (
-                  <div key={f} className="sp-fm-fav">
-                    <button type="button" className="sp-fm-fav-btn" title={f} onClick={() => navigate(f)}>
-                      <img src={ICON} alt="" />
-                      <span>{baseName(f) || f}</span>
-                    </button>
-                    <button type="button" className="sp-fm-fav-del" title="移除收藏" onClick={() => toggleFavorite(f)}>
-                      ×
-                    </button>
-                  </div>
-                ))
+                <ClassicyTree nodes={favNodes} selectionMode="single" selectedIds={[]} onSelectNode={(id) => navigate(id)} />
               )}
               <div className="sp-fm-side-title">目录</div>
               <ClassicyTree
@@ -695,16 +942,31 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
             <ClassicyContextualMenuTarget menuItems={menuItems}>
               <div className="sp-fm-main">
                 <div className="sp-fm-table">
-                  <ClassicyTable
-                    columns={columns}
-                    rows={visibleEntries}
-                    getRowId={(r) => r.path}
-                    selectionMode="multi"
-                    selected={selected}
-                    onSelectionChange={setSelected}
-                    onActivateRow={(_id, row) => openEntry(row)}
-                    defaultSort={{ columnId: 'name' }}
-                  />
+                  {!loading && !error && visibleEntries.length === 0 ? (
+                    <div className="sp-fm-empty sp-fm-empty-dir">此文件夹为空</div>
+                  ) : (
+                    <ClassicyTable
+                      columns={columns}
+                      rows={tableRows}
+                      getRowId={(r) => r.path}
+                      selectionMode="multi"
+                      selected={selected}
+                      onSelectionChange={setSelected}
+                      onActivateRow={(_id, row) => openEntry(row)}
+                      defaultSort={{ columnId: 'name' }}
+                      rowClassName={(_r, sel) => (sel ? 'sp-fm-row-selected' : undefined)}
+                      // 目录行内联展开：首列 disclosure 三角就地预览子目录（双击/回车仍进目录）
+                      rowCanExpand={(r) => {
+                        if (r.type !== 'dir') return false;
+                        const kids = childrenCache.current.get(r.path);
+                        return kids ? kids.some((e) => e.type === 'dir') : true;
+                      }}
+                      getSubRows={(r) => childrenCache.current.get(r.path)}
+                      onToggleRow={(id, open) => {
+                        if (open) void ensureChildren(id);
+                      }}
+                    />
+                  )}
                 </div>
                 {uploads.length > 0 && (
                   <div className="sp-fm-uploads">
@@ -719,15 +981,29 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
                         <span>
                           {fmtBytes(u.loaded)} / {fmtBytes(u.total)}
                         </span>
-                        <button type="button" className="sp-fm-fav-del" title="取消上传" onClick={() => abortRef.current.get(u.key)?.()}>
-                          ×
-                        </button>
+                        <ClassicyBalloonHelp content="取消上传">
+                          <button
+                            type="button"
+                            className="sp-fm-fav-del"
+                            onClick={() => abortRef.current.get(u.key)?.()}
+                          >
+                            ×
+                          </button>
+                        </ClassicyBalloonHelp>
                       </div>
                     ))}
                   </div>
                 )}
                 <div className="sp-fm-status">
-                  <span>{loading ? '读取中…' : error ? `错误：${error}` : current || '根目录列表'}</span>
+                  <span className="sp-fm-status-main">
+                    {loading ? (
+                      <ClassicyProgressBar indeterminate />
+                    ) : error ? (
+                      `错误：${error}`
+                    ) : (
+                      current || '根目录列表'
+                    )}
+                  </span>
                   <span>
                     {visibleEntries.length} 项 · 已选 {selected.length} 项
                   </span>
@@ -748,38 +1024,6 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
           />
         )}
 
-        {dialog && (
-          <div
-            className="sp-dialog-mask"
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget) setDialog(null);
-            }}
-          >
-            <div className="sp-dialog">
-              <div className="sp-dialog-title">
-                {dialog.kind === 'mkdir' ? '新建文件夹' : dialog.kind === 'newfile' ? '新建文本文件' : '重命名'}
-              </div>
-              <div className="sp-dialog-body">
-                <ClassicyInput
-                  id="fm-dialog-name"
-                  key={dialog.kind + dialog.value}
-                  prefillValue={dialog.value}
-                  labelTitle={dialog.kind === 'rename' ? '新名称' : dialog.kind === 'newfile' ? '文件名' : '名称'}
-                  labelPosition="left"
-                  onChangeFunc={(e) => setDialogValue(e.target.value)}
-                  onEnterFunc={() => void submitDialog()}
-                />
-                <div className="sp-dialog-actions">
-                  <ClassicyButton onClickFunc={() => setDialog(null)}>取消</ClassicyButton>
-                  <ClassicyButton isDefault onClickFunc={() => void submitDialog()}>
-                    {dialog.kind === 'rename' ? '重命名' : '创建'}
-                  </ClassicyButton>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         <input
           ref={fileInputRef}
           type="file"
@@ -791,6 +1035,45 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
           }}
         />
       </ClassicyWindow>
+
+      {dialog && (
+        <ClassicyWindow
+          id="fm-dialog"
+          appId={APP_ID}
+          title={dialog.kind === 'mkdir' ? '新建文件夹' : dialog.kind === 'newfile' ? '新建文本文件' : '重命名'}
+          icon={ICON}
+          modal
+          closable={false}
+          zoomable={false}
+          collapsable={false}
+          resizable={false}
+          initialSize={[380, 0]}
+          initialPosition={['center', 'center']}
+        >
+          <ClassicyForm
+            layout="dialog"
+            onSubmitFunc={(e) => {
+              e.preventDefault();
+              void submitDialog();
+            }}
+          >
+            <ClassicyInput
+              id="fm-dialog-name"
+              key={dialog.kind + dialog.value}
+              prefillValue={dialog.value}
+              labelTitle={dialog.kind === 'rename' ? '新名称' : dialog.kind === 'newfile' ? '文件名' : '名称'}
+              labelPosition="left"
+              onChangeFunc={(e) => setDialogValue(e.target.value)}
+            />
+            <ClassicyFormButtonRow>
+              <ClassicyButton onClickFunc={() => setDialog(null)}>取消</ClassicyButton>
+              <ClassicyButton isDefault buttonType="submit">
+                {dialog.kind === 'rename' ? '重命名' : '创建'}
+              </ClassicyButton>
+            </ClassicyFormButtonRow>
+          </ClassicyForm>
+        </ClassicyWindow>
+      )}
 
       {previews.map((pv) => (
         <PreviewWindow
