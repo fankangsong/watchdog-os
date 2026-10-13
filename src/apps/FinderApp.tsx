@@ -23,6 +23,8 @@ import {
   ClassicyTriangle,
   ClassicyWindow,
   dispatch,
+  useClassicyAboutMenu,
+  useClassicyEditMenu,
 } from 'classicy';
 import type { ClassicyMenuItem, ClassicyTableColumn, ClassicyTreeNode } from 'classicy';
 import {
@@ -47,7 +49,7 @@ import { CodeEditor } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 
 const APP_ID = 'srv-finder.app';
-const APP_NAME = 'Finder';
+const APP_NAME = 'Files';
 const MAIN_WIN = 'fm-main';
 const ICON = ClassicyIcons.system.folders.directory;
 const DRIVE_ICON = ClassicyIcons.system.drives.disk;
@@ -259,6 +261,12 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
   const [previews, setPreviews] = useState<FsEntry[]>([]);
   const [uploads, setUploads] = useState<UploadTask[]>([]);
   const [alert, setAlert] = useState<FmAlert | null>(null);
+  // Get Info 属性窗口：显示选中条目（或当前目录）的名称/路径/大小等
+  const [infoEntry, setInfoEntry] = useState<FsEntry | null>(null);
+
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
+  // 路径栏 / 对话框的 ClassicyInput 为标准文本框，编辑命令作用于最后聚焦的文本框
+  const editMenuItem = useClassicyEditMenu('fm');
   const [dialog, setDialog] = useState<FmDialog | null>(null);
   const [dialogValue, setDialogValue] = useState('');
   const [treeVersion, setTreeVersion] = useState(0);
@@ -391,15 +399,24 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
         return next.slice(Math.max(0, next.length - MAX_PREVIEWS));
       });
       const off = (cascadeRef.current++ % 6) * 26;
+      const winId = winIdFor(entry.path);
       dispatch({
         type: 'ClassicyWindowOpen',
         app: { id: APP_ID },
         window: {
-          id: winIdFor(entry.path),
+          id: winId,
           minimumSize: [420, 320],
           size: [720, 520],
           position: [120 + off, 80 + off],
         },
+      });
+      // 窗口关闭后记录仍保留在 classicy store（仅标记 closed），再次 Open 只重置
+      // closed 不聚焦，导致重开的预览窗口被主窗口遮挡。追加 Focus 保证每次打开都
+      // 置顶（与 classicy 内部重开窗口的 Open+Focus 组合一致，对已聚焦窗口无副作用）。
+      dispatch({
+        type: 'ClassicyWindowFocus',
+        app: { id: APP_ID },
+        window: { id: winId },
       });
     },
     [navigate]
@@ -754,33 +771,65 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
   const appMenu = useMemo(
     () => [
       {
+        id: 'fm-app',
+        title: APP_NAME,
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ICON),
+        ],
+      },
+      {
         id: 'fm-file',
-        title: '文件',
+        title: 'File',
         menuChildren: [
           {
             id: 'fm-m-newdir',
-            title: '新建文件夹…',
+            title: 'New Folder…',
+            // 无当前目录时不可执行（对齐右键菜单语义）：保留菜单项置灰而非隐藏
+            disabled: !current,
             onClickFunc: () => {
               setDialogValue('');
               setDialog({ kind: 'mkdir', value: '' });
             },
           },
-          { id: 'fm-m-newfile', title: '新建文本文件…', onClickFunc: openNewFileDialog },
-          { id: 'fm-m-upload', title: '上传文件…', onClickFunc: () => fileInputRef.current?.click() },
-          { id: 'fm-m-sep' },
-          quitMenuItem(APP_ID, APP_NAME, ICON),
+          { id: 'fm-m-newfile', title: 'New Text File…', disabled: !current, onClickFunc: openNewFileDialog },
+          { id: 'fm-m-upload', title: 'Upload File…', disabled: !current, onClickFunc: () => fileInputRef.current?.click() },
+          { id: 'spacer' },
+          {
+            id: 'fm-m-info',
+            title: 'Get Info…',
+            // 选中条目或当前目录均可查看属性；根列表且无选中时置灰（保留项不隐藏）
+            disabled: selectedEntries.length === 0 && !current,
+            onClickFunc: () => {
+              if (selectedEntries.length > 0) {
+                setInfoEntry(selectedEntries[0]);
+              } else if (current) {
+                setInfoEntry({
+                  name: baseName(current) || current,
+                  path: current,
+                  type: 'dir',
+                  size: 0,
+                  mtime: 0,
+                  mode: '',
+                  previewable: 'none',
+                });
+              }
+            },
+          },
         ],
       },
+      editMenuItem,
       {
         id: 'fm-view',
-        title: '显示',
+        title: 'View',
         menuChildren: [
-          { id: 'fm-m-hidden', title: '显示隐藏文件', checked: showHidden, onClickFunc: () => setShowHidden((v) => !v) },
-          { id: 'fm-m-refresh', title: '刷新', onClickFunc: () => void fetchDir(current) },
+          { id: 'fm-m-hidden', title: 'Show Hidden Files', checked: showHidden, onClickFunc: () => setShowHidden((v) => !v) },
+          { id: 'fm-m-refresh', title: 'Refresh', onClickFunc: () => void fetchDir(current) },
         ],
       },
     ],
-    [showHidden, current, fetchDir, openNewFileDialog]
+    [aboutMenuItem, editMenuItem, showHidden, current, selectedEntries, fetchDir, openNewFileDialog]
   );
 
   return (
@@ -1086,6 +1135,51 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
           onLogout={handleLogout}
         />
       ))}
+      {infoEntry && (
+        <ClassicyWindow
+          id="fm-info"
+          appId={APP_ID}
+          title={`Info · ${infoEntry.name}`}
+          icon={iconFor(infoEntry)}
+          closable
+          resizable
+          scrollable={false}
+          initialSize={[460, 250]}
+          initialPosition={['center', 'center']}
+          minimumSize={[380, 200]}
+          onCloseFunc={() => setInfoEntry(null)}
+        >
+          <div className="sp-fm-info">
+            <div className="sp-fm-info-row">
+              <span className="sp-fm-info-label">Name</span>
+              <span className="sp-fm-info-value">{infoEntry.name}</span>
+            </div>
+            <div className="sp-fm-info-row">
+              <span className="sp-fm-info-label">Path</span>
+              <span className="sp-fm-info-value sp-fm-info-path" title={infoEntry.path}>
+                {infoEntry.path}
+              </span>
+            </div>
+            <div className="sp-fm-info-row">
+              <span className="sp-fm-info-label">Kind</span>
+              <span className="sp-fm-info-value">{infoEntry.type === 'dir' ? 'Folder' : 'File'}</span>
+            </div>
+            <div className="sp-fm-info-row">
+              <span className="sp-fm-info-label">Size</span>
+              <span className="sp-fm-info-value">{infoEntry.type === 'dir' ? '—' : fmtBytes(infoEntry.size)}</span>
+            </div>
+            <div className="sp-fm-info-row">
+              <span className="sp-fm-info-label">Modified</span>
+              <span className="sp-fm-info-value">{infoEntry.mtime ? fmtDate(infoEntry.mtime) : '—'}</span>
+            </div>
+            <div className="sp-fm-info-row">
+              <span className="sp-fm-info-label">Permissions</span>
+              <span className="sp-fm-info-value">{infoEntry.mode || '—'}</span>
+            </div>
+          </div>
+        </ClassicyWindow>
+      )}
+      {aboutWindow}
     </ClassicyApp>
   );
 }
@@ -1145,63 +1239,103 @@ function PreviewWindow({
   const isMd = entry.previewable === 'markdown';
   const canEdit = entry.previewable === 'text' || isMd;
 
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
+
+  // 预览窗口聚焦时的专属菜单：编辑/下载/视图切换自窗口内工具栏迁入菜单栏
+  const appMenu = useMemo(
+    () => [
+      {
+        id: 'fm-pv-app',
+        title: APP_NAME,
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ICON),
+        ],
+      },
+      {
+        id: 'fm-pv-file',
+        title: 'File',
+        menuChildren: [
+          {
+            id: 'fm-pv-m-edit',
+            title: 'Open with Editor',
+            // 仅文本/Markdown 可编辑：不可用时保留菜单项置灰而非隐藏
+            disabled: !canEdit,
+            onClickFunc: () => onEdit(entry),
+          },
+          { id: 'fm-pv-m-download', title: 'Download', onClickFunc: onDownload },
+          { id: 'spacer' },
+          { id: 'fm-pv-m-close', title: 'Close Window', onClickFunc: onClose },
+        ],
+      },
+      {
+        id: 'fm-pv-view',
+        title: 'View',
+        menuChildren: [
+          {
+            id: 'fm-pv-m-rendered',
+            title: 'Rendered View',
+            disabled: !isMd,
+            checked: isMd && !source,
+            onClickFunc: () => setSource(false),
+          },
+          {
+            id: 'fm-pv-m-source',
+            title: 'Source View',
+            disabled: !isMd,
+            checked: isMd && source,
+            onClickFunc: () => setSource(true),
+          },
+        ],
+      },
+    ],
+    [aboutMenuItem, canEdit, isMd, source, entry, onEdit, onDownload, onClose]
+  );
+
   return (
-    <ClassicyWindow
-      id={winId}
-      appId={APP_ID}
-      title={`预览 · ${entry.name}`}
-      icon={iconFor(entry)}
-      closable
-      resizable
-      zoomable
-      collapsable
-      scrollable={false}
-      initialSize={[720, 520]}
-      initialPosition={['center', 'center']}
-      minimumSize={[420, 320]}
-      onCloseFunc={onClose}
-    >
-      <div className="sp-fm-preview">
-        <div className="sp-fm-preview-toolbar">
-          <span className="sp-dim" title={entry.path}>
-            {entry.path}
-          </span>
-          {isMd && (
-            <ClassicyButton buttonSize="small" onClickFunc={() => setSource((v) => !v)}>
-              {source ? '渲染视图' : '源码视图'}
-            </ClassicyButton>
+    <>
+      <ClassicyWindow
+        id={winId}
+        appId={APP_ID}
+        title={`预览 · ${entry.name}`}
+        icon={iconFor(entry)}
+        closable
+        resizable
+        zoomable
+        collapsable
+        scrollable={false}
+        initialSize={[720, 520]}
+        initialPosition={['center', 'center']}
+        minimumSize={[420, 320]}
+        appMenu={appMenu}
+        onCloseFunc={onClose}
+      >
+        <div className="sp-fm-preview">
+          {state.loading ? (
+            <div className="sp-fm-preview-body">
+              <span className="sp-dim">加载中…</span>
+            </div>
+          ) : state.error ? (
+            <div className="sp-fm-preview-body">
+              <span className="sp-pulse">{state.error}</span>
+            </div>
+          ) : entry.previewable === 'image' ? (
+            <div className="sp-fm-preview-body sp-fm-img">
+              <img src={fsRawUrl(entry.path)} alt={entry.name} />
+            </div>
+          ) : isMd && !source ? (
+            <div className="sp-fm-preview-body sp-fm-md">
+              <MarkdownPreview source={state.content} />
+            </div>
+          ) : (
+            <div className="sp-fm-preview-body sp-fm-code">
+              <CodeEditor path={entry.path} value={state.content} readOnly theme="dracula" fontSize={13} />
+            </div>
           )}
-          {canEdit && (
-            <ClassicyButton buttonSize="small" onClickFunc={() => onEdit(entry)}>
-              编辑
-            </ClassicyButton>
-          )}
-          <ClassicyButton buttonSize="small" onClickFunc={onDownload}>
-            下载
-          </ClassicyButton>
         </div>
-        {state.loading ? (
-          <div className="sp-fm-preview-body">
-            <span className="sp-dim">加载中…</span>
-          </div>
-        ) : state.error ? (
-          <div className="sp-fm-preview-body">
-            <span className="sp-pulse">{state.error}</span>
-          </div>
-        ) : entry.previewable === 'image' ? (
-          <div className="sp-fm-preview-body sp-fm-img">
-            <img src={fsRawUrl(entry.path)} alt={entry.name} />
-          </div>
-        ) : isMd && !source ? (
-          <div className="sp-fm-preview-body sp-fm-md">
-            <MarkdownPreview source={state.content} />
-          </div>
-        ) : (
-          <div className="sp-fm-preview-body sp-fm-code">
-            <CodeEditor path={entry.path} value={state.content} readOnly theme="dracula" fontSize={13} />
-          </div>
-        )}
-      </div>
-    </ClassicyWindow>
+      </ClassicyWindow>
+      {aboutWindow}
+    </>
   );
 }

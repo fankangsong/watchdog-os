@@ -97,7 +97,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
       <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg}>
         <MonitorApp onLogout={onLogout} />
         <DockerApp onLogout={onLogout} />
-        <ImcolinApp onLogout={onLogout} />
+        <ImcolinApp />
         <TerminalApp onLogout={onLogout} />
         <FinderApp onLogout={onLogout} />
         <EditorApp onLogout={onLogout} />

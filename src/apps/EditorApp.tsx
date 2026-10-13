@@ -12,6 +12,7 @@ import {
   ClassicyPopUpMenu,
   ClassicySplitView,
   ClassicyWindow,
+  useClassicyAboutMenu,
 } from 'classicy';
 import type { ClassicyMenuItem } from 'classicy';
 import { fsRead, fsWrite, logout, Unauthorized } from '../api';
@@ -90,6 +91,8 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
 
   const viewRef = useRef<EditorView | null>(null);
   const closeResolveRef = useRef<((ok: boolean) => void) | null>(null);
+
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(EDITOR_APP_ID, EDITOR_APP_NAME, EDITOR_ICON);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -219,43 +222,51 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
   const appMenu: ClassicyMenuItem[] = useMemo(
     () => [
       {
+        id: 'ed-app',
+        title: EDITOR_APP_NAME,
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          { id: 'ed-m-prefs', title: 'Editor Settings…', onClickFunc: () => setSettingsOpen(true) },
+          { id: 'spacer' },
+          quitMenuItem(EDITOR_APP_ID, EDITOR_APP_NAME, EDITOR_ICON),
+        ],
+      },
+      {
         id: 'ed-file',
-        title: '文件',
+        title: 'File',
         menuChildren: [
           {
             id: 'ed-m-open',
-            title: '打开…',
-            keyboardShortcut: 'Cmd+O',
+            title: 'Open…',
+            keyboardShortcut: '⌘O',
             onClickFunc: () => {
               setOpenInput(path);
               setOpenDialog(true);
             },
           },
-          { id: 'ed-m-save', title: '保存', keyboardShortcut: 'Cmd+S', onClickFunc: () => void save() },
-          { id: 'ed-m-sep' },
-          quitMenuItem(EDITOR_APP_ID, EDITOR_APP_NAME, EDITOR_ICON),
+          { id: 'ed-m-save', title: 'Save', keyboardShortcut: '⌘S', onClickFunc: () => void save() },
         ],
       },
       {
+        // CodeMirror 自管撤销/重做栈，非标准文本框，按规范例外条款自建并内联实现
         id: 'ed-edit',
-        title: '编辑',
+        title: 'Edit',
         menuChildren: [
-          { id: 'ed-m-undo', title: '撤销', keyboardShortcut: 'Cmd+Z', onClickFunc: () => viewRef.current && undo(viewRef.current) },
-          { id: 'ed-m-redo', title: '重做', keyboardShortcut: 'Cmd+Shift+Z', onClickFunc: () => viewRef.current && redo(viewRef.current) },
+          { id: 'ed-m-undo', title: 'Undo', keyboardShortcut: '⌘Z', onClickFunc: () => viewRef.current && undo(viewRef.current) },
+          { id: 'ed-m-redo', title: 'Redo', keyboardShortcut: '⇧⌘Z', onClickFunc: () => viewRef.current && redo(viewRef.current) },
         ],
       },
       {
-        id: 'ed-settings',
-        title: '设置',
+        id: 'ed-view',
+        title: 'View',
         menuChildren: [
-          { id: 'ed-m-wrap', title: '自动换行', checked: prefs.wordWrap, onClickFunc: () => setPrefs((p) => ({ ...p, wordWrap: !p.wordWrap })) },
-          { id: 'ed-m-preview', title: '显示预览', checked: prefs.showPreview, onClickFunc: () => setPrefs((p) => ({ ...p, showPreview: !p.showPreview })) },
-          { id: 'spacer' },
-          { id: 'ed-m-prefs', title: '编辑器设置…', onClickFunc: () => setSettingsOpen(true) },
+          { id: 'ed-m-wrap', title: 'Word Wrap', checked: prefs.wordWrap, onClickFunc: () => setPrefs((p) => ({ ...p, wordWrap: !p.wordWrap })) },
+          { id: 'ed-m-preview', title: 'Show Preview', checked: prefs.showPreview, onClickFunc: () => setPrefs((p) => ({ ...p, showPreview: !p.showPreview })) },
         ],
       },
     ],
-    [path, save, prefs.wordWrap, prefs.showPreview]
+    [aboutMenuItem, path, save, prefs.wordWrap, prefs.showPreview]
   );
 
   const editorNode = (
@@ -435,6 +446,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
           </div>
         )}
       </ClassicyWindow>
+      {aboutWindow}
     </ClassicyApp>
   );
 }

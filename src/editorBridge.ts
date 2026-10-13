@@ -4,7 +4,7 @@
 import { ClassicyIcons, dispatch } from 'classicy';
 
 export const EDITOR_APP_ID = 'srv-editor.app';
-export const EDITOR_APP_NAME = 'Text Editor';
+export const EDITOR_APP_NAME = 'Editor';
 export const EDITOR_ICON = ClassicyIcons.applications.simpletext.app;
 export const EDITOR_WIN_ID = 'editor-main';
 export const EDITOR_OPEN_EVENT = 'srv-editor:open';

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { ClassicyApp, ClassicyControlGroup, ClassicyIcons, ClassicyWindow } from 'classicy';
+import { ClassicyApp, ClassicyControlGroup, ClassicyIcons, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
 import { fetchDocker, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
 import { DockerTable } from '../components/DockerTable';
@@ -12,6 +12,8 @@ const APP_NAME = 'Docker';
 export function DockerApp({ onLogout }: { onLogout?: () => void }) {
   const poll = usePolling(fetchDocker, 5000);
 
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal);
+
   useEffect(() => {
     if (poll.error instanceof Unauthorized) onLogout?.();
   }, [poll.error, onLogout]);
@@ -21,15 +23,14 @@ export function DockerApp({ onLogout }: { onLogout?: () => void }) {
       {
         id: 'docker-menu',
         title: APP_NAME,
-        menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal)],
-      },
-      {
-        id: 'sys',
-        title: 'System',
-        menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: () => onLogout?.() }],
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal),
+        ],
       },
     ],
-    [onLogout]
+    [aboutMenuItem]
   );
 
   return (
@@ -53,6 +54,7 @@ export function DockerApp({ onLogout }: { onLogout?: () => void }) {
           <DockerTable state={poll.data} />
         </ClassicyControlGroup>
       </ClassicyWindow>
+      {aboutWindow}
     </ClassicyApp>
   );
 }

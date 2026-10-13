@@ -6,6 +6,7 @@ import {
   ClassicyTable,
   type ClassicyTableColumn,
   ClassicyWindow,
+  useClassicyAboutMenu,
 } from 'classicy';
 import { fetchPrinter, Unauthorized, type PrinterInfo, type PrinterJob, type PrinterState } from '../api';
 import { usePolling } from '../hooks/usePolling';
@@ -137,6 +138,8 @@ function JobTable({ jobs, showCompletedAt }: { jobs: PrinterJob[]; showCompleted
 export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
   const poll = usePolling(fetchPrinter, 5000);
 
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.system.printer);
+
   useEffect(() => {
     if (poll.error instanceof Unauthorized) onLogout?.();
   }, [poll.error, onLogout]);
@@ -146,15 +149,14 @@ export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
       {
         id: 'printer-menu',
         title: APP_NAME,
-        menuChildren: [quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.printer)],
-      },
-      {
-        id: 'sys',
-        title: 'System',
-        menuChildren: [{ id: 'logout', title: 'Sign Out', onClickFunc: () => onLogout?.() }],
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.printer),
+        ],
       },
     ],
-    [onLogout]
+    [aboutMenuItem]
   );
 
   const state = poll.data;
@@ -186,6 +188,7 @@ export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
           <JobTable jobs={state?.history ?? []} showCompletedAt />
         </ClassicyControlGroup>
       </ClassicyWindow>
+      {aboutWindow}
     </ClassicyApp>
   );
 }

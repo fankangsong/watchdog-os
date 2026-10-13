@@ -64,12 +64,12 @@ node server.js
 
 `server.js` 读取 `config.json`，可用环境变量 / `.env` 覆盖：
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `PORT` | 监听端口 | `3000` |
-| `PASSWORD` | 访问密码（REST + 静态页面统一鉴权） | `config.json` 中的 `password` |
-| `BASE_PATH` | 子路径前缀 | `/` |
-| `diskMounts` | 监控的磁盘挂载点 | 按平台默认 |
+| 变量         | 说明                                | 默认值                        |
+| ------------ | ----------------------------------- | ----------------------------- |
+| `PORT`       | 监听端口                            | `3000`                        |
+| `PASSWORD`   | 访问密码（REST + 静态页面统一鉴权） | `config.json` 中的 `password` |
+| `BASE_PATH`  | 子路径前缀                          | `/`                           |
+| `diskMounts` | 监控的磁盘挂载点                    | 按平台默认                    |
 
 其余可配置项：`collectInterval`（2000ms）、`dockerInterval`（5000ms）、`processInterval`（10000ms）、`processTopN`（50）。
 
@@ -146,14 +146,14 @@ dist/                # 构建产物（勿手动修改）
 
 ### 各菜单组的标准内容（新功能按类别归位）
 
-| 菜单组 | 应放入 | 参考示例（Finder） |
-|---|---|---|
-| 应用名菜单（第一组） | `About X`（`useClassicyAboutMenu` 的 `aboutMenuItem`，自动提升进 Apple 菜单）、spacer、`Preferences…`、spacer、`Quit`（`quitMenuItem`） | About Finder / Quit |
-| File | 文档与对象生命周期：New / Open… / Save / Close / Rename… / 上传下载等 | Close Window、Close All Windows |
-| Edit | 文本与选择：Undo / Redo / Cut / Copy / Paste / Select All / Find。**有文本输入的 app 直接用 `useClassicyEditMenu(idPrefix)`**（作用于最后聚焦的文本框）；仅当操作对象不是文本框（如 Finder 的文件选择）才自建并内联实现 | Select All ⌘A（仅列表视图可用时 enabled）、spacer、Preferences… |
-| View | 显示方式：视图切换（View as Icons / View as List）、显示/隐藏元素（Show Hidden Files）、排序、Refresh、缩放。视图切换组内互斥项用 `checked` 标记当前项 | View as Icons / View as List |
-| 应用特有菜单 | 仅当上述分组都不合适（如 Terminal 的 Font Size / Font Family、Chat 的会话管理），放在 View 之后、Help 之前 | — |
-| Help（系统渲染） | 经 `useClassicyHelpMenu` 注册：帮助文档、快捷键说明等 | Show/Hide Balloon Help |
+| 菜单组               | 应放入                                                                                                                                                                                                                  | 参考示例（Finder）                                              |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 应用名菜单（第一组） | `About X`（`useClassicyAboutMenu` 的 `aboutMenuItem`，自动提升进 Apple 菜单）、spacer、`Preferences…`、spacer、`Quit`（`quitMenuItem`）                                                                                 | About Finder / Quit                                             |
+| File                 | 文档与对象生命周期：New / Open… / Save / Close / Rename… / 上传下载等                                                                                                                                                   | Close Window、Close All Windows                                 |
+| Edit                 | 文本与选择：Undo / Redo / Cut / Copy / Paste / Select All / Find。**有文本输入的 app 直接用 `useClassicyEditMenu(idPrefix)`**（作用于最后聚焦的文本框）；仅当操作对象不是文本框（如 Finder 的文件选择）才自建并内联实现 | Select All ⌘A（仅列表视图可用时 enabled）、spacer、Preferences… |
+| View                 | 显示方式：视图切换（View as Icons / View as List）、显示/隐藏元素（Show Hidden Files）、排序、Refresh、缩放。视图切换组内互斥项用 `checked` 标记当前项                                                                  | View as Icons / View as List                                    |
+| 应用特有菜单         | 仅当上述分组都不合适（如 Terminal 的 Font Size / Font Family、Chat 的会话管理），放在 View 之后、Help 之前                                                                                                              | —                                                               |
+| Help（系统渲染）     | 经 `useClassicyHelpMenu` 注册：帮助文档、快捷键说明等                                                                                                                                                                   | Show/Hide Balloon Help                                          |
 
 - 关键 Hook / 工具（均从 `classicy` 导入）：`useClassicyAboutMenu`（返回 `{ aboutMenuItem, aboutWindow }`，`aboutWindow` 需渲染进组件树）、`useClassicyEditMenu`、`useClassicyHelpMenu`、`useClassicyWindowClose`；项目封装 `src/quitMenuItem.ts`（Quit 项，走 `ClassicyAppClose`）。菜单关闭窗口用 `closeWindowMenuItemHelper` / `closeAllWindowsMenuItemHelper`。
 
@@ -170,26 +170,37 @@ dist/                # 构建产物（勿手动修改）
 ### 新增应用菜单的最小模板
 
 ```tsx
-const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
+const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(
+  APP_ID,
+  APP_NAME,
+  ICON,
+);
 
-const appMenu: ClassicyMenuItem[] = useMemo(() => [
-  {
-    id: 'x-menu',                    // 1. 应用名菜单
-    title: APP_NAME,
-    menuChildren: [
-      aboutMenuItem,                 // 自动提升进 Apple 菜单
-      { id: 'spacer' },
-      quitMenuItem(APP_ID, APP_NAME, ICON),
-    ],
-  },
-  {
-    id: 'x-file',                    // 2. File：按需
-    title: 'File',
-    menuChildren: [/* … */],
-  },
-  // 3. Edit（有文本输入则用 hook）：useClassicyEditMenu('x') 返回的项
-  // 4. View / 应用特有菜单：按需
-], [/* 依赖 */]);
+const appMenu: ClassicyMenuItem[] = useMemo(
+  () => [
+    {
+      id: "x-menu", // 1. 应用名菜单
+      title: APP_NAME,
+      menuChildren: [
+        aboutMenuItem, // 自动提升进 Apple 菜单
+        { id: "spacer" },
+        quitMenuItem(APP_ID, APP_NAME, ICON),
+      ],
+    },
+    {
+      id: "x-file", // 2. File：按需
+      title: "File",
+      menuChildren: [
+        /* … */
+      ],
+    },
+    // 3. Edit（有文本输入则用 hook）：useClassicyEditMenu('x') 返回的项
+    // 4. View / 应用特有菜单：按需
+  ],
+  [
+    /* 依赖 */
+  ],
+);
 
 // 组件树内渲染 {aboutWindow}；帮助项经 useClassicyHelpMenu 注册
 ```
