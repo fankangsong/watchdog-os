@@ -370,6 +370,12 @@ html, body, #root {
 .sp-chat-err { color: #c00; white-space: pre-wrap; word-break: break-word; }
 .sp-chat-cursor { color: #333; animation: sp-chat-blink 1s steps(1) infinite; }
 @keyframes sp-chat-blink { 50% { opacity: 0; } }
+/* 等待状态块：请求已发出但尚无可见正文时的「思考中」面板（浅色内凹 + 边框脉冲 + 闪烁光标） */
+.sp-chat-thinking { display: flex; flex-direction: column; gap: 3px; padding: 6px 9px; background: rgba(0, 0, 0, 0.04); border: 1px dashed rgba(0, 0, 0, 0.3); animation: sp-chat-thinking-pulse 1.6s ease-in-out infinite; }
+.sp-chat-thinking-title { font-size: 12px; font-weight: bold; color: #333; }
+.sp-chat-thinking-caret { margin-left: 2px; color: #333; animation: sp-chat-blink 1s steps(1) infinite; }
+.sp-chat-thinking-tool { font-size: 11px; font-style: italic; color: #555; }
+@keyframes sp-chat-thinking-pulse { 50% { border-color: rgba(0, 0, 0, 0.55); background: rgba(0, 0, 0, 0.08); } }
 .sp-chat-input { flex: 0 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid rgba(0, 0, 0, 0.2); background: #ece9e2; }
 .sp-chat-textarea { flex: 1 1 auto; box-sizing: border-box; resize: none; height: 56px; padding: 4px 6px; font: inherit; font-size: 13px; line-height: 1.5; }
 .sp-chat-disabled { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; color: #555; font-size: 13px; }

@@ -158,8 +158,8 @@ async function postCompletions(H, payload) {
     child.kill('SIGTERM');
   }
 
-  /* ---- 实例 2：未启用 → 503（status 仍 200）---- */
-  child = startServer({});
+  /* ---- 实例 2：未启用 → 503（status 仍 200）；显式禁用，隔离本机 config.json 的 hermes.enabled=true ---- */
+  child = startServer({ HERMES_ENABLED: '0' });
   try {
     ok('server2 health', await waitHealth());
     const H2 = await login();
