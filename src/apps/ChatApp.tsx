@@ -63,6 +63,12 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // 等待态：请求已发出但尚无可见正文时，在 assistant 气泡内显示「思考中」块
+  // thinkStart 为等待起点时间戳（null=非等待态）；thinkSec 为秒表显示值
+  const [activeAiId, setActiveAiId] = useState<string | null>(null);
+  const [thinkStart, setThinkStart] = useState<number | null>(null);
+  const [thinkSec, setThinkSec] = useState(0);
+  const [thinkTool, setThinkTool] = useState('');
 
   // 自动滚动：用户上滚（离底超过阈值）时暂停拉底，回到底部附近自动恢复
   const listRef = useRef<HTMLDivElement>(null);
@@ -110,6 +116,15 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // 等待态秒表：每秒刷新「已用 Ns」；等待态结束或组件卸载时清理定时器
+  useEffect(() => {
+    if (thinkStart === null) return;
+    const tick = () => setThinkSec(Math.floor((Date.now() - thinkStart) / 1000));
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [thinkStart]);
+
   const onListScroll = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
@@ -133,28 +148,51 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     setMessages((prev) => [...prev, userBubble, aiBubble]);
     setInput('');
     setStreaming(true);
+    // 进入等待态：显示「思考中 · 已用 Ns」直到首条正文到达
+    setActiveAiId(aiBubble.id);
+    setThinkStart(Date.now());
+    setThinkSec(0);
+    setThinkTool('');
     const ac = new AbortController();
     abortRef.current = ac;
 
     const update = (patch: Partial<ChatBubble>) =>
       setMessages((prev) => prev.map((b) => (b.id === aiBubble.id ? { ...b, ...patch } : b)));
 
+    // 是否已收到首条正文 delta（到达后结束等待态，后续 tool.progress 回退到气泡内小状态行）
+    let gotContent = false;
+
     await streamChat({
       messages: apiMessages,
       signal: ac.signal,
-      onDelta: (t) =>
+      onDelta: (t) => {
+        if (!gotContent) {
+          gotContent = true;
+          setThinkStart(null);
+          setThinkTool('');
+        }
         setMessages((prev) =>
           prev.map((b) => (b.id === aiBubble.id ? { ...b, content: b.content + t } : b))
-        ),
+        );
+      },
       onReasoning: (t) =>
         setMessages((prev) =>
           prev.map((b) => (b.id === aiBubble.id ? { ...b, reasoning: (b.reasoning ?? '') + t } : b))
         ),
-      onToolProgress: (d) => update({ tool: toolLabel(d) }),
+      onToolProgress: (d) => {
+        const label = toolLabel(d);
+        update({ tool: label });
+        // 等待期（尚无正文）的工具进度提升到「思考中」块内展示
+        if (!gotContent) setThinkTool(label);
+      },
       onDone: () => update({ tool: undefined }),
       onError: (e) => update({ tool: undefined, error: e.message }),
     });
+    // 流结束（[DONE] / 出错 / 主动停止）统一兜底清理等待态，不残留「思考中」
     setStreaming(false);
+    setThinkStart(null);
+    setThinkTool('');
+    setActiveAiId(null);
     abortRef.current = null;
   }, [input, messages, streaming, state]);
 
@@ -248,6 +286,15 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
                       <div className="sp-chat-user-text">{b.content}</div>
                     ) : b.content ? (
                       <MarkdownPreview source={b.content} />
+                    ) : b.id === activeAiId && thinkStart !== null ? (
+                      // 等待状态块：请求已发出但尚无可见正文
+                      <div className="sp-chat-thinking">
+                        <div className="sp-chat-thinking-title">
+                          思考中 · 已用 {thinkSec}s
+                          <span className="sp-chat-thinking-caret">▌</span>
+                        </div>
+                        {thinkTool && <div className="sp-chat-thinking-tool">{thinkTool}</div>}
+                      </div>
                     ) : (
                       streaming && <span className="sp-chat-cursor">▌</span>
                     )}
