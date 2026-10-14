@@ -160,7 +160,10 @@ function proxyTerminalWs(req, clientSocket, search) {
   const upstream = net.connect(cfg.terminal.ttydPort, '127.0.0.1', () => {
     const h = Object.assign({}, req.headers);
     h.host = `127.0.0.1:${cfg.terminal.ttydPort}`;
-    delete h.cookie; // 不向 ttyd 泄露会话 Cookie
+    // 不向 ttyd 泄露任何会话凭据（纵深防御：服务端鉴权只用 Cookie，这些头本不该出现）
+    delete h.cookie;
+    delete h.authorization;
+    delete h['x-auth-token'];
     let head = `GET /ws${search || ''} HTTP/1.1\r\n`;
     for (const [k, v] of Object.entries(h)) head += `${k}: ${v}\r\n`;
     head += '\r\n';

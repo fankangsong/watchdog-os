@@ -692,7 +692,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
                 <div className="sp-chat-disabled-tip">
                   {detail}
                   <br />
-                  请确认服务端 config.json 已启用聊天代理后重试。
+                  请确认服务端 .env 已启用聊天代理（HERMES_ENABLED=true）后重试。
                 </div>
                 <ClassicyButton buttonSize="small" onClickFunc={loadStatus}>
                   重试

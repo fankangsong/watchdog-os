@@ -6,3 +6,10 @@ data/
 *.log
 .DS_Store
 tools/ttyd.exe
+# 页面无障碍快照可能含已填写的明文口令，禁止入库
+login.yaml
+
+.trae/
+.codebuddy/
+.workbuddy/
+.playwright-cli/

@@ -28,6 +28,7 @@ function verifyJwt(token) {
     const parts = String(token).split('.');
     if (parts.length !== 3) return null;
     const [header, body, sig] = parts;
+    // 固定用 HS256 重算，不读取 header.alg：`alg:none` 与 RS256→HS256 混淆攻击均不成立
     const expect = crypto
       .createHmac('sha256', JWT_SECRET)
       .update(header + '.' + body)
@@ -36,21 +37,23 @@ function verifyJwt(token) {
       return null;
     }
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-    if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    // exp 必须是有限数字：非数字（含字符串 'abc'）比较会得到 NaN 而被判为「未过期」，须显式拦掉
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) return null;
+    if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch {
     return null;
   }
 }
 
-/** 从 cookie / Bearer / x-auth-token 取 JWT 校验 */
+/**
+ * 从 Cookie 取 JWT 校验。
+ * 安全约定：只认 HttpOnly Cookie，不再接受 x-auth-token / Authorization: Bearer ——
+ * 令牌不应脱离浏览器使用（可被脚本/curl 直接复用），也是将来引入 CORS 时的隐患。
+ * 解析异常视为未通过（parseCookies 已保证不抛异常）。
+ */
 function checkAuth(req) {
-  const token =
-    parseCookies(req)[COOKIE_NAME] ||
-    req.headers['x-auth-token'] ||
-    (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '') ||
-    '';
-  return !!verifyJwt(token);
+  return !!verifyJwt(parseCookies(req)[COOKIE_NAME] || '');
 }
 
 module.exports = { b64url, signJwt, verifyJwt, checkAuth };

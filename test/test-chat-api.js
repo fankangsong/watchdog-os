@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Hermes 聊天代理 API 冒烟测试：零依赖。先起本地「模拟 hermes」OpenAI 兼容上游（node:http），
- * 再 spawn server.js 子进程（HERMES_* 环境变量注入），依次验证：
+ * 再 spawn server/index.js 子进程（HERMES_* 环境变量注入），依次验证：
  * 未鉴权 401 / status 信息接口（不含 apiKey）/ 非流式透传 + model 注入 / 流式 SSE 透传 /
  * 上游错误透传 / 未启用 503 / 上游不可达 503 / 上游超时 504。 */
 'use strict';
@@ -14,6 +14,11 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const MOCK_BASE = `http://127.0.0.1:${MOCK_PORT}`;
 const API_KEY = 'test-key-123';
 const UNREACHABLE = 'http://127.0.0.1:59997'; // 无监听端口 → 连接拒绝
+/* 项目根：入口脚本与子进程 cwd 都必须指向它（config.js 的 diskMounts 缺省值取自 process.cwd()） */
+const ROOT = path.join(__dirname, '..');
+const PASSWORD = process.env.PASSWORD || 'test123';
+/* JWT 签名密钥为必配项（≥32 字节），自起服务时必须注入，否则服务端 fail-fast 退出 */
+const JWT_SECRET = process.env.JWT_SECRET || 'test-only-jwt-secret-0123456789abcdef0123456789';
 
 let passed = 0;
 let failed = 0;
@@ -39,10 +44,10 @@ async function waitHealth() {
 }
 
 function startServer(extraEnv) {
-  // server.js 用脚本自身目录的绝对路径启动，cwd 固定为项目根；显式 BASE_PATH=/ 保证路由可预测
-  return spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-    cwd: __dirname,
-    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123', BASE_PATH: '/', ...extraEnv },
+  // 入口脚本用项目根的绝对路径启动，cwd 固定为项目根；显式 BASE_PATH=/ 保证路由可预测
+  return spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(PORT), PASSWORD, JWT_SECRET, BASE_PATH: '/', ...extraEnv },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
 }
@@ -51,10 +56,10 @@ async function login() {
   const r = await fetch(`${BASE}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password: 'test123' }),
+    body: JSON.stringify({ password: PASSWORD }),
   });
-  const { token } = await r.json();
-  return { authorization: `Bearer ${token}` };
+  // 只认 HttpOnly Cookie：取 Set-Cookie 的 name=value 段作为后续请求头
+  return { Cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
 }
 
 /* ---------------- 模拟 hermes：OpenAI 兼容上游，记录请求供断言 ---------------- */
@@ -181,7 +186,7 @@ async function postCompletions(H, payload) {
     child.kill('SIGTERM');
   }
 
-  /* ---- 实例 2：未启用 → 503（status 仍 200）；显式禁用，隔离本机 config.json 的 hermes.enabled=true ---- */
+  /* ---- 实例 2：未启用 → 503（status 仍 200）；显式禁用，隔离本机 .env 的 HERMES_ENABLED=true ---- */
   child = startServer({ HERMES_ENABLED: '0' });
   try {
     ok('server2 health', await waitHealth());

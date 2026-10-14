@@ -8,7 +8,7 @@
 
 const crypto = require('crypto');
 const os = require('os');
-const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, SPA_MODE } = require('./config');
+const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, SPA_MODE, COOKIE_SECURE_MODE, ORIGIN_ALLOW_LIST } = require('./config');
 const { send, redirect, safeEqual, readBody } = require('./lib/http');
 const { signJwt, checkAuth } = require('./lib/auth');
 const { state } = require('./api/metrics');
@@ -17,6 +17,36 @@ const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { fsRoute } = require('./api/fs');
+
+/**
+ * 本次登录响应是否为会话 Cookie 附加 Secure 属性（COOKIE_SECURE 三态：auto / always / never）。
+ * auto：仅当请求本身走 HTTPS 时附加——覆盖 Nginx 等反代终结 TLS（X-Forwarded-Proto / X-Forwarded-Ssl），
+ * 同时避免内网纯 HTTP 部署因 Secure Cookie 被浏览器直接丢弃而出现「登录成功但后续全部 401」。
+ */
+function cookieSecureFor(req) {
+  if (COOKIE_SECURE_MODE === 'always') return true;
+  if (COOKIE_SECURE_MODE === 'never') return false;
+  if (req.socket && req.socket.encrypted) return true;
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (proto === 'https') return true;
+  return String(req.headers['x-forwarded-ssl'] || '').trim().toLowerCase() === 'on';
+}
+
+/**
+ * 终端 WS 升级的 Origin 白名单（依赖 cookie 的 WS 需防跨站劫持，SameSite=Lax 只是浏览器侧的隐式防线）。
+ * 规则：缺失 Origin 放行（curl、测试脚本等非浏览器客户端必须可用）→ 命中 PUBLIC_ORIGIN 放行
+ * → 否则按同源推导（http://<Host> 或 https://<Host>，兼容反代终结 TLS）。
+ */
+function originAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const norm = (s) => String(s || '').trim().replace(/\/+$/, '').toLowerCase();
+  const o = norm(origin);
+  if (ORIGIN_ALLOW_LIST.includes(o)) return true;
+  const host = String(req.headers.host || '').toLowerCase();
+  if (!host) return false;
+  return o === `http://${host}` || o === `https://${host}`;
+}
 
 async function route(req, res, url) {
   let p = url.pathname;
@@ -29,7 +59,7 @@ async function route(req, res, url) {
   }
 
   /* ---- 公开接口 ---- */
-  if (p === '/api/health') return send(res, 200, { ok: true, basePath: BASE, hostname: os.hostname() });
+  if (p === '/api/health') return send(res, 200, { ok: true, basePath: BASE });
 
   if (p === '/api/login' && req.method === 'POST') {
     let body;
@@ -52,14 +82,18 @@ async function route(req, res, url) {
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + JWT_EXPIRES,
     });
-    const cookie = [
+    const attrs = [
       `${COOKIE_NAME}=${jwt}`,
       `Path=${BASE}`,
       'HttpOnly',
       'SameSite=Lax',
       `Max-Age=${JWT_EXPIRES}`,
-    ].join('; ');
-    return send(res, 200, { ok: true, token: jwt, expiresIn: JWT_EXPIRES }, { 'Set-Cookie': cookie });
+    ];
+    // Secure 让会话 Cookie 只走 HTTPS；auto 模式下仅 HTTPS 请求附加（见 cookieSecureFor）
+    if (cookieSecureFor(req)) attrs.push('Secure');
+    const cookie = attrs.join('; ');
+    // 不回传 token：会话凭据只存在于 HttpOnly Cookie，避免落入响应体 / 代理日志
+    return send(res, 200, { ok: true, expiresIn: JWT_EXPIRES }, { 'Set-Cookie': cookie });
   }
 
   /* ---- 需要鉴权的接口 ---- */
@@ -222,7 +256,11 @@ function handleUpgrade(req, socket) {
       else { socket.destroy(); return; }
     }
     if (p !== '/api/terminal/ws') { socket.destroy(); return; }
-    if (!cfg.terminal.enabled || !terminal.ttydReady() || !checkAuth(req)) { socket.destroy(); return; }
+    // 鉴权在前、来源校验在后：未通过鉴权者无法据此探测 Origin 配置
+    if (!cfg.terminal.enabled || !terminal.ttydReady() || !checkAuth(req) || !originAllowed(req)) {
+      socket.destroy();
+      return;
+    }
     terminal.proxyTerminalWs(req, socket, url.search);
   } catch {
     socket.destroy();

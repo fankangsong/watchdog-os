@@ -6,11 +6,11 @@ using System.Threading;
 using System.Threading.Tasks;
 
 // Mock ttyd（本地开发/联调用）：
-//  - 解析并忽略 server.js 传入的 -i 127.0.0.1 -p 7681 <shell> 参数，固定监听 127.0.0.1:7681
+//  - 解析并忽略 server/index.js 传入的 -i 127.0.0.1 -p 7681 <shell> 参数，固定监听 127.0.0.1:7681
 //  - GET /token          返回 {"token":"mock-token"}
 //  - WS   /ws            按 ttyd 帧协议工作：输出帧首字节 '0'，回显客户端输入
-// 由 server.js 通过 TTYD_PATH 指向本 exe 自动拉起，无需手动运行。
-// 注意：server.js 以 stdio:'ignore' spawn 本进程，任何控制台输出/异常都必须吞掉，避免崩溃。
+// 由 server/index.js 通过 TTYD_PATH 指向本 exe 自动拉起，无需手动运行。
+// 注意：server/index.js 以 stdio:'ignore' spawn 本进程，任何控制台输出/异常都必须吞掉，避免崩溃。
 class MockTtyd {
     static void Main(string[] args) {
         try {

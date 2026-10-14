@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 文件管理 API 冒烟测试：零依赖。spawn server.js 子进程，逐项验证 /api/fs/* 全链路后自清理。 */
+/* 文件管理 API 冒烟测试：零依赖。spawn server/index.js 子进程，逐项验证 /api/fs/* 全链路后自清理。 */
 'use strict';
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -9,6 +9,11 @@ const path = require('path');
 const PORT = 3213;
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = path.join(os.tmpdir(), 'srv-fs-test-' + Date.now());
+/* 项目根：入口脚本与子进程 cwd 都必须指向它（config.js 的 diskMounts 缺省值取自 process.cwd()） */
+const ROOT = path.join(__dirname, '..');
+const PASSWORD = process.env.PASSWORD || 'test123';
+/* JWT 签名密钥为必配项（≥32 字节），自起服务时必须注入，否则服务端 fail-fast 退出 */
+const JWT_SECRET = process.env.JWT_SECRET || 'test-only-jwt-secret-0123456789abcdef0123456789';
 
 let passed = 0;
 let failed = 0;
@@ -34,9 +39,17 @@ async function waitHealth() {
 }
 
 (async () => {
-  const child = spawn(process.execPath, ['server.js'], {
+  const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
     // FS_ROOTS 限定到临时目录：让「越权路径 403」在 Windows / POSIX 上都可稳定触发
-    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123', FS_ROOTS: TMP, BASE_PATH: '/' },
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      PASSWORD,
+      JWT_SECRET,
+      FS_ROOTS: TMP,
+      BASE_PATH: '/',
+    },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
   try {
@@ -46,15 +59,15 @@ async function waitHealth() {
     const unauth = await fetch(`${BASE}/api/fs/list`);
     ok('unauth 401', unauth.status === 401, `status=${unauth.status}`);
 
-    // 登录拿 token（后续用 Bearer，隔离 Cookie 因素）
+    // 登录取会话 Cookie：服务端只认 HttpOnly Cookie（响应体不再回传 token）
     const login = await fetch(`${BASE}/api/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'test123' }),
+      body: JSON.stringify({ password: PASSWORD }),
     });
-    const { token } = await login.json();
-    const H = { authorization: `Bearer ${token}` };
-    ok('login token', !!token);
+    const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+    const H = { Cookie: cookie };
+    ok('login cookie', login.status === 200 && !!cookie, `status=${login.status}`);
 
     // 根列表
     const roots = await (await fetch(`${BASE}/api/fs/list`, { headers: H })).json();
