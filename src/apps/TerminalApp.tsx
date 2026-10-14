@@ -3,17 +3,22 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import {
+  ClassicyAlert,
   ClassicyApp,
   ClassicyButton,
   ClassicyCheckbox,
+  ClassicyContextualMenuTarget,
   ClassicyForm,
   ClassicyFormButtonRow,
   ClassicyIcons,
   ClassicyInput,
+  ClassicyKbd,
   ClassicyPopUpMenu,
   ClassicyWindow,
   useClassicyAboutMenu,
+  useClassicyHelpMenu,
 } from 'classicy';
+import type { ClassicyAlertType, ClassicyMenuItem } from 'classicy';
 import { getTerminalToken, TerminalUnavailable, Unauthorized } from '../api';
 
 import { quitMenuItem } from '../quitMenuItem';
@@ -71,6 +76,109 @@ const FONT_FAMILIES: { label: string; css: string }[] = [
 /* 默认字体族：Courier New 笔画清晰、识别度高，日常命令输出观感更好 */
 const DEFAULT_FONT_FAMILY = FONT_FAMILIES[3].css;
 
+/* ---------- 设置持久化（localStorage） ---------- */
+const PREFS_KEY = 'srv-terminal-prefs';
+
+/** 终端设置：两个复制/粘贴开关 + 字体字号，整体持久化，刷新或重开窗口后保留 */
+interface TerminalPrefs {
+  /** 选中自动复制：拖选文本时自动写入剪贴板 */
+  autoCopy: boolean;
+  /** 快捷键粘贴：同时控制 Ctrl/⌘+V 与 Shift+Insert */
+  pasteHotkey: boolean;
+  fontSize: number;
+  fontFamily: string;
+}
+
+const DEFAULT_PREFS: TerminalPrefs = {
+  autoCopy: false,
+  // 粘贴是终端高频操作，默认开启；非安全上下文中 ⌘V 仍走浏览器原生粘贴，不受影响
+  pasteHotkey: true,
+  fontSize: DEFAULT_FONT_SIZE,
+  fontFamily: DEFAULT_FONT_FAMILY,
+};
+
+/* 字号合法区间：挡住手改 localStorage 写入的 NaN / 0 / 超大值，避免破坏 xterm.options */
+const FONT_SIZE_MIN = 8;
+const FONT_SIZE_MAX = 72;
+
+/**
+ * 读取持久化设置：逐字段做类型与范围校验，非法值回退默认。
+ * localStorage 可能被手改或残留旧版本结构，不能让异常值进入终端初始化。
+ */
+function loadPrefs(): TerminalPrefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return { ...DEFAULT_PREFS };
+    const j = JSON.parse(raw) as Partial<TerminalPrefs> | null;
+    if (!j || typeof j !== 'object') return { ...DEFAULT_PREFS };
+    return {
+      autoCopy: typeof j.autoCopy === 'boolean' ? j.autoCopy : DEFAULT_PREFS.autoCopy,
+      pasteHotkey: typeof j.pasteHotkey === 'boolean' ? j.pasteHotkey : DEFAULT_PREFS.pasteHotkey,
+      fontSize:
+        typeof j.fontSize === 'number' &&
+        Number.isFinite(j.fontSize) &&
+        j.fontSize >= FONT_SIZE_MIN &&
+        j.fontSize <= FONT_SIZE_MAX
+          ? j.fontSize
+          : DEFAULT_PREFS.fontSize,
+      fontFamily:
+        typeof j.fontFamily === 'string' && j.fontFamily.trim().length > 0
+          ? j.fontFamily
+          : DEFAULT_PREFS.fontFamily,
+    };
+  } catch {
+    // JSON 解析失败（被手改成非法 JSON）时静默回退默认
+    return { ...DEFAULT_PREFS };
+  }
+}
+
+/** 写入持久化设置：隐私模式 / 配额超限时忽略，设置仅本次会话生效 */
+function savePrefs(prefs: TerminalPrefs): void {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
+
+/**
+ * macOS 才启用 ⌘A 全选快捷键：Windows / Linux 的 Ctrl+A 是 readline 的「行首」，
+ * 必须原样交给远端 shell，否则会破坏命令行编辑。
+ */
+const IS_MAC =
+  typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent);
+
+/**
+ * 能否直接读取剪贴板：项目常以 http 局域网地址 + Nginx 子路径部署（非安全上下文），
+ * 此时 navigator.clipboard 为 undefined，粘贴只能依赖浏览器原生 paste 事件。
+ */
+function canReadClipboard(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function';
+}
+
+/** 读取剪贴板文本：不支持或被权限拒绝时返回 null，由调用方决定提示还是降级（不打印剪贴板内容） */
+async function readClipboardText(): Promise<string | null> {
+  try {
+    const text = await navigator.clipboard.readText();
+    return typeof text === 'string' ? text : null;
+  } catch (e) {
+    console.warn('[Terminal] 读取剪贴板失败：', e);
+    return null;
+  }
+}
+
+/** 快捷键粘贴后抑制浏览器原生 paste 事件的时长（ms） */
+const NATIVE_PASTE_BLOCK_MS = 400;
+/** 同一段文本在该时长（ms）内重复触发时视为重复粘贴，只处理一次 */
+const PASTE_DEDUP_MS = 400;
+
+/** 终端内的提示弹窗（仅用于「读不到剪贴板」这类需要用户知晓的失败） */
+interface TermAlert {
+  alertType: ClassicyAlertType;
+  label: string;
+  message: string;
+}
+
 /**
  * 终端应用：xterm.js 直连 server.js 代理的 ttyd WebSocket。
  * 鉴权复用 Dashboard 的 JWT Cookie（token 接口 + WS 升级均由后端校验）。
@@ -87,22 +195,130 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
   const [disabled, setDisabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(null);
-  const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
-  const [fontFamily, setFontFamily] = useState(DEFAULT_FONT_FAMILY);
-  // 选中自动复制（copy on select）与设置对话框开关
-  const [autoCopy, setAutoCopy] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // 当前是否存在选区：驱动 Edit / 右键菜单里 Copy 的置灰状态
+  const [hasSelection, setHasSelection] = useState(false);
 
-  /* autoCopy 变化同步给选择监听（onSelectionChange 在终端创建时注册一次，不重建终端） */
+  // 设置懒初始化：终端首次 new Terminal 就使用持久化值，避免先按默认字体渲染再跳变
+  const [storedPrefs] = useState(loadPrefs);
+  const [autoCopy, setAutoCopy] = useState(storedPrefs.autoCopy);
+  const [pasteHotkey, setPasteHotkey] = useState(storedPrefs.pasteHotkey);
+  const [fontSize, setFontSize] = useState(storedPrefs.fontSize);
+  const [fontFamily, setFontFamily] = useState(storedPrefs.fontFamily);
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [alert, setAlert] = useState<TermAlert | null>(null);
+
+  /* 开关/选区变化同步给注册一次的监听器（onSelectionChange、自定义按键处理器）：
+     切换开关不重建终端、不重连 WebSocket */
   const autoCopyRef = useRef(autoCopy);
+  const pasteHotkeyRef = useRef(pasteHotkey);
+  const hasSelectionRef = useRef(false);
   useEffect(() => {
     autoCopyRef.current = autoCopy;
   }, [autoCopy]);
+  useEffect(() => {
+    pasteHotkeyRef.current = pasteHotkey;
+  }, [pasteHotkey]);
   const lastCopiedRef = useRef('');
+  /* 粘贴防重：busy 锁覆盖异步读取窗口，blockUntil 覆盖原生 paste 事件，文本+时间去重兜底 */
+  const pasteBusyRef = useRef(false);
+  const nativePasteBlockUntilRef = useRef(0);
+  const lastPasteAtRef = useRef(0);
+  const lastPasteTextRef = useRef('');
+
+  // 渲染期快照：非安全上下文中恒为 false，用于菜单置灰与设置面板提示
+  const clipboardReadable = canReadClipboard();
+
+  // 任一入口（设置面板 / 菜单）改动设置都落盘
+  useEffect(() => {
+    savePrefs({ autoCopy, pasteHotkey, fontSize, fontFamily });
+  }, [autoCopy, pasteHotkey, fontSize, fontFamily]);
 
   const handleLogout = useCallback(() => {
     onLogout?.();
   }, [onLogout]);
+
+  /** 复制当前选区到剪贴板；无选区时静默返回（菜单项已置灰） */
+  const doCopy = useCallback(() => {
+    const term = termRef.current;
+    if (!term) return;
+    const sel = term.getSelection();
+    if (sel) copyToClipboard(sel);
+    // 焦点可能停在菜单项上，动作结束必须还给终端，否则后续键盘输入会丢失
+    term.focus();
+  }, []);
+
+  /** 全选终端回滚缓冲（不拦截 Windows/Linux 的 Ctrl+A，那属于远端 readline） */
+  const doSelectAll = useCallback(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.selectAll();
+    term.focus();
+  }, []);
+
+  /** 读不到剪贴板时的统一提示（非安全上下文 / 权限被拒） */
+  const notifyPasteUnavailable = useCallback(() => {
+    setAlert({
+      alertType: 'caution',
+      label: '无法读取剪贴板',
+      message: '当前部署不是安全上下文（http 局域网访问），浏览器禁止脚本读取剪贴板。请改用 Ctrl+V，或在终端里右键选择 Paste。',
+    });
+  }, []);
+
+  /**
+   * 粘贴：读取剪贴板 → term.paste()。
+   * term.paste 内部按行触发 onData，复用既有 ttyd 0x30 帧链路，多行文本直接粘贴不做二次确认。
+   * 返回 false 表示读不到剪贴板，调用方负责提示。
+   *
+   * 防重复粘贴（三层，任一层生效即可保证「一次按键只粘贴一次」）：
+   * 1. busy 锁：剪贴板读取（异步）期间的重复触发直接忽略；
+   * 2. 原生 paste 抑制：本次粘贴后的一小段时间内，拦掉浏览器原生 paste 事件，
+   *    避免「剪贴板 API 粘贴」与「浏览器原生粘贴」两条通道叠加；
+   * 3. 短时间去重：同一段文本在极短时间内被重复触发时只粘贴一次。
+   */
+  const doPaste = useCallback(async (): Promise<boolean> => {
+    const term = termRef.current;
+    if (!term) return false;
+    // 正在粘贴中：本次触发视为重复（已由前一次处理），不再发起第二次读取
+    if (pasteBusyRef.current) return true;
+
+    const now = Date.now();
+    pasteBusyRef.current = true;
+    // 从这一刻起屏蔽浏览器原生 paste，防止与本次 API 粘贴叠加
+    nativePasteBlockUntilRef.current = now + NATIVE_PASTE_BLOCK_MS;
+    try {
+      term.focus(); // 异步读取前先把焦点放回终端
+      const text = await readClipboardText();
+      if (text === null) return false;
+      if (text.length > 0) {
+        const duplicated =
+          text === lastPasteTextRef.current && now - lastPasteAtRef.current < PASTE_DEDUP_MS;
+        if (!duplicated) {
+          lastPasteTextRef.current = text;
+          lastPasteAtRef.current = now;
+          console.debug('[Terminal] 粘贴剪贴板内容', text.length, '字符');
+          term.paste(text);
+          // 读取可能耗时较久（首次读剪贴板要等权限），粘贴完成后再顺延一段抑制窗口，
+          // 确保「迟到的原生 paste 事件」也落在窗口内
+          nativePasteBlockUntilRef.current = Date.now() + NATIVE_PASTE_BLOCK_MS;
+        } else {
+          console.debug('[Terminal] 忽略重复粘贴请求（与上次内容相同）');
+        }
+      }
+      term.focus();
+      return true;
+    } finally {
+      pasteBusyRef.current = false;
+    }
+  }, []);
+
+  /** 菜单 / 右键菜单 / 快捷键共用的粘贴入口：失败统一弹提示 */
+  const doPasteWithNotice = useCallback(() => {
+    void doPaste().then((ok) => {
+      if (!ok) notifyPasteUnavailable();
+    });
+  }, [doPaste, notifyPasteUnavailable]);
 
   const connect = useCallback(async () => {
     const term = termRef.current;
@@ -174,6 +390,19 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
     // 必须在 try 外声明：若 try 中途抛错，清理函数引用到的仍是已初始化的绑定，
     // 否则卸载时会触发 ReferenceError（TDZ）导致整桌崩溃（classicy Sad Mac）
     const refocus = () => termRef.current?.focus();
+    /**
+     * 抑制「快捷键粘贴」之后的浏览器原生 paste 事件。
+     * xterm 在 helper textarea 的目标阶段监听 paste 并把内容发给远端 shell；若它与
+     * 剪贴板 API 粘贴同时发生，用户看到的就是同一段文本被粘贴两次。这里用捕获阶段
+     * （container 上的 capture listener 先于 textarea 的目标阶段触发）+ stopPropagation
+     * 把原生 paste 挡在 xterm 之前，保证一次按键只走一条通道。
+     */
+    const blockNativePaste = (ev: ClipboardEvent) => {
+      if (Date.now() >= nativePasteBlockUntilRef.current) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      console.debug('[Terminal] 已拦截浏览器原生 paste 事件（避免与快捷键粘贴重复）');
+    };
     try {
       term = new Terminal({
         fontSize,
@@ -192,6 +421,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       term.focus();
 
       container.addEventListener('pointerdown', refocus);
+      container.addEventListener('paste', blockNativePaste, true);
 
       // 键盘输入 → 0x30 + 文本 的二进制帧
       term.onData((data) => {
@@ -217,11 +447,61 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
 
       // 选中自动复制：选区变化（拖动过程中每次不同选区至多复制一次）时写入剪贴板
       term.onSelectionChange(() => {
-        if (!autoCopyRef.current) return;
         const sel = term!.getSelection();
-        if (!sel || sel === lastCopiedRef.current) return;
+        const has = sel.length > 0;
+        // 选区有无只影响菜单置灰，用 ref 比较避免每次拖动都触发 React 渲染
+        if (has !== hasSelectionRef.current) {
+          hasSelectionRef.current = has;
+          setHasSelection(has);
+        }
+        if (!autoCopyRef.current || !sel || sel === lastCopiedRef.current) return;
         lastCopiedRef.current = sel;
         copyToClipboard(sel);
+      });
+
+      /**
+       * 快捷键：Copy / Paste / Select All 在终端本地拦截。
+       * 菜单里同名的项都标了 nativeShortcut（字形照常显示），classicy 全局快捷键派发器
+       * 会跳过它们，因此这里 preventDefault + return false 后不会双发。
+       */
+      term.attachCustomKeyEventHandler((ev) => {
+        const key = ev.key.toLowerCase();
+
+        // Paste：⌘V / Ctrl+V。关闭开关或读不到剪贴板时交回浏览器原生 paste（xterm 内置处理）
+        if (key === 'v' && (ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey) {
+          if (!pasteHotkeyRef.current || !canReadClipboard()) return true;
+          ev.preventDefault();
+          doPasteWithNotice();
+          return false;
+        }
+
+        // Paste：⇧Insert（X11 传统粘贴键，无修饰键 → 全局派发器不覆盖，只能本地处理）
+        if (ev.key === 'Insert' && ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+          if (!pasteHotkeyRef.current) return true;
+          ev.preventDefault();
+          if (!canReadClipboard()) {
+            notifyPasteUnavailable();
+            return false;
+          }
+          doPasteWithNotice();
+          return false;
+        }
+
+        // Copy：⇧⌘C / Ctrl+Shift+C（不劫持 ⌘C / ^C，保留 shell 的 SIGINT 中断语义）
+        if (key === 'c' && ev.shiftKey && (ev.ctrlKey || ev.metaKey) && !ev.altKey) {
+          ev.preventDefault();
+          doCopy();
+          return false;
+        }
+
+        // Select All：仅 macOS ⌘A；Windows/Linux 的 ^A 是 readline 行首，交给远端 shell
+        if (IS_MAC && key === 'a' && ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey) {
+          ev.preventDefault();
+          doSelectAll();
+          return false;
+        }
+
+        return true;
       });
 
       // Classicy 窗口缩放/折叠 → 容器尺寸变化 → 重新 fit
@@ -237,12 +517,18 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
     return () => {
       ro?.disconnect();
       container.removeEventListener('pointerdown', refocus);
+      container.removeEventListener('paste', blockNativePaste, true);
       wsRef.current?.close();
       wsRef.current = null;
       term?.dispose();
       termRef.current = null;
       fitRef.current = null;
+      // 终端重建后选区必然清空，同步复位避免菜单置灰状态残留
+      hasSelectionRef.current = false;
+      setHasSelection(false);
     };
+    // 注意：不要把 autoCopy / pasteHotkey / fontSize / fontFamily 放进依赖，
+    // 否则设置变更会重建终端并触发 WebSocket 重连抖动（改用 ref 同步）
   }, [container, attempt, connect, disabled]);
 
   // ttyd 未就绪时后端会退避重试拉起；前端每 5s 自动重连一次（也可手动重试）
@@ -276,7 +562,66 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 
-  // 桌面顶部菜单栏（窗口聚焦时显示）：应用名菜单 + Session/Font 特有菜单；Sign Out 由 Apple 菜单全局提供
+  /**
+   * Edit 组：Copy / Paste / Select All。
+   * 三项都标 nativeShortcut —— 字形照常渲染，但全局派发器不拦截按键，
+   * 由终端的 attachCustomKeyEventHandler 统一处理，杜绝一次按键被粘贴两次。
+   */
+  const editMenuItems = useMemo<ClassicyMenuItem[]>(
+    () => [
+      {
+        id: 'terminal-m-copy',
+        title: 'Copy',
+        keyboardShortcut: '⇧⌘C',
+        nativeShortcut: true,
+        disabled: !hasSelection,
+        onClickFunc: doCopy,
+      },
+      {
+        id: 'terminal-m-paste',
+        title: 'Paste',
+        keyboardShortcut: '⇧⌘V',
+        nativeShortcut: true,
+        // 非安全上下文读不到剪贴板，菜单点击无意义，置灰并由设置面板给出说明
+        disabled: !clipboardReadable,
+        onClickFunc: doPasteWithNotice,
+      },
+      {
+        id: 'terminal-m-select-all',
+        title: 'Select All',
+        // ⌘A 只在 macOS 生效：Windows/Linux 的 ^A 属于远端 readline，不展示字形也不拦截
+        keyboardShortcut: IS_MAC ? '⌘A' : undefined,
+        nativeShortcut: true,
+        onClickFunc: doSelectAll,
+      },
+    ],
+    [hasSelection, clipboardReadable, doCopy, doPasteWithNotice, doSelectAll]
+  );
+
+  /** 终端区域右键菜单：classicy 解析顺序为 wrapped control > window > app > 桌面默认 */
+  const contextMenuItems = useMemo<ClassicyMenuItem[]>(
+    () => [
+      { id: 'terminal-ctx-copy', title: 'Copy', disabled: !hasSelection, onClickFunc: doCopy },
+      { id: 'terminal-ctx-paste', title: 'Paste', disabled: !clipboardReadable, onClickFunc: doPasteWithNotice },
+      { id: 'terminal-ctx-select-all', title: 'Select All', onClickFunc: doSelectAll },
+    ],
+    [hasSelection, clipboardReadable, doCopy, doPasteWithNotice, doSelectAll]
+  );
+
+  // Help 菜单由系统渲染，这里只注册帮助项（items 需保持引用稳定）
+  const helpItems = useMemo<ClassicyMenuItem[]>(
+    () => [
+      {
+        id: 'terminal-m-shortcuts',
+        title: 'Keyboard Shortcuts…',
+        onClickFunc: () => setShortcutsOpen(true),
+      },
+    ],
+    []
+  );
+  useClassicyHelpMenu(APP_ID, helpItems);
+
+  // 桌面顶部菜单栏（窗口聚焦时显示）：应用名菜单 + Edit + Session/Font 特有菜单；Sign Out 由 Apple 菜单全局提供
   const appMenu = useMemo(
     () => [
       {
@@ -293,6 +638,11 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
           { id: 'spacer' },
           quitMenuItem(APP_ID, APP_NAME, ICON),
         ],
+      },
+      {
+        id: 'terminal-edit',
+        title: 'Edit',
+        menuChildren: editMenuItems,
       },
       {
         id: 'terminal-session',
@@ -327,7 +677,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
         ],
       },
     ],
-    [aboutMenuItem, reconnect, fontSize, fontFamily]
+    [aboutMenuItem, editMenuItems, reconnect, fontSize, fontFamily]
   );
 
   return (
@@ -351,32 +701,50 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
             终端功能未启用：请在服务器 config.json 中设置 terminal.enabled = true，并确认已安装 ttyd。
           </div>
         ) : (
-          <div className="sp-term-wrap">
-            {/* xterm 容器常驻：错误态用浮层提示，避免重建终端导致自动重连失效 */}
-            <div className="sp-term" ref={setContainer} />
-            {error && (
-              <div className="sp-term-overlay">
-                <div className="sp-term-overlay-msg">终端暂时不可用：{error}</div>
-                <div className="sp-term-overlay-tip">服务端会自动重试拉起 ttyd，也可手动重试。</div>
-                <ClassicyButton buttonSize="small" onClickFunc={reconnect}>
-                  重试
-                </ClassicyButton>
-              </div>
-            )}
-          </div>
+          // 右键菜单需要真实包裹终端容器才能覆盖桌面默认菜单；
+          // ClassicyContextualMenuTarget 会渲染一层 div，用 sp-term-ctx 保持原有的撑满布局
+          <ClassicyContextualMenuTarget className="sp-term-ctx" menuItems={contextMenuItems}>
+            <div className="sp-term-wrap">
+              {/* xterm 容器常驻：错误态用浮层提示，避免重建终端导致自动重连失效 */}
+              <div className="sp-term" ref={setContainer} />
+              {error && (
+                <div className="sp-term-overlay">
+                  <div className="sp-term-overlay-msg">终端暂时不可用：{error}</div>
+                  <div className="sp-term-overlay-tip">服务端会自动重试拉起 ttyd，也可手动重试。</div>
+                  <ClassicyButton buttonSize="small" onClickFunc={reconnect}>
+                    重试
+                  </ClassicyButton>
+                </div>
+              )}
+            </div>
+          </ClassicyContextualMenuTarget>
         )}
       </ClassicyWindow>
       {aboutWindow}
       {/* 设置对话框：菜单 Terminal > Settings… 打开；使用草稿状态，点「好」才生效，取消/关闭则丢弃 */}
       {settingsOpen && (
         <TerminalSettingsDialog
-          initial={{ autoCopy, fontFamily, fontSize }}
-          onSave={(s) => {
-            setAutoCopy(s.autoCopy);
-            setFontFamily(s.fontFamily);
-            setFontSize(s.fontSize);
+          initial={{ autoCopy, pasteHotkey, fontFamily, fontSize }}
+          onSave={(p) => {
+            setAutoCopy(p.autoCopy);
+            setPasteHotkey(p.pasteHotkey);
+            setFontFamily(p.fontFamily);
+            setFontSize(p.fontSize);
           }}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {/* 快捷键说明：Help > Keyboard Shortcuts… */}
+      {shortcutsOpen && <TerminalShortcutsWindow onClose={() => setShortcutsOpen(false)} />}
+      {/* 粘贴失败提示（非安全上下文 / 剪贴板权限被拒） */}
+      {alert && (
+        <ClassicyAlert
+          appId={APP_ID}
+          alertType={alert.alertType}
+          label={alert.label}
+          message={alert.message}
+          buttons={[{ id: 'ok', label: '好', role: 'default' }]}
+          onClose={() => setAlert(null)}
         />
       )}
     </ClassicyApp>
@@ -385,33 +753,38 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
 
 /**
  * 终端设置对话框（模态窗口）：
- * - 选中自动复制：选区变化时自动写入剪贴板
+ * - 复制/粘贴：选中自动复制、快捷键粘贴（Ctrl+V / Shift+Insert 共用一个开关）
  * - 字体：预设菜单 + 自定义填写（CSS font-family）
  * - 字号：预设尺寸下拉
- * 关闭/取消不生效，点「好」才把草稿提交给终端。
+ * 关闭/取消不生效，点「好」才把草稿提交给终端；确认后写入 localStorage。
  */
 function TerminalSettingsDialog({
   initial,
   onSave,
   onClose,
 }: {
-  initial: { autoCopy: boolean; fontFamily: string; fontSize: number };
-  onSave: (s: { autoCopy: boolean; fontFamily: string; fontSize: number }) => void;
+  initial: TerminalPrefs;
+  onSave: (p: TerminalPrefs) => void;
   onClose: () => void;
 }) {
   // 每次打开对话框都会重新挂载，用 useState 初始化草稿即可拿到最新设置
   const [draftAutoCopy, setDraftAutoCopy] = useState(initial.autoCopy);
+  const [draftPasteHotkey, setDraftPasteHotkey] = useState(initial.pasteHotkey);
   const [draftFont, setDraftFont] = useState(initial.fontFamily);
   const [draftSize, setDraftSize] = useState(String(initial.fontSize));
 
   // 当前字体是否命中预设（否则属于自定义字体，下拉显示「自定义…」）
   const presetUsed = FONT_FAMILIES.some((f) => f.css === draftFont);
+  // 非安全上下文（http 局域网）读不到剪贴板，需要在面板里说明快捷键的实际行为
+  const clipboardReadable = canReadClipboard();
 
   const save = () => {
+    const size = Number(draftSize);
     onSave({
       autoCopy: draftAutoCopy,
+      pasteHotkey: draftPasteHotkey,
       fontFamily: draftFont.trim() || DEFAULT_FONT_FAMILY,
-      fontSize: Number(draftSize) || DEFAULT_FONT_SIZE,
+      fontSize: Number.isFinite(size) && size >= FONT_SIZE_MIN && size <= FONT_SIZE_MAX ? size : DEFAULT_FONT_SIZE,
     });
     onClose();
   };
@@ -428,7 +801,7 @@ function TerminalSettingsDialog({
       collapsable={false}
       resizable={false}
       scrollable={false}
-      initialSize={[480, 350]}
+      initialSize={[480, 395]}
       initialPosition={['center', 'center']}
       onCloseFunc={onClose}
     >
@@ -447,6 +820,19 @@ function TerminalSettingsDialog({
           labelSize="small"
           labelPosition="right"
         />
+        <ClassicyCheckbox
+          id="term-settings-paste-hotkey"
+          checked={draftPasteHotkey}
+          onClickFunc={(checked) => setDraftPasteHotkey(checked)}
+          label="快捷键粘贴（Ctrl+V / Shift+Insert）"
+          labelSize="small"
+          labelPosition="right"
+        />
+        <div className="sp-term-hint">
+          {clipboardReadable
+            ? '当前环境支持直接读取剪贴板，Ctrl+V 与 Shift+Insert 均可粘贴。'
+            : '当前为非安全上下文（http 局域网访问），浏览器禁止脚本读取剪贴板：Ctrl+V 仍由浏览器原生粘贴处理，Shift+Insert 需 https / localhost 才可用。'}
+        </div>
         <ClassicyPopUpMenu
           id="term-settings-font-preset"
           label="字体"
@@ -488,6 +874,56 @@ function TerminalSettingsDialog({
           </ClassicyButton>
         </ClassicyFormButtonRow>
       </ClassicyForm>
+    </ClassicyWindow>
+  );
+}
+
+/* 快捷键说明表的行：keys 为 classicy 快捷键字形串（⇧⌘V / ⇧Insert 等） */
+const SHORTCUT_ROWS: { label: string; keys: string; macOnly?: boolean; note?: string }[] = [
+  { label: '复制选区', keys: '⇧⌘C', note: '不占用 ⌘C，远端 Ctrl+C 仍是中断信号' },
+  { label: '粘贴剪贴板', keys: '⇧⌘V' },
+  { label: '粘贴（传统键）', keys: '⇧Insert' },
+  { label: '全选终端缓冲', keys: '⌘A', macOnly: true, note: 'Windows / Linux 的 Ctrl+A 保留给远端 shell' },
+];
+
+/**
+ * 快捷键说明窗口（Help > Keyboard Shortcuts…）：
+ * 用 ClassicyKbd 的 keycaps 变体逐键渲染，字形与实际拦截逻辑一一对应。
+ */
+function TerminalShortcutsWindow({ onClose }: { onClose: () => void }) {
+  const rows = useMemo(() => SHORTCUT_ROWS.filter((r) => !r.macOnly || IS_MAC), []);
+  return (
+    <ClassicyWindow
+      id="terminal-shortcuts"
+      appId={APP_ID}
+      title={`${APP_NAME} · Keyboard Shortcuts`}
+      icon={ICON}
+      modal
+      closable
+      zoomable={false}
+      collapsable={false}
+      resizable={false}
+      scrollable={false}
+      initialSize={[440, 260]}
+      initialPosition={['center', 'center']}
+      onCloseFunc={onClose}
+    >
+      <div className="sp-term-kbd-list">
+        {rows.map((row) => (
+          <div className="sp-term-kbd-row" key={row.keys}>
+            <span className="sp-term-kbd-label">{row.label}</span>
+            <ClassicyKbd variant="keycaps" shortcut={row.keys} />
+          </div>
+        ))}
+        <div className="sp-term-kbd-row">
+          <span className="sp-term-kbd-label">选中自动复制</span>
+          <span className="sp-term-hint">在 Settings… 中开启</span>
+        </div>
+        <div className="sp-term-kbd-row">
+          <span className="sp-term-kbd-label">快捷键粘贴</span>
+          <span className="sp-term-hint">在 Settings… 中开启</span>
+        </div>
+      </div>
     </ClassicyWindow>
   );
 }
