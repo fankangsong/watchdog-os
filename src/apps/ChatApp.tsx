@@ -1,10 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ClassicyApp, ClassicyButton, ClassicyIcons, ClassicyWindow, useClassicyAboutMenu, useClassicyEditMenu } from 'classicy';
 import {
+  ClassicyAlert,
+  ClassicyApp,
+  ClassicyButton,
+  ClassicyIcons,
+  ClassicyTable,
+  ClassicyWindow,
+  dispatch,
+  useClassicyAboutMenu,
+  useClassicyEditMenu,
+} from 'classicy';
+import type { ClassicyTableColumn } from 'classicy';
+import {
+  deleteChatSession,
+  fetchChatSessionMessages,
+  fetchChatSessions,
   fetchChatStatus,
   streamChat,
   Unauthorized,
   type ChatMessage,
+  type HermesSession,
 } from '../api';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 import { quitMenuItem } from '../quitMenuItem';
@@ -12,8 +27,6 @@ import { quitMenuItem } from '../quitMenuItem';
 const APP_ID = 'srv-chat.app';
 const APP_NAME = 'Chat';
 const ICON = ClassicyIcons.applications.pager.app;
-const HISTORY_KEY = 'watchdog-chat-history';
-const HISTORY_MAX = 200; // 本地历史最多保留的气泡数
 
 /** 会话流中的一个气泡（UI 状态模型，发送时才映射回 OpenAI ChatMessage） */
 interface ChatBubble {
@@ -31,6 +44,14 @@ interface ChatBubble {
 }
 
 type ToolStepStatus = 'running' | 'done' | 'error';
+
+/** 删除确认 / 错误提示弹窗（对齐 FinderApp 的 FmAlert 结构） */
+interface ChatAlert {
+  alertType: 'caution' | 'stop';
+  label: string;
+  message?: string;
+  buttons: Array<{ id: string; label: string; role?: 'default' | 'cancel' | 'normal'; onClick?: () => void }>;
+}
 
 /** 时间线中的一步：hermes 工具进度（tool）/ OpenAI 标准调用（call）/ 未知事件（event） */
 interface ToolStep {
@@ -53,18 +74,6 @@ interface ToolStep {
 
 function uid(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-/** 从 localStorage 恢复历史会话（损坏时静默清空） */
-function loadHistory(): ChatBubble[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw) as ChatBubble[];
-    return Array.isArray(arr) ? arr.filter((b) => b && (b.role === 'user' || b.role === 'assistant')) : [];
-  } catch {
-    return [];
-  }
 }
 
 /** hermes.tool.progress 事件的工具名容错提取（含 emoji 前缀与 label 命令，如「💻 terminal · date」） */
@@ -211,16 +220,29 @@ function ToolTimeline({ steps, live }: { steps: ToolStep[]; live: boolean }) {
 }
 
 /**
- * 聊天应用：经后端 /api/chat/* 代理调用 Hermes（OpenAI 兼容协议）。
- * 多轮对话由前端维护 messages 全量重传（无状态协议）；历史持久化在 localStorage。
+ * 聊天应用：经后端 /api/chat/* 代理调用 Hermes。
+ * 发送走 OpenAI 兼容 /api/chat/completions（无状态协议，前端全量重传 messages）；
+ * 会话列表/历史以 hermes 服务端 Sessions API 为准（/api/chat/sessions* 代理），
+ * 本地不做持久化——currentId=null 表示尚未关联服务端会话的新会话。
  */
 export function ChatApp({ onLogout }: { onLogout?: () => void }) {
   const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [detail, setDetail] = useState('');
-  const [messages, setMessages] = useState<ChatBubble[]>(loadHistory);
+  // 服务端会话（列表窗口数据源）与加载态
+  const [serverSessions, setServerSessions] = useState<HermesSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  // 当前会话：null = 未关联服务端的新会话（首次发送后从响应头 X-Hermes-Session-Id 关联）
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  // 当前会话的消息视图（发送后流式更新；切换会话时从服务端拉取整体替换）
+  const [messages, setMessages] = useState<ChatBubble[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [alert, setAlert] = useState<ChatAlert | null>(null);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // 历史加载竞态序号：快速连续切换会话时丢弃过期响应
+  const loadSeqRef = useRef(0);
   // 等待态：请求已发出但尚无可见正文时，在 assistant 气泡内显示「思考中」块
   // thinkStart 为等待起点时间戳（null=非等待态）；thinkSec 为秒表显示值
   const [activeAiId, setActiveAiId] = useState<string | null>(null);
@@ -263,14 +285,21 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     loadStatus();
   }, [loadStatus]);
 
-  // 历史持久化：会话变化即写 localStorage（超上限裁剪旧气泡）
+  // 旧版本地会话存储（单会话 key / 多会话索引与消息体）已废弃，挂载时一次性清理
   useEffect(() => {
     try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(messages.slice(-HISTORY_MAX)));
+      localStorage.removeItem('watchdog-chat-history');
+      localStorage.removeItem('watchdog-chat-sessions');
+      const kill: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith('watchdog-chat-session:')) kill.push(k);
+      }
+      kill.forEach((k) => localStorage.removeItem(k));
     } catch {
-      // 存储失败（如隐私模式）不影响会话使用
+      // 隐私模式等场景忽略
     }
-  }, [messages]);
+  }, []);
 
   // 新气泡出现 / 流式增量时，若用户仍贴底则自动滚到底
   useEffect(() => {
@@ -293,9 +322,26 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   }, []);
 
+  /** 拉取服务端会话列表（打开窗口 / Refresh / 新会话首次发送后静默刷新共用） */
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    try {
+      setServerSessions(await fetchChatSessions(50));
+    } catch (e) {
+      if (e instanceof Unauthorized) {
+        handleLogout();
+        return;
+      }
+      setSessionsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, [handleLogout]);
+
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming || state !== 'ready') return;
+    if (!text || streaming || historyLoading || state !== 'ready') return;
 
     // 组装 API 消息：错误气泡与空回复不进入上下文
     const apiMessages: ChatMessage[] = [
@@ -331,6 +377,16 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     await streamChat({
       messages: apiMessages,
       signal: ac.signal,
+      // 已关联服务端会话则带上会话头，让 hermes 记入同一 transcript
+      sessionId: currentId ?? undefined,
+      // 首次发送：从响应头关联服务端会话并静默刷新列表
+      onSessionId: (sid) => {
+        setCurrentId((prev) => {
+          if (prev) return prev;
+          void loadSessions();
+          return sid;
+        });
+      },
       onDelta: (t) => {
         if (!gotContent) {
           gotContent = true;
@@ -416,17 +472,123 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     setThinkTool('');
     setActiveAiId(null);
     abortRef.current = null;
-  }, [input, messages, streaming, state]);
+  }, [input, messages, streaming, historyLoading, currentId, state, loadSessions]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
+  /** 切换会话：流式中自动 stop（abort 保留部分回复）；拉取服务端历史替换视图，每次切回都重新拉取（服务端为准） */
+  const switchSession = useCallback(
+    async (id: string) => {
+      if (id === currentId) return;
+      abortRef.current?.abort();
+      const seq = ++loadSeqRef.current;
+      setCurrentId(id);
+      setMessages([]);
+      setHistoryLoading(true);
+      setInput('');
+      // 复位所有等待态/瞬态（对齐流结束的兜底清单）
+      setStreaming(false);
+      setActiveAiId(null);
+      setThinkStart(null);
+      setThinkSec(0);
+      setThinkTool('');
+      stickRef.current = true;
+      try {
+        const bubbles = (await fetchChatSessionMessages(id)).map<ChatBubble>((b) => ({ ...b, id: uid() }));
+        if (loadSeqRef.current !== seq) return; // 已被更新的切换覆盖
+        setMessages(bubbles);
+      } catch (e) {
+        if (loadSeqRef.current !== seq) return;
+        if (e instanceof Unauthorized) {
+          handleLogout();
+          return;
+        }
+        setAlert({
+          alertType: 'stop',
+          label: 'Load failed',
+          message: e instanceof Error ? e.message : String(e),
+          buttons: [{ id: 'ok', label: 'OK', role: 'default' }],
+        });
+        setCurrentId(null); // 会话可能已被删除等 → 回到空会话
+      } finally {
+        if (loadSeqRef.current === seq) setHistoryLoading(false);
+      }
+    },
+    [currentId, handleLogout]
+  );
+
   const newSession = useCallback(() => {
     abortRef.current?.abort();
+    setCurrentId(null);
     setMessages([]);
     setInput('');
+    setStreaming(false);
+    setActiveAiId(null);
+    setThinkStart(null);
+    setThinkSec(0);
+    setThinkTool('');
+    stickRef.current = true;
   }, []);
+
+  /** 打开会话列表窗口：Open + Focus 双发，保证重开已关闭窗口时置顶聚焦；每次打开都刷新列表 */
+  const openSessionList = useCallback(() => {
+    dispatch({
+      type: 'ClassicyWindowOpen',
+      app: { id: APP_ID },
+      window: { id: 'chat-sessions', minimumSize: [320, 220], size: [440, 320], position: ['center', 'center'] },
+    });
+    dispatch({
+      type: 'ClassicyWindowFocus',
+      app: { id: APP_ID },
+      window: { id: 'chat-sessions' },
+    });
+    void loadSessions();
+  }, [loadSessions]);
+
+  /** 确认后删除服务端会话；删除当前会话时中断流并回到空会话 */
+  const doDelete = useCallback(
+    async (s: HermesSession) => {
+      try {
+        await deleteChatSession(s.id);
+        setServerSessions((prev) => prev.filter((x) => x.id !== s.id));
+        if (s.id === currentId) {
+          abortRef.current?.abort();
+          setCurrentId(null);
+          setMessages([]);
+        }
+      } catch (e) {
+        if (e instanceof Unauthorized) {
+          handleLogout();
+          return;
+        }
+        setAlert({
+          alertType: 'stop',
+          label: 'Delete failed',
+          message: e instanceof Error ? e.message : String(e),
+          buttons: [{ id: 'ok', label: 'OK', role: 'default' }],
+        });
+      }
+    },
+    [currentId, handleLogout]
+  );
+
+  /** 行内删除图标：弹确认框（确认后 doDelete） */
+  const requestDelete = useCallback(
+    (s: HermesSession) => {
+      setAlert({
+        alertType: 'caution',
+        label: `Delete “${s.title}”?`,
+        message: 'The conversation history on the server will be permanently deleted. This cannot be undone.',
+        buttons: [
+          { id: 'cancel', label: 'Cancel', role: 'cancel' },
+          { id: 'ok', label: 'Delete', role: 'default', onClick: () => void doDelete(s) },
+        ],
+      });
+    },
+    [doDelete]
+  );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter 发送、Shift+Enter 换行；IME 组合中的 Enter（候选确认）不触发发送
@@ -435,6 +597,50 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
       send();
     }
   };
+
+  // 会话列表列定义（静态，仅一次）；末列为行内删除图标（点击不触发行选中）
+  const sessionColumns = useMemo<ClassicyTableColumn<HermesSession>[]>(
+    () => [
+      { id: 'title', title: 'Title', accessor: (s) => s.title },
+      {
+        id: 'count',
+        title: 'Messages',
+        accessor: (s) => s.messageCount ?? Number.NaN,
+        width: 72,
+        align: 'right',
+        render: (s) => (s.messageCount == null ? '' : String(s.messageCount)),
+      },
+      {
+        id: 'updated',
+        title: 'Updated',
+        accessor: (s) => s.updatedAt,
+        width: 120,
+        render: (s) => (s.updatedAt > 0 ? new Date(s.updatedAt).toLocaleString() : ''),
+      },
+      {
+        id: 'actions',
+        title: '',
+        accessor: () => '',
+        width: 40,
+        sortable: false,
+        resizable: false,
+        render: (s) => (
+          <button
+            type="button"
+            className="sp-chat-session-del"
+            title="Delete session"
+            onClick={(e) => {
+              e.stopPropagation(); // 不触发行选中/切换
+              requestDelete(s);
+            }}
+          >
+            <img src={ClassicyIcons.system.desktop.trashEmpty} alt="" />
+          </button>
+        ),
+      },
+    ],
+    [requestDelete]
+  );
 
   const appMenu = useMemo(
     () => [
@@ -451,10 +657,14 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
       {
         id: 'chat-session',
         title: 'Session',
-        menuChildren: [{ id: 'chat-m-new', title: 'New Session…', onClickFunc: newSession }],
+        menuChildren: [
+          { id: 'chat-m-list', title: 'Session List…', onClickFunc: openSessionList },
+          { id: 'chat-m-refresh', title: 'Refresh Sessions', onClickFunc: () => void loadSessions() },
+          { id: 'chat-m-new', title: 'New Session', onClickFunc: newSession },
+        ],
       },
     ],
-    [aboutMenuItem, editMenuItem, newSession]
+    [aboutMenuItem, editMenuItem, newSession, openSessionList, loadSessions]
   );
 
   return (
@@ -493,8 +703,10 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
         ) : (
           <div className="sp-chat">
             <div className="sp-chat-list" ref={listRef} onScroll={onListScroll}>
-              {messages.length === 0 && (
-                <div className="sp-chat-empty">开始与 Hermes 对话吧。</div>
+              {historyLoading ? (
+                <div className="sp-chat-empty">Loading conversation…</div>
+              ) : (
+                messages.length === 0 && <div className="sp-chat-empty">开始与 Hermes 对话吧。</div>
               )}
               {messages.map((b) => (
                 <div key={b.id} className={`sp-chat-row ${b.role}`}>
@@ -536,7 +748,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
                 className="sp-chat-textarea"
                 value={input}
                 placeholder={streaming ? '回复中…' : '输入消息，Enter 发送，Shift+Enter 换行'}
-                disabled={streaming}
+                disabled={streaming || historyLoading}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
               />
@@ -545,7 +757,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
                   ■ 停止
                 </ClassicyButton>
               ) : (
-                <ClassicyButton buttonSize="small" isDefault disabled={!input.trim()} onClickFunc={send}>
+                <ClassicyButton buttonSize="small" isDefault disabled={!input.trim() || historyLoading} onClickFunc={send}>
                   发送
                 </ClassicyButton>
               )}
@@ -553,6 +765,64 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
           </div>
         )}
       </ClassicyWindow>
+      {/* 会话列表窗口：常驻渲染树（内容由 serverSessions/currentId 驱动），Open/Focus 控制显隐；
+          复用主 appMenu，聚焦列表窗口时菜单栏同样可用（Refresh Sessions 等） */}
+      <ClassicyWindow
+        id="chat-sessions"
+        title="Sessions"
+        icon={ICON}
+        appId={APP_ID}
+        resizable
+        closable
+        initialSize={[440, 320]}
+        initialPosition={['center', 'center']}
+        minimumSize={[320, 220]}
+        appMenu={appMenu}
+      >
+        {sessionsLoading ? (
+          <div className="sp-chat-sessions-empty">Loading sessions…</div>
+        ) : sessionsError ? (
+          <div className="sp-chat-sessions-empty">
+            <div>
+              {sessionsError}
+              <br />
+              <ClassicyButton buttonSize="small" onClickFunc={() => void loadSessions()}>
+                Retry
+              </ClassicyButton>
+            </div>
+          </div>
+        ) : serverSessions.length === 0 ? (
+          <div className="sp-chat-sessions-empty">No sessions on the server yet.</div>
+        ) : (
+          <div className="sp-chat-sessions">
+            <ClassicyTable
+              columns={sessionColumns}
+              rows={serverSessions}
+              getRowId={(s) => s.id}
+              selectionMode="single"
+              selected={currentId ? [currentId] : []}
+              onSelectionChange={(ids) => {
+                if (ids[0]) void switchSession(ids[0]);
+              }}
+              onActivateRow={(id) => {
+                void switchSession(id);
+                dispatch({ type: 'ClassicyWindowClose', app: { id: APP_ID }, window: { id: 'chat-sessions' } });
+              }}
+              defaultSort={{ columnId: 'updated', desc: true }}
+            />
+          </div>
+        )}
+      </ClassicyWindow>
+      {alert && (
+        <ClassicyAlert
+          appId={APP_ID}
+          alertType={alert.alertType}
+          label={alert.label}
+          message={alert.message}
+          buttons={alert.buttons}
+          onClose={() => setAlert(null)}
+        />
+      )}
       {aboutWindow}
     </ClassicyApp>
   );
