@@ -180,7 +180,7 @@ interface TermAlert {
 }
 
 /**
- * 终端应用：xterm.js 直连 server.js 代理的 ttyd WebSocket。
+ * 终端应用：xterm.js 直连后端代理的 ttyd WebSocket。
  * 鉴权复用 Dashboard 的 JWT Cookie（token 接口 + WS 升级均由后端校验）。
  */
 export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
@@ -698,7 +698,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       >
         {disabled ? (
           <div className="sp-term-disabled">
-            终端功能未启用：请在服务器 config.json 中设置 terminal.enabled = true，并确认已安装 ttyd。
+            终端功能未启用：请在服务器 .env 中设置 TERMINAL_ENABLED=true，并确认已安装 ttyd。
           </div>
         ) : (
           // 右键菜单需要真实包裹终端容器才能覆盖桌面默认菜单；

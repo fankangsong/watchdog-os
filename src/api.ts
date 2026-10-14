@@ -3,7 +3,6 @@
 export interface HealthInfo {
   ok: boolean;
   basePath: string;
-  hostname: string;
 }
 
 export async function fetchHealth(): Promise<HealthInfo> {

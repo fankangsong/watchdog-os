@@ -1,7 +1,7 @@
 /**
  * Runner 模块（RunnerApp 数据源）：远程触发脚本任务（单槽锁）+ 日志落盘/轮转/回读。
  * 从 server.js 原样搬移（原 744-875 行），函数体不变。
- * 脚本路径只来自服务端 config.json / RUNNER_SCRIPT，客户端不可传路径。
+ * 脚本路径只来自服务端配置（.env 的 RUNNER_SCRIPT），客户端不可传路径。
  */
 'use strict';
 

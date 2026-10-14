@@ -119,7 +119,7 @@ export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
           <div style={{ padding: '8px 12px', fontSize: 12, display: 'grid', gap: 6 }}>
             {!enabled && (
               <div style={{ color: '#a00' }}>
-                Runner 未启用：需在服务端 config.json 配置 runner.enabled 与 runner.scriptPath
+                Runner 未启用：需在服务端 .env 配置 RUNNER_ENABLED=true 与 RUNNER_SCRIPT
               </div>
             )}
             <div>

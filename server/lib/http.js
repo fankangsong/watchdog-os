@@ -22,13 +22,22 @@ function redirect(res, location) {
   res.end();
 }
 
+/** 解析 Cookie 为对象：单pair 的百分号解码失败时保留原始值，本函数保证不抛异常 */
 function parseCookies(req) {
   const out = {};
   const raw = req.headers.cookie;
   if (!raw) return out;
   for (const pair of raw.split(';')) {
     const i = pair.indexOf('=');
-    if (i > 0) out[pair.slice(0, i).trim()] = decodeURIComponent(pair.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const name = pair.slice(0, i).trim();
+    const value = pair.slice(i + 1).trim();
+    try {
+      out[name] = decodeURIComponent(value);
+    } catch {
+      // 畸形编码（如 sp_token=%）：原样保留，交给上层校验器判定失败 → 401 而非 500
+      out[name] = value;
+    }
   }
   return out;
 }

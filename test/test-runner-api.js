@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Runner API 冒烟测试：零依赖。spawn server.js 子进程（env 注入 runner 配置），
+/* Runner API 冒烟测试：零依赖。spawn server/index.js 子进程（env 注入 runner 配置），
  * 通过重写同一临时脚本内容依次验证 成功构建 / 失败构建 / stop 中断，
  * 再起独立实例验证 400（脚本不存在）与 503（未启用）。系统无 bash 时跳过。 */
 'use strict';
@@ -11,6 +11,11 @@ const path = require('path');
 const PORT = 3215;
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = path.join(os.tmpdir(), 'srv-runner-test-' + Date.now());
+/* 项目根：入口脚本与子进程 cwd 都必须指向它（config.js 的 diskMounts 缺省值取自 process.cwd()） */
+const ROOT = path.join(__dirname, '..');
+const PASSWORD = process.env.PASSWORD || 'test123';
+/* JWT 签名密钥为必配项（≥32 字节），自起服务时必须注入，否则服务端 fail-fast 退出 */
+const JWT_SECRET = process.env.JWT_SECRET || 'test-only-jwt-secret-0123456789abcdef0123456789';
 
 let passed = 0;
 let failed = 0;
@@ -60,10 +65,10 @@ function bashAvailable() {
 }
 
 function startServer(extraEnv) {
-  // server.js 用脚本自身目录的绝对路径启动，cwd 固定为项目根，不依赖调用方所在目录
-  return spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-    cwd: __dirname,
-    env: { ...process.env, PORT: String(PORT), PASSWORD: 'test123', BASE_PATH: '/', ...extraEnv },
+  // 入口脚本用项目根的绝对路径启动，cwd 固定为项目根，不依赖调用方所在目录
+  return spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(PORT), PASSWORD, JWT_SECRET, BASE_PATH: '/', ...extraEnv },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
 }
@@ -72,10 +77,10 @@ async function login() {
   const r = await fetch(`${BASE}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password: 'test123' }),
+    body: JSON.stringify({ password: PASSWORD }),
   });
-  const { token } = await r.json();
-  return { authorization: `Bearer ${token}` };
+  // 只认 HttpOnly Cookie：取 Set-Cookie 的 name=value 段作为后续请求头
+  return { Cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
 }
 
 async function getStatus(H) {
@@ -172,7 +177,7 @@ async function waitDone(H, timeoutMs = 15000) {
     await waitPortFree();
   }
 
-  /* ---- 实例 3：未启用 → 503（显式 RUNNER_ENABLED=0，防止本机 config.json 的 runner.enabled 泄漏）---- */
+  /* ---- 实例 3：未启用 → 503（显式 RUNNER_ENABLED=0，防止本机 .env 的 RUNNER_ENABLED 泄漏）---- */
   child = startServer({ RUNNER_ENABLED: '0' });
   try {
     ok('server3 health', await waitHealth());
@@ -188,7 +193,7 @@ async function waitDone(H, timeoutMs = 15000) {
   // 清理临时目录与测试产生的项目日志（不动 data/favorites.json）
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* 忽略 */ }
   for (const f of ['data/runner.log', 'data/runner.log.old']) {
-    try { fs.rmSync(path.join(__dirname, f), { force: true }); } catch { /* 忽略 */ }
+    try { fs.rmSync(path.join(ROOT, f), { force: true }); } catch { /* 忽略 */ }
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

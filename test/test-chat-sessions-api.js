@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Chat Sessions API 冒烟测试：零依赖。
  * 起 mock hermes（/api/sessions* + /v1/chat/completions SSE + 鉴权观测端点 /_last），
- * spawn server.js 子进程，验证：
+ * spawn server/index.js 子进程，验证：
  *   鉴权 401 / apiServerKey 透传 / apiServerKey 缺省回退 apiKey /
  *   messages 路径与 query 透传 / DELETE 204 规整 200 / 上游 401→502（防误登出）/
  *   非法 id→400 / 多级路径→404 / mock 停机→503 / completions 会话头双向透传 */
@@ -13,6 +13,11 @@ const path = require('path');
 const W_PORT = 3217; // watchdog server
 const M_PORT = 3216; // mock hermes
 const W_BASE = `http://127.0.0.1:${W_PORT}`;
+/* 项目根：入口脚本与子进程 cwd 都必须指向它（config.js 的 diskMounts 缺省值取自 process.cwd()） */
+const ROOT = path.join(__dirname, '..');
+const PASSWORD = process.env.PASSWORD || 'test123';
+/* JWT 签名密钥为必配项（≥32 字节），自起服务时必须注入，否则服务端 fail-fast 退出 */
+const JWT_SECRET = process.env.JWT_SECRET || 'test-only-jwt-secret-0123456789abcdef0123456789';
 
 let passed = 0;
 let failed = 0;
@@ -96,12 +101,13 @@ const mock = http.createServer((req, res) => {
 });
 
 function startServer(extraEnv) {
-  return spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-    cwd: __dirname,
+  return spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+    cwd: ROOT,
     env: {
       ...process.env,
       PORT: String(W_PORT),
-      PASSWORD: 'test123',
+      PASSWORD,
+      JWT_SECRET,
       BASE_PATH: '/',
       TERMINAL_ENABLED: 'false',
       ...extraEnv,
@@ -137,10 +143,10 @@ async function login() {
   const r = await fetch(`${W_BASE}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password: 'test123' }),
+    body: JSON.stringify({ password: PASSWORD }),
   });
-  const { token } = await r.json();
-  return { authorization: `Bearer ${token}` };
+  // 只认 HttpOnly Cookie：取 Set-Cookie 的 name=value 段作为后续请求头
+  return { Cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
 }
 
 async function lastMock() {
