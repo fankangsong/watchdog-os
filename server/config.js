@@ -105,6 +105,7 @@ cfg.hermes = Object.assign(
     enabled: false,                        // 是否启用聊天代理（HERMES_ENABLED 可覆盖）
     baseUrl: 'http://192.168.100.20:8642', // hermes agent 的 OpenAI 兼容 API 地址
     apiKey: '',                            // 上游 Bearer Token（可为空）
+    apiServerKey: '',                      // Sessions API 专用 Bearer（API_SERVER_KEY，为空回退 apiKey）
     model: 'hermes-agent',                 // 客户端未指定 model 时注入的默认模型
     timeoutMs: 300000,                     // 上游请求超时 ms（agent 执行工具可能很久）
   },
@@ -115,6 +116,7 @@ if (process.env.HERMES_ENABLED != null) {
 }
 if (process.env.HERMES_BASE_URL) cfg.hermes.baseUrl = process.env.HERMES_BASE_URL;
 if (process.env.HERMES_API_KEY != null) cfg.hermes.apiKey = process.env.HERMES_API_KEY;
+if (process.env.HERMES_API_SERVER_KEY != null) cfg.hermes.apiServerKey = process.env.HERMES_API_SERVER_KEY;
 if (process.env.HERMES_MODEL) cfg.hermes.model = process.env.HERMES_MODEL;
 if (process.env.HERMES_TIMEOUT_MS) {
   cfg.hermes.timeoutMs = parseInt(process.env.HERMES_TIMEOUT_MS, 10) || cfg.hermes.timeoutMs;
