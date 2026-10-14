@@ -393,6 +393,8 @@ export interface StreamToolCall {
 export interface ChatStreamHandlers {
   messages: ChatMessage[];
   signal?: AbortSignal;
+  /** 服务端会话 ID（有则随 X-Hermes-Session-Id 请求头带上，让 hermes 记入同一 transcript） */
+  sessionId?: string;
   /** 正文增量（choices[0].delta.content） */
   onDelta?: (text: string) => void;
   /** 推理内容增量（choices[0].delta.reasoning_content） */
@@ -411,6 +413,8 @@ export interface ChatStreamHandlers {
   onDone?: () => void;
   /** 请求/流错误 */
   onError?: (e: Error) => void;
+  /** 从 2xx 响应头读出的 X-Hermes-Session-Id（流开始前即触发，abort 前也已到达） */
+  onSessionId?: (sid: string) => void;
 }
 
 /**
@@ -422,6 +426,7 @@ export interface ChatStreamHandlers {
 export async function streamChat({
   messages,
   signal,
+  sessionId,
   onDelta,
   onReasoning,
   onToolProgress,
@@ -429,16 +434,22 @@ export async function streamChat({
   onToolCall,
   onDone,
   onError,
+  onSessionId,
 }: ChatStreamHandlers): Promise<void> {
   try {
     const r = await fetch('./api/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sessionId ? { 'X-Hermes-Session-Id': sessionId } : {}),
+      },
       body: JSON.stringify({ messages, stream: true }),
       signal,
     });
     if (r.status === 401) throw new Unauthorized();
     if (!r.ok) throw new Error(await chatHttpError(r));
+    const sid = r.headers.get('X-Hermes-Session-Id');
+    if (sid) onSessionId?.(sid);
     if (!r.body) throw new Error('响应不含数据流');
 
     // delta.tool_calls 分片累积状态（每次 streamChat 调用独立，无跨流污染）
@@ -519,4 +530,151 @@ export async function streamChat({
     }
     onError?.(e instanceof Error ? e : new Error(String(e)));
   }
+}
+
+/* ---------- Chat Sessions（hermes 服务端会话列表 / 历史，/api/chat/sessions*）---------- */
+
+/** hermes 服务端会话（列表/元数据经适配后的展示模型） */
+export interface HermesSession {
+  id: string;
+  /** 展示标题，提取失败回退 'Untitled' */
+  title: string;
+  /** ms 时间戳，解析失败为 0 */
+  updatedAt: number;
+  messageCount?: number;
+}
+
+/** 服务端历史消息适配后的最小气泡模型（ChatApp 再补 id 映射为 ChatBubble） */
+export interface ChatHistoryBubble {
+  role: 'user' | 'assistant';
+  content: string;
+  reasoning?: string;
+}
+
+/* --- 宽松字段提取工具（hermes 响应 JSON 结构官方文档未详述，按候选键容错）--- */
+
+function pickStr(obj: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'string' && v) return v;
+  }
+  return '';
+}
+
+function pickNum(obj: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return undefined;
+}
+
+/** 从任意形状响应中取第一个数组（messages/data/sessions/items 包裹或直接数组） */
+function pickArray(raw: unknown): Record<string, unknown>[] {
+  if (Array.isArray(raw)) return raw as Record<string, unknown>[];
+  if (raw && typeof raw === 'object') {
+    for (const k of ['messages', 'data', 'sessions', 'items', 'results']) {
+      const v = (raw as Record<string, unknown>)[k];
+      if (Array.isArray(v)) return v as Record<string, unknown>[];
+    }
+  }
+  return [];
+}
+
+/** 时间字段归一为 ms：ISO 字符串 / 秒 / 毫秒均尝试，失败返回 0 */
+function pickTime(obj: Record<string, unknown>, keys: string[]): number {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      return v > 1e12 ? v : v * 1000; // 秒 → 毫秒
+    }
+    if (typeof v === 'string' && v) {
+      const t = Date.parse(v);
+      if (!Number.isNaN(t)) return t;
+    }
+  }
+  return 0;
+}
+
+/** 会话的「最后更新时间」候选键：last_active 为 hermes 实测字段（秒级浮点） */
+const SESSION_UPDATED_KEYS = [
+  'last_active',
+  'lastActive',
+  'updated_at',
+  'updatedAt',
+  'last_message_at',
+  'last_activity_at',
+  'modified_at',
+  'created_at',
+  'createdAt',
+];
+
+/** 消息 content 容错提取：string 直用；blocks 数组拼接各块 .text；对象取 .text/.body */
+function pickContent(m: Record<string, unknown>): string {
+  const c = m.content ?? m.text ?? m.body;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) {
+    return c
+      .map((b) => (b && typeof b === 'object' && typeof (b as Record<string, unknown>).text === 'string' ? (b as Record<string, unknown>).text : ''))
+      .join('');
+  }
+  if (c && typeof c === 'object') {
+    const o = c as Record<string, unknown>;
+    if (typeof o.text === 'string') return o.text;
+    if (typeof o.body === 'string') return o.body;
+  }
+  return '';
+}
+
+/** 会话列表适配：id 提取失败的条目丢弃 */
+function adaptSessions(raw: unknown): HermesSession[] {
+  const out: HermesSession[] = [];
+  for (const s of pickArray(raw)) {
+    if (!s || typeof s !== 'object') continue;
+    const id = pickStr(s, ['id', 'session_id', 'sessionId', 'uuid']);
+    if (!id) continue;
+    const count = pickNum(s, ['message_count', 'messageCount', 'count', 'turns']);
+    out.push({
+      id,
+      title: pickStr(s, ['title', 'name', 'summary', 'label', 'preview']) || 'Untitled',
+      updatedAt: pickTime(s, SESSION_UPDATED_KEYS),
+      messageCount: count,
+    });
+  }
+  return out;
+}
+
+/** 服务端历史消息适配：仅保留 user/assistant，role 提取失败或空消息跳过，末尾 200 条防巨型历史 */
+function adaptSessionMessages(raw: unknown): ChatHistoryBubble[] {
+  const out: ChatHistoryBubble[] = [];
+  for (const m of pickArray(raw)) {
+    if (!m || typeof m !== 'object') continue;
+    const roleRaw = pickStr(m, ['role', 'sender', 'author']).toLowerCase();
+    const role = /^(user|human)$/.test(roleRaw) ? 'user' : /^(assistant|ai|model)$/.test(roleRaw) ? 'assistant' : null;
+    if (!role) continue;
+    const content = pickContent(m);
+    const reasoning = pickStr(m, ['reasoning_content', 'reasoning', 'thinking']);
+    if (!content && !reasoning) continue;
+    out.push({ role, content, reasoning: reasoning || undefined });
+  }
+  return out.slice(-200);
+}
+
+/** 会话列表（服务端为准，按时间倒序由前端表格排序） */
+export async function fetchChatSessions(limit = 50): Promise<HermesSession[]> {
+  const raw = await request<unknown>(`./api/chat/sessions?limit=${limit}`);
+  return adaptSessions(raw);
+}
+
+/** 会话历史消息（原始 JSON，由调用方经 adaptSessionMessages 适配——保持独立便于测试） */
+export async function fetchChatSessionMessagesRaw(id: string): Promise<unknown> {
+  return request<unknown>(`./api/chat/sessions/${encodeURIComponent(id)}/messages?inline_images=false`);
+}
+
+export async function fetchChatSessionMessages(id: string): Promise<ChatHistoryBubble[]> {
+  return adaptSessionMessages(await fetchChatSessionMessagesRaw(id));
+}
+
+export async function deleteChatSession(id: string): Promise<void> {
+  await request<unknown>(`./api/chat/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

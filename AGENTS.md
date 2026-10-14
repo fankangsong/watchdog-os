@@ -119,6 +119,17 @@ dist/                # 构建产物（勿手动修改）
 - 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify），主题/字号/字体偏好存 localStorage，未保存关闭有 `onBeforeClose` veto 确认
 - 跨应用联动：`src/editorBridge.ts` 的 `openInEditor(path)` —— 记录 pendingPath + dispatch `ClassicyAppOpen`/`ClassicyWindowOpen` + DOM 事件双通道（挂载消费 pending、已挂载走事件），避免竞态
 
+### Chat（ChatApp + `/api/chat/*`：聊天代理 + hermes Sessions 转发）
+
+- 后端 `server/api/chat.js` 两个转发函数，路由在 `server/router.js` 的 chat 块（先 watchdog JWT `checkAuth` 401，再 `hermes.enabled` 503）：
+  - `proxyHermesChat`：`POST /api/chat/completions` → 上游 `POST {baseUrl}/v1/chat/completions`（流式 SSE 逐块 pipe 透传，非流式收集回传）。**双向透传 `X-Hermes-Session-Id` 头**：客户端请求头（白名单正则校验后）转发上游，让 hermes 把多轮记入同一 transcript；上游 2xx 响应头回显给前端（前端据此把新会话关联到服务端 transcript）
+  - `proxyHermesSessions`：`/api/chat/sessions`（列表，转发 query）· `/api/chat/sessions/{id}`（元数据 / DELETE）· `/api/chat/sessions/{id}/messages`（历史，带 `inline_images=false`）→ 上游 `/api/sessions*`。超时 15s（快操作，区别于 chat 的 300s）
+  - **上游 401/403 必须映射 502**：前端 `request()` 把 watchdog 自身 401 当登出信号（Unauthorized），而 Sessions API 的 401 表示服务端 `hermes.apiServerKey` 配错，透传会导致误登出
+- 鉴权：上游 Bearer 优先 `hermes.apiServerKey`（API_SERVER_KEY），为空回退 `hermes.apiKey`；两者均仅服务端持有，不回传任何响应
+- 前端 `ChatApp.tsx`（混合模式）：**发送**走 completions（无状态协议，全量重传 messages，`streamChat` 带 `sessionId` 请求头 / `onSessionId` 消费响应头——首次发送后关联 `currentId`）；**会话列表/历史**以服务端为准（`fetchChatSessions` / `fetchChatSessionMessages` + 容错适配器，hermes 响应字段官方未详述，按候选键宽松提取，仅保留 user/assistant 消息）。`currentId=null` 表示未关联的新会话；切换会话每次都重新拉取服务端历史（`loadSeqRef` 序号防乱序）；本地**不做持久化**（挂载时一次性清理旧版 `watchdog-chat-history` / `watchdog-chat-sessions` / `watchdog-chat-session:*` key）
+- 会话列表窗口 `chat-sessions`：常驻渲染树 + dispatch Open/Focus 显隐；四态（Loading / error+Retry / empty / ClassicyTable）；Refresh / Delete… 工具栏（删除走 ClassicyAlert caution 确认，删除当前会话回空会话）；单击行切换、双击/Enter 切换并关窗
+- ⚠️ 带会话请求头理论上可能造成 hermes 上下文重复（transcript 注入 + 全量重传）：若实测发现重复，回退方式为前端 `streamChat` 不传 `sessionId`（代理双向透传保留，无需改后端）
+
 ### 重要注意事项
 
 1. **`vite.config.ts` 中 `publicDir: false`**：`public/` 是旧版零依赖前端的回退目录，绝不能被 Vite 拷入 `dist`（会与构建产物冲突）。新增静态资源请勿放进 `public/`。

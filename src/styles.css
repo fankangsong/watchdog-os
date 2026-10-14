@@ -425,6 +425,14 @@ html, body, #root {
 .sp-chat-textarea { flex: 1 1 auto; box-sizing: border-box; resize: none; height: 56px; padding: 4px 6px; font: inherit; font-size: 13px; line-height: 1.5; }
 .sp-chat-disabled { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; color: #555; font-size: 13px; }
 .sp-chat-disabled-tip { color: #9a9a9a; word-break: break-all; }
+/* 会话列表窗口 */
+.sp-chat-sessions { height: 100%; box-sizing: border-box; overflow: auto; }
+.sp-chat-sessions-empty { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; color: #777; font-size: 13px; }
+/* 行内删除图标（表格操作列）：无边框透明按钮，悬停高亮 */
+.sp-chat-session-del { border: none; background: transparent; padding: 0 2px; cursor: pointer; line-height: 0; }
+.sp-chat-session-del img { width: 14px; height: 14px; vertical-align: middle; }
+.sp-chat-session-del:hover { filter: brightness(0.75); }
+.sp-chat-session-del:active { filter: brightness(0.6); }
 
 /* ---------- 桌面图标"已打开"态修正 ----------
    classicy 默认在应用窗口打开后把桌面图标渲染为轮廓棋盘网纹（图标本体 opacity:0 +
