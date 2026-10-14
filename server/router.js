@@ -15,7 +15,7 @@ const { state } = require('./api/metrics');
 const { serveFile } = require('./static');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
-const { proxyHermesChat } = require('./api/chat');
+const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { fsRoute } = require('./api/fs');
 
 async function route(req, res, url) {
@@ -136,8 +136,12 @@ async function route(req, res, url) {
     return send(res, 404, { error: 'not found' });
   }
 
-  /* ---- Hermes 聊天代理（OpenAI 兼容 API 转发，统一 JWT 鉴权）---- */
-  if (p === '/api/chat/status' || p === '/api/chat/completions') {
+  /* ---- Hermes 聊天代理（OpenAI 兼容 API + Sessions 转发，统一 JWT 鉴权）---- */
+  if (
+    p === '/api/chat/status' ||
+    p === '/api/chat/completions' ||
+    p.startsWith('/api/chat/sessions')
+  ) {
     if (!checkAuth(req)) {
       return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
     }
@@ -154,6 +158,32 @@ async function route(req, res, url) {
         return send(res, 413, { error: 'body too large' });
       }
       return proxyHermesChat(req, res, Buffer.from(body, 'utf8'));
+    }
+    // Sessions API 子路由：白名单解析（单段 id，天然拒绝 '..' 与多级路径），id decode 后再校验字符集
+    if (p.startsWith('/api/chat/sessions')) {
+      const sub = p.slice('/api/chat/sessions'.length); // '' | '/{id}' | '/{id}/messages'
+      if (sub === '' && req.method === 'GET') {
+        return proxyHermesSessions(req, res, 'list', null, url.search);
+      }
+      const m = sub.match(/^\/([^/]+)(\/messages)?$/);
+      if (m) {
+        let id;
+        try {
+          id = decodeURIComponent(m[1]);
+        } catch {
+          return send(res, 400, { error: 'bad session id' });
+        }
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) {
+          return send(res, 400, { error: 'bad session id' });
+        }
+        if (req.method === 'GET') {
+          return proxyHermesSessions(req, res, m[2] ? 'messages' : 'meta', id, url.search);
+        }
+        if (req.method === 'DELETE') {
+          return proxyHermesSessions(req, res, 'delete', id, '');
+        }
+      }
+      return send(res, 404, { error: 'not found' });
     }
     return send(res, 404, { error: 'not found' });
   }
