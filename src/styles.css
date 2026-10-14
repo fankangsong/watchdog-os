@@ -262,7 +262,7 @@ html, body, #root {
 .sp-fm { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
 .sp-fm-toolbar { flex-wrap: wrap; align-items: center; gap: 4px; }
 .sp-fm-path { flex: 1 1 200px; min-width: 150px; }
-.sp-fm-path input { box-sizing: border-box; width: 100%; height: calc(var(--hig-button-height) - var(--window-border-size) * 2); padding: 0 5px; font-size: 12px; font-family: var(--mono-font, monospace); }
+.sp-fm-path input { box-sizing: border-box; width: 100%; height: calc(var(--hig-button-height) - var(--window-border-size) * 2); padding: 0 5px; font-size: 13px; font-family: var(--mono-font, monospace); }
 .sp-fm-split { flex: 1 1 auto; min-height: 0; }
 /* 分割条上下与容器对齐（覆盖 classicy 默认的上下 margin） */
 .sp-fm-split .classicySplitViewDivider { margin: 0; }
@@ -335,10 +335,12 @@ html, body, #root {
 .sp-dialog-body { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
 .sp-dialog-recent { max-height: 160px; overflow: auto; border: 1px solid rgba(0, 0, 0, 0.2); background: var(--color-white); padding: 2px; }
 .sp-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
-/* 对话框内 ClassicyInput 的左置 label：input 为 width:100% 的 flex 项会挤压 label，
-   这里禁止 label 收缩换行，保持单行展示 */
-.sp-dialog .classicyLabelLeft .classicyControlLabelHolder { flex: 0 0 auto; }
-.sp-dialog .classicyLabelLeft .classicyControlLabel { white-space: nowrap; }
+/* ClassicyInput（classicyInputHolder）左置 label：input 是 width:100% 的 flex 项，
+   会挤压 label 造成逐字换行（Files 新建文件夹/新建文本文件等窄对话框最为明显）；
+   统一禁止 label 收缩与换行，保持单行展示 */
+.classicyInputHolder.classicyLabelLeft .classicyControlLabelHolder { flex: 0 0 auto; }
+.classicyInputHolder.classicyLabelLeft .classicyControlLabel { white-space: nowrap; }
+.classicyInputHolder.classicyLabelLeft .classicyInput { min-width: 0; }
 /* 设置对话框：label 左、控件右的行式布局 */
 .sp-dialog-field { display: flex; align-items: center; gap: 8px; }
 .sp-dialog-field > label { flex: 0 0 auto; min-width: 40px; font-size: 12px; font-weight: 700; }
