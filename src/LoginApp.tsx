@@ -16,10 +16,11 @@ export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // 标题固定为通用名：/api/health 不再对未登录访客返回主机名（匿名信息收敛）。
-  // 登录后 MonitorApp 会用已鉴权的 /api/metrics 里的 host.hostname 显示真实主机名。
+  // 标题固定为产品名：/api/health 不再对未登录访客返回主机名（匿名信息收敛），
+  // 未登录阶段不暴露主机名。登录后 MonitorApp 会用已鉴权的 /api/metrics 里的
+  // host.hostname 把文档标题升级为「WatchDog OS · <主机名>」。
   useEffect(() => {
-    document.title = 'System Monitor';
+    document.title = 'WatchDog OS';
     // 保留一次健康探测：后端不可达时提前暴露问题（真正的失败仍由登录请求给出）
     fetchHealth().catch(() => {});
   }, []);
@@ -60,7 +61,7 @@ export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
               src={ClassicyIcons.applications.systemProfiler.app}
               alt=""
             />
-            <span className="sp-platinum-title-text">System Monitor</span>
+            <span className="sp-platinum-title-text">WatchDog OS</span>
           </div>
           <div className="sp-platinum-body">
             <div className="sp-login-field">

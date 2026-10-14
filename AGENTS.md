@@ -126,11 +126,12 @@ src/                 # React 前端源码
   api.ts             # 后端 API 封装（含 getTerminalToken、/api/fs/* 文件管理）
   editorBridge.ts    # Finder → 文本编辑器 跨应用打开文件的联动桥
   Desktop.tsx        # 桌面布局
-  LoginApp.tsx       # 登录（标题固定 System Monitor：未登录时不再展示主机名）
+  LoginApp.tsx       # 登录（标题固定 WatchDog OS：未登录不展示主机名；登录后由 MonitorApp 把文档标题同步为「WatchDog OS · 主机名」）
   format.ts          # 格式化工具
 vite.config.ts       # Vite 配置（见下方注意事项）
 dist/                # 构建产物（勿手动修改）
 test/                # 零依赖冒烟测试脚本（自起 server 子进程或连接既有服务）
+docs/                # design/ 交互设计参考图（外部范本）；design-spec.md 全套交互与设计规范
 run.sh               # Linux systemd 服务管理入口（保持项目根，不在 scripts/ 内）
 ```
 
@@ -259,6 +260,10 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 ```
 
 反例（禁止）：在 appMenu 里自建 `System > Sign Out`（Apple 菜单已有）；手动 `✓ ` 前缀；`Cmd+S` 快捷键写法；中文菜单文案；把具体功能命令塞进应用名菜单。
+
+### 交互与设计规范（全套）
+
+除菜单外，窗口、控件、布局、列表、反馈、视觉、文案、快捷键、数据交互的全套标准见 **[docs/design-spec.md](docs/design-spec.md)**（设计北极星为 `docs/design/` 参考图）。**设计、改造任何应用前必须通读该规范并逐项通过其「新应用创建清单」**；规范与既有实现冲突时，以规范为准修正实现。
 
 ## 编码风格
 

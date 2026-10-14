@@ -8,7 +8,7 @@ import { ProcessPanel } from '../components/ProcessPanel';
 import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-monitor.app';
-const APP_NAME = 'System Monitor';
+const APP_NAME = 'WatchDog OS';
 
 const INTERVALS = [1, 2, 5, 10, 30];
 
@@ -54,6 +54,13 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
   );
 
   const m = metricsPoll.data;
+
+  // 文档标题同步主机名：metrics 就绪后为「WatchDog OS · <主机名>」，否则保持产品名。
+  // 主机名只来自已鉴权的 /api/metrics，未登录阶段（LoginApp）不暴露。
+  // MonitorApp 常驻挂载于桌面，轮询不受窗口开闭影响，标题因此登录即更新。
+  useEffect(() => {
+    document.title = m ? `${APP_NAME} · ${m.host.hostname}` : APP_NAME;
+  }, [m]);
 
   return (
     <ClassicyApp id={APP_ID} name={APP_NAME} icon={ClassicyIcons.applications.systemProfiler.app} defaultWindow="monitor-main">

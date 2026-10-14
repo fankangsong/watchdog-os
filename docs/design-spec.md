@@ -1,0 +1,422 @@
+# watchdog-os 交互与设计规范（Classicy · Platinum）
+
+> 本规范是 watchdog-os 桌面（Classicy Webtop）所有应用的**唯一交互与视觉标准**。
+> AI 编码代理在设计、改造任何应用（窗口、表单、按钮、列表、反馈）时**必须严格遵循本规范**，不得自行发明交互模式。
+> 菜单栏的专项规则见 `AGENTS.md`「菜单设计规范」一节，本规范其余部分对其形成补充与细化，两者冲突时以本规范的视觉/交互细则为准。
+
+---
+
+## 0. 参考系与设计哲学
+
+### 0.1 参考图（设计北极星）
+
+`docs/design/` 下的 9 张截图来自外部参考软件（exe / Mac OS 9 风格 Webtop），代表本项目期望达到的交互与视觉水准。逐张拆解见 [附录 A](#附录-a参考图设计要点拆解)。核心特征：
+
+- Platinum 窗口：条纹标题栏、左上关闭盒、右上折叠/缩放盒、右下缩角、1px 黑边
+- 桌面：紫蓝 Happy Mac 棋盘壁纸、右列大图标（图形 + 下方名称，选中时名称高亮）
+- 模态对话框小而聚焦，默认按钮带双线环，父窗变暗
+- 窗口底部状态栏：左上下文 / 右全局信息
+- 紧凑、克制、信息密度高，无多余装饰
+
+### 0.2 官方资源
+
+| 资源 | 地址 | 用途 |
+|---|---|---|
+| Classicy 官网 | https://classicy.ing/ | 概念与特性总览 |
+| 在线 Showcase | https://demo.classicy.ing | 交互实机体验（菜单/窗口/主题/声音） |
+| Storybook | https://demo.classicy.ing/storybook/ | 35+ 组件的 props 与用法速查 |
+| Building Apps 指南 | github.com/robbiebyrd/classicy → `docs/BUILDING-APPS.md` | 应用/窗口/菜单/存储完整 API |
+| Agent Reference | 同上 `docs/AGENT-REFERENCE.md` | 公开 API 参考 |
+
+### 0.3 设计原则（按优先级排序）
+
+1. **一致性优先于个性**：新应用必须在窗口结构、控件选用、反馈方式上与既有 9 个应用（Monitor / Docker / Terminal / Files / Editor / Runner / Printer / Chat / imcolin）保持一致。用户在一个应用里学到的操作方式，必须能迁移到所有其他应用。
+2. **桌面隐喻与 WIMP**：一切皆窗口与对象；操作为「选择对象 → 对对象执行命令」（菜单 / 工具栏 / 右键菜单三条等价路径）。
+3. **状态可见**：系统在做什么、刚刚做完了什么、出了什么问题，必须能在窗口内直接看到（状态栏、进度、错误文本），不靠弹窗轰炸。
+4. **宽容而非阻断**：破坏性操作必须可确认、可取消；输入错误给出明确原因；网络失败保留上次正常数据并提示。
+5. **克制**：不使用渐变、阴影、圆角卡片等现代 Web 装饰；视觉重量只来自 Platinum 本身的斜面（bevel）与主题变量。
+
+---
+
+## 1. 桌面与窗口系统
+
+### 1.1 桌面
+
+- 壁纸、图标列、菜单栏由 `ClassicyDesktop` 系统渲染，**应用不得自绘桌面元素**。
+- 每个应用在桌面产生一个图标；图标必须从 `ClassicyIcons` 内置命名空间选取语义最贴近的图标（参考 `src/Desktop.tsx` 现有 9 个应用的选法），保持全桌面图标风格统一；不引入自制位图图标。
+- 应用注册与 Apple 菜单注入集中在 `src/Desktop.tsx`（含 `Sign Out` 注入 `sp-menu-logout`），新应用在此登记，**不得自建 System/Sign Out 菜单**。
+
+### 1.2 窗口解剖（Platinum 标准结构）
+
+```
+┌─ title bar ──────────────────────────── [✕] [▁] [□] ─┐  ← 19px，条纹底，标题居中加粗
+│ [icon] Window Title                                  │
+├─ header（可选：信息行，headerVariant="list"）──────────┤  ← 例："8 items, 21.0 GB available"
+├─ contents ────────────────────────────────────────────┤
+│  toolbar（可选）                                      │
+│  ┌ ControlGroup / SplitView / Table … ┐              │
+│  └────────────────────────────────────┘              │
+│  status bar（可选，placard 或自绘 sp-status）         │
+└─────────────────────────────────────────── [缩角] ───┘
+```
+
+| 部位 | 规则 |
+|---|---|
+| 标题栏 | 居中标题；主窗口标题 = 应用名或当前对象名；对话框标题 = 动作名（`New Folder`） |
+| 关闭盒 | 左上，始终可点（`closable` 默认 true，不无故关闭） |
+| 缩放盒 | 右上，主内容窗口保持 `zoomable`；模态对话框建议 `zoomable={false}` |
+| 折叠盒 | 保持默认；窗口无折叠必要时也无需禁用 |
+| 缩角 | `resizable` 主内容窗口保持 true；定尺寸对话框设 `resizable={false}` |
+| 信息行 | 列表型窗口（文件、会话、容器列表）在标题栏下用 `header` + `headerVariant="list"` 显示 "N items" 概要 |
+| 状态栏 | 简单左置状态用 `placard`；需要「左上下文 + 右全局」双区时用自绘状态栏（见 §7.1） |
+
+### 1.3 窗口类型与选用
+
+| 类型 | 实现 | 用于 | 约束 |
+|---|---|---|---|
+| 主窗口 | `ClassicyWindow`（默认 document） | 应用主体 | `defaultWindow` 标记；`initialSize`/`minimumSize` 见 §1.4 |
+| 模态对话框 | `ClassicyWindow modal` | 需要输入/选择的确认与表单 | 尺寸紧凑（宽 320–420px）；`zoomable={false}`；不resizeable；父窗自动变暗 |
+| 工具面板 | `ClassicyWindow windowType="utility"` | 浮动调色板类（暂未使用，预留） | `alwaysOnTop` 仅 utility 可用 |
+| 次窗口 | 普通 `ClassicyWindow` + 独立 id | 关于、设置、快捷键、会话列表、预览 | 数量受限（同类 ≤ 3，超出复用/置顶），级联偏移防重叠 |
+
+**命令式开窗（Preview/会话窗/Bridge 联动）必须双发**，只 Focus 不 Open 对已关窗口无效：
+
+```tsx
+dispatch({ type: "ClassicyWindowOpen", app: { id: appId }, window: { id: windowId } })
+dispatch({ type: "ClassicyWindowFocus", app: { id: appId }, window: { id: windowId } })
+```
+
+同类多窗口级联偏移：`cascadeRef.current++ % 6 * 26`（FinderApp 预览窗现成实现）。
+
+### 1.4 窗口尺寸规范
+
+- **内容优先**：能用内容驱动就不用固定值（`initialSize={[0, 0]}` 或 `["45%", 0]`）。
+- 主窗口：`initialSize` 取视口 45%–75%；必须给 `minimumSize`（防内容破碎），如 `[640, 460]`。
+- 对话框：`initialSize` 紧凑（高由内容决定），`minimumSize` 同初始值。
+- **禁止**无 `minimumSize` 的宽主窗口；禁止把主窗口初始尺寸设成接近全屏（桌面隐喻需要能看到壁纸与其他窗口）。
+
+### 1.5 窗口 id 与持久化约定
+
+- id 命名：`<应用前缀>-<角色>`，如 `monitor-main`、`fm-dialog`、`chat-sessions`；多实例 id 必须由实例派生（`` id={`myapp-note_${noteId}`} ``），**禁止多实例共享 id**（store 条目互踩）。
+- id 是数据（analytics path + localStorage 持久化）：必须稳定、**不得包含用户内容**（文件名/城市名等）。
+- 窗口位置/尺寸由 classicy 自动持久化（`localStorage["classicyDesktopState"]`），无需自存。
+
+### 1.6 关闭拦截
+
+- 有未保存改动的窗口必须用 `onBeforeClose` 返回 Promise 做 veto 确认（EditorApp 为样板）：
+
+```tsx
+onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
+```
+
+- 对话框的取消一律显式关闭，不依赖点关闭盒的歧义。
+
+---
+
+## 2. 菜单栏规范
+
+完整规则见 `AGENTS.md`「菜单设计规范（macOS / classicy）」：四段式结构（应用名 / File / Edit / View / 特有 / Help）、`useMemo` 记忆化、`<前缀>-m-<命令>` id、`…` 省略号、`checked` 表达切换态、`disabled` 而非隐藏、快捷键字形风格。本规范补充：
+
+- 每个应用必须提供 `useClassicyAboutMenu` 的 `aboutMenuItem` 并渲染 `aboutWindow`。
+- 有标准文本输入的应用用 `useClassicyEditMenu(idPrefix)`；操作对象不是文本框（CodeMirror、终端、文件选择）才自建 Edit 组。
+- 帮助项（快捷键说明、使用提示）经 `useClassicyHelpMenu(appId, useMemo(items))` 注册，**不自建 Help 菜单**。
+- 快捷键在菜单项上声明；浏览器/终端本地拦截的项标 `nativeShortcut: true` 并按需 `disabled`。
+
+---
+
+## 3. 控件选用规范
+
+### 3.1 组件映射表（先查表，再动手）
+
+| 需求 | 必须使用 | 禁止 |
+|---|---|---|
+| 命令按钮 | `ClassicyButton` | 裸 `<button>` |
+| 图标工具按钮 | `ClassicyBevelButton bevelWidth="small" square icon=…` 包 `ClassicyBalloonHelp` | 用 emoji/文字模拟图标按钮 |
+| 工具栏分组 | `ClassicyButtonToolbar` + `ClassicyButtonToolbarGroup size="small"` | 自己 flex 拼工具栏 |
+| 单行文本 | `ClassicyInput`（`labelTitle`/`labelPosition`/`placeholder`/`onEnterFunc`） | 裸 `<input>` |
+| 多行文本 | `ClassicyInput` textarea 形态或终端/编辑器用专用组件 | — |
+| 布尔开关 | `ClassicyCheckbox` | 自制 switch |
+| 单选 | `ClassicyRadioInput` | 自制 |
+| 枚举选择（≤7 项） | `ClassicyPopUpMenu` | 自制 `<select>` |
+| 长列表选择 | `ClassicyListBox` / `ClassicyTable` | — |
+| 数据表格 | `ClassicyTable`（列定义 `useMemo`） | 手写 `<table>` |
+| 层级导航 | `ClassicyTree`（懒加载、`branchSelectable`） | — |
+| 主从分栏 | `ClassicySplitView`（`defaultSizes`、`minPaneSize`） | 自制拖拽分栏 |
+| 分区容器 | `ClassicyControlGroup`（`label`/`variant`） | 用卡片/边框 div 模拟 |
+| 表单 + 按钮行 | `ClassicyForm layout="dialog"` + `ClassicyFormButtonRow` | — |
+| 警告/确认 | `ClassicyAlert`（`alertType`） | `window.confirm` / 自绘浮层 |
+| 进度 | `ClassicyProgressBar`（`indeterminate` 未知进度） | 自制 spinner |
+| 资源计量 | `ClassicyMeter`（`value` + `low/high/optimum`） | 用进度条表达阈值语义 |
+| 折叠区 | `ClassicyDisclosure` / `ClassicyTriangle` | — |
+| 快捷键展示 | `ClassicyKbd variant="keycaps" shortcut="⇧⌘C"` | 文本拼 "Shift+Cmd+C" |
+| 气泡帮助 | `ClassicyBalloonHelp`（`content`/`title`/`position`） | 原生 `title` 属性 |
+| 右键菜单 | `ClassicyContextualMenuTarget` 包目标区域 | 监听 contextmenu 自绘 |
+
+### 3.2 按钮体系规则
+
+**默认按钮（primary action）**——每个对话框/表单有且仅有一个：
+
+```tsx
+<ClassicyButton isDefault buttonType="submit" disabled={!canSubmit}>Create</ClassicyButton>
+```
+
+- `isDefault` 按钮获得双线环并响应 Return；**同一可视区域内只允许一个**。
+- 按钮排布（HIG 顺序，参考 `New Folder` 对话框）：右下对齐，**默认按钮在最右**，取消紧邻其左；help 角色（如有）在最左。
+- 表单主操作禁用态：校验不通过时 `disabled` 主按钮（保留可见，不隐藏）。
+- 工具栏混排（参考 Paint）：图标工具组（左）→ push 按钮组（中）→ 文件操作组（右），组间以 `ClassicyButtonToolbarGroup` 分隔；push 按钮带 `…` 的（`Save…`）表示将弹出对话框。
+- 工具栏图标按钮必须挂 `ClassicyBalloonHelp`（悬停 600ms 出气泡），无文字按钮不能没有帮助。
+
+### 3.3 表单与对话框
+
+**模态对话框标准结构**（新建文件夹/重命名/设置统一模式）：
+
+```tsx
+<ClassicyWindow id={`${prefix}-dialog`} appId={appId} title="New Folder" modal
+                initialSize={[360, 0]} zoomable={false} resizable={false}>
+  <ClassicyForm layout="dialog" onSubmitFunc={handleSubmit}>
+    <ClassicyInput id={`${prefix}-name`} labelTitle="Name" labelPosition="left"
+                   placeholder="Folder name" prefillValue={initial}
+                   onChangeFunc={(e) => setName(e.target.value)}
+                   onEnterFunc={handleSubmit} />
+    <ClassicyFormButtonRow>
+      <ClassicyButton onClickFunc={closeDialog}>Cancel</ClassicyButton>
+      <ClassicyButton isDefault buttonType="submit" disabled={!name.trim()}>Create</ClassicyButton>
+    </ClassicyFormButtonRow>
+  </ClassicyForm>
+</ClassicyWindow>
+```
+
+规则：
+
+1. 标签 + 输入框一行（`labelPosition="left"`），标签英文 Title Case。
+2. 重命名/新建类对话框打开时输入框**预填并全选**既有名称（`prefillValue` + select），参考 Todo 行内编辑。
+3. **Enter 提交、Escape 取消**（`onEnterFunc` + 取消按钮；对话框默认行为已含 Escape）。
+4. 输入为空/非法时主按钮 `disabled`；提交后校验失败用 alert 说明原因，不清空用户已填内容。
+5. 破坏性动作（删除、覆盖、丢弃改动）**必须** `ClassicyAlert alertType="caution"` 确认，且**默认按钮为安全项（Cancel）`defaultButtonId` 指到 cancel**（有数据丢失风险时 HIG 要求默认安全）；按钮文案用具体动词（`Delete`、`Overwrite`、`Discard`），不用 `OK`。
+
+```tsx
+<ClassicyAlert alertType="caution" label={`Delete "${name}"?`}
+               message="This cannot be undone."
+               buttons={[
+                 { id: "cancel", label: "Cancel", role: "cancel", onClick: close },
+                 { id: "delete", label: "Delete", role: "default", onClick: doDelete },
+               ]}
+               defaultButtonId="cancel" />
+```
+
+### 3.4 行内表单（Inline Form Row）
+
+参考 Todo 的 "New to-do… + Add"：输入框与主操作按钮同一行，按钮贴输入框右侧，Enter 等价于点按钮，空输入时按钮 disabled。适用于「快速添加一条」的场景，替代打开对话框。
+
+---
+
+## 4. 布局规范
+
+### 4.1 窗口三段式骨架
+
+```
+toolbar（图标命令，ClassicyButtonToolbar）
+   ↓
+content（ControlGroup 分区 / SplitView 主从 / Table，flex: 1 可滚动）
+   ↓
+status bar（左：上下文状态；右：全局信息）
+```
+
+- 主内容窗口设 `scrollable`（默认 true）+ flex column 布局；长内容不撑破窗口。
+- 内容区间隔：组间 `var(--hig-group-gap)`（16px），组内元素间 `var(--hig-item-gap)`（4px）；统一用 CSS 变量，不写死 px。
+- `ClassicyControlGroup variant="primary"`（2px 蚀刻边框）用于主要数据分区（监控面板、任务区）；`variant="secondary"` 用于次要分组；label 为分区标题（可含计数，如 `Containers (3)`）。
+
+### 4.2 SplitView 主从布局
+
+- 「列表 + 详情」一律 `ClassicySplitView direction="horizontal"`，`defaultSizes` 如 `[26, 74]`，`minPaneSize` ≥ 180（Finder 文件树/Blue Pencil 笔记列表模式）。
+- 「输入 + 输出」上下分栏用 `direction="vertical"`（Blue Pencil：上输入、下校对结果，各自独立滚动）。
+- 分栏比例可被用户调整即持久化由 classicy 处理；代码里只给合理默认。
+
+### 4.3 空状态 / 加载态 / 错误态（每个数据视图必须三态齐全）
+
+| 状态 | 呈现 | 文案示例 |
+|---|---|---|
+| 空 | 内容区居中灰色说明文字（不堆插画） | `No containers.` / `No notes yet.` |
+| 加载中 | `ClassicyProgressBar indeterminate`（或区域顶部 chasing arrows）+ 文字 `Loading…` | — |
+| 错误 | **保留上次正常数据**，状态栏红字显示原因 + `Reload`/`Retry` 按钮；首次加载失败才整区错误态 | `Failed to load metrics.` |
+| 未启用/未配置 | 灰色说明 + 原因（服务端未开启该功能） | `Chat is disabled.` |
+
+---
+
+## 5. 列表、表格与树
+
+### 5.1 选中态
+
+- 单选：系统高亮蓝；**列表/表格视图中高亮名称标签而非整行白字**（项目 `styles.css` 已有 OS8 风格修正，保持）。
+- 图标视图：选中图标其下方名称加高亮底（参考 Workspace 的 `untitled folder`）。
+- 多选（`ClassicyTable selectionMode="multi"`）：Ctrl/⌘ 点选、Shift 连选的标准行为由组件提供，不自定义。
+
+### 5.2 行内操作
+
+- **行级操作按钮只在选中行出现、置于行末右对齐**（Todo 的 `Remove`、会话列表的行内删除），通过列 `render` 注入；点击必须 `stopPropagation` 防触发行选中。
+- 每行的破坏性操作（删除）走 caution alert 确认，与菜单/右键菜单中的同名命令**行为一致**。
+
+### 5.3 行内编辑
+
+- 双击（或选中后 Enter）将行标签切换为 `ClassicyInput`：Enter 提交、Escape 取消、失焦提交；提交中禁用重复提交。
+- 参考实现：Todo 应用对选中任务就地出输入框。
+
+### 5.4 表格与树
+
+- 列定义 `useMemo<ClassicyTableColumn<T>[]>`；可排序列 `sortable`；数值列右对齐、时间列用 `format.ts` 统一格式化。
+- 树形行内联展开用 `rowCanExpand`/`getSubRows`/`onToggleRow` + 首列自绘 `ClassicyTriangle`（Finder 现成模式）。
+- 双击行/Enter = 激活（`onActivateRow`：打开容器、用编辑器打开文件、切换会话等），与双击桌面图标的语义一致。
+- 目录树懒加载：展开时才取数，加载中用占位节点表达。
+
+---
+
+## 6. 反馈与状态规范
+
+### 6.1 状态栏（强约束）
+
+窗口底部状态栏分双区（参考 Blue Pencil / World Clock）：
+
+- **左区（上下文）**：当前对象与操作结果——`Ready`、`1 city`、`8 items`、错误信息（红字 `var(--color-error)`）、上传/构建进行中的简述。
+- **右区（全局）**：与当前选择无关的全局信息——本地时间（`Here: Shanghai · 16:12 · GMT+8` 格式）、模型标识（`glm-5.2 (max)` 徽章）、连接状态。
+- 简单左置状态可直接用 `ClassicyWindow placard`；需要双区用自绘状态栏（FinderApp `sp-fm-status` 为参考实现，统一 `sp-` 前缀）。
+
+### 6.2 进度
+
+- 已知进度：`ClassicyProgressBar value/max` + 百分比文字；可取消的长任务提供取消按钮（Finder 上传：进度条 + ✕）。
+- 未知进度：`indeterminate`（采集、连接等待）。
+- 资源阈值语义（CPU/内存/磁盘/温度）用 `ClassicyMeter` 的 `low/high/optimum`，**不用**进度条；阈值配色集中在 `src/format.ts`（`levelColor`/`tempColor`），禁止各视图散落硬编码色值。
+
+### 6.3 数据轮询（监控类应用）
+
+- 一律用 `src/hooks/usePolling.ts`（`cancelled` 防竞态、返回 `{ data, error, reload }`）。
+- 状态栏显示**上次更新时间**；用户可控：`Refresh Now` + `Pause/Resume`（MonitorApp 模式）或按场景固定间隔（Docker 5s、Printer 5s、Runner 运行中 2s/空闲 10s）。
+- 轮询失败：保留上次数据 + 状态栏红字；**不**弹 alert（轮询是常态行为，弹窗即骚扰）。
+- 所有 API 经 `src/api.ts` 的 `request<T>`：401 → 抛 `Unauthorized` → 应用层 `onLogout()` 回登录页；**不得**自建 fetch 绕过。
+
+### 6.4 反馈优先级
+
+`状态栏文字 < 区域错误态 < ClassicyAlert（需用户决策才弹）`。默认用最低足够级别；alert 只用于需要用户决策或必须知晓的事件。
+
+---
+
+## 7. 视觉规范
+
+### 7.1 色彩
+
+- **一切 chrome 颜色（窗口底、控件面、边框、文字、高亮）必须取自 classicy 主题 CSS 变量**：`var(--color-system-01..07)`、`var(--color-highlight)`、`var(--color-select)`、`var(--color-window-*)`、`var(--color-theme-*)` 等。**禁止**在组件里写死 hex（语义状态色除外，见下）。
+- 语义状态色（正常/警告/危险）允许固定值，但必须集中在 `src/format.ts` 或 `src/styles.css` 的 `sp-` 变量中定义后引用。
+- 21 套主题（Bondi/Sapphire/Lavender…）下所有应用必须自动跟随，不得出现主题切换后不改色的自绘元素。
+- 非 Desktop 环境（LoginApp）手动补齐 Platinum 变量已有先例（`styles.css`），新增同类页面照做。
+
+### 7.2 字体排版
+
+| 用途 | 变量/字号 |
+|---|---|
+| UI 正文 | `var(--ui-font)`，默认 12px |
+| 窗口标题 | `var(--header-font)`（classicy 标题栏自动） |
+| 等宽（日志、ID、技术值） | `var(--mono-font)`（Runner 日志区、终端） |
+| 数值/时间强调 | 系统字号加大一档（World Clock 的时间列模式） |
+
+- 不引入 Web 字体；不改变全局字号；密集中文技术值的等宽场景用 `--mono-font`。
+- 文本一律英文（UI 文案规范见 AGENTS.md）；代码注释中文。
+
+### 7.3 间距与尺寸
+
+- 间距变量：`var(--window-padding-size)`（窗口内边距）、`var(--hig-item-gap)`（4px 元素间距）、`var(--hig-group-gap)`（16px 组间距）。
+- HIG 度量：按钮高 `var(--hig-button-height)`（20px）、最小宽 `var(--hig-button-min-width)`（58px）、标题栏 `var(--hig-titlebar-height)`（19px）。自绘控件必须复用这些变量。
+- 自定义样式一律 `sp-` 前缀写入 `src/styles.css`（现有 490 行模式），**禁止**在组件里散写内联样式做布局。
+
+### 7.4 图标
+
+- 统一 `ClassicyIcons` 命名空间（`system.*` / `applications.*` / `controlPanels.*`）；工具栏图标 16px 档，桌面/标题栏 32px 档。
+- 新应用无专用图标时选语义最接近的内置图标，并在 `src/Desktop.tsx` 登记；不自制图标、不用 emoji 代替。
+
+---
+
+## 8. 文案规范
+
+- 界面文案一律**英文 Title Case**；动词开头；执行类不加标点（`Save`、`Refresh`、`Build`）。
+- 会弹出对话框的命令以 `…` 结尾（`New Folder…`、`Settings…`、`Get Info…`）；破坏性命令同样加 `…` 且执行前 alert 确认（`Delete…`）。
+- 状态与计数用名词短语：`8 items, 21.0 GB available`、`1 city`、`Ready`、`Waiting`。
+- 错误文案 = 发生了什么 + 用户能做什么：`Failed to load metrics. Retry.`；禁止裸 `Error`/`500`。
+- 空状态用一句陈述：`No containers.`。
+
+---
+
+## 9. 键盘与快捷键
+
+- 全局约定：`Return` = 默认按钮 / 激活选中项；`Escape` = 取消对话框 / 关闭浮层；`⌘.` = 取消（alert 已支持）；`Mod+S` = 保存（有保存语义的应用）。
+- 快捷键仅在菜单项声明；展示用 `ClassicyKbd`；字形风格 `⌘S ⇧⌘Z ⌥H`，**禁止** `Cmd+S` 写法。
+- 浏览器已占用组合不绑定；终端/编辑器内自行拦截的项标 `nativeShortcut: true`。
+- 每个含重要快捷键的应用经 `useClassicyHelpMenu` 提供快捷键说明窗口（TerminalApp 为样板）。
+
+---
+
+## 10. 数据交互规范
+
+- 所有后端调用经 `src/api.ts`；相对路径 `./api/*`（兼容 basePath 子路径部署）。
+- 401 → `Unauthorized` → 应用 `handleLogout`；禁止把后端 401 当普通错误弹 alert（chat 上游 401 映射 502 的先例：watchdog 自身 401 才是登出信号）。
+- 流式（SSE）用 `streamChat` 模式：逐 chunk 回调 + 完成态 + 错误态齐全；工具调用/思考过程用可折叠 `<details>` 呈现，不刷屏。
+- 上传：XHR 出进度条 + 可取消；409 覆盖用 caution alert 确认。
+- 用户偏好（终端字体、编辑器主题等）存 localStorage，键名 `srv-` 前缀，读取时做类型校验回退。
+
+---
+
+## 11. 新应用创建清单（AI 必须逐项过）
+
+设计或改造一个应用时，按序确认：
+
+- [ ] 在 `src/Desktop.tsx` 登记；`APP_ID` 以 `.app` 结尾；图标取自 `ClassicyIcons`
+- [ ] `useClassicyAboutMenu` → `aboutMenuItem` 进应用名菜单 + 渲染 `aboutWindow`
+- [ ] `appMenu` 四段式（应用名/File/Edit/View/特有），`useMemo` 记忆化，id 规范 `<前缀>-m-<命令>`，英文文案，`…`/`checked`/`disabled` 规则
+- [ ] 有标准文本输入 → `useClassicyEditMenu(idPrefix)`；帮助项 → `useClassicyHelpMenu`
+- [ ] 主窗口 `initialSize` 合理 + `minimumSize`；窗口 id 稳定且不含用户内容；多实例 id 派生
+- [ ] 窗口结构 = 工具栏/内容/状态栏三段式；数据分区用 `ClassicyControlGroup`；主从用 `ClassicySplitView`
+- [ ] 数据视图三态齐全（空/加载/错误保留旧数据）；错误进状态栏不进 alert
+- [ ] 表格列定义 `useMemo`；单选高亮名称标签；行内操作仅选中行出现且 `stopPropagation`；双击/Enter 激活
+- [ ] 对话框 = `modal` + `ClassicyForm layout="dialog"` + `FormButtonRow`；唯一 `isDefault` 在最右；Enter/Escape 生效
+- [ ] 破坏性操作 = caution alert + 具体动词按钮 + `defaultButtonId` 指 cancel
+- [ ] 颜色全部走 CSS 变量；语义色集中 `format.ts`；间距用 HIG 变量；自绘样式 `sp-` 前缀
+- [ ] 数据经 `api.ts` + `usePolling`；401 登出；上次更新时间进状态栏
+- [ ] 未保存改动用 `onBeforeClose` veto；偏好 localStorage `srv-` 前缀
+- [ ] `npm run build` 通过；按 AGENTS.md「验证」节执行相关冒烟测试
+
+---
+
+## 12. 反模式（禁止事项）
+
+| 禁止 | 原因 / 替代 |
+|---|---|
+| 裸 HTML `<button>/<input>/<select>/<table>` | 用对应 `Classicy*` 组件 |
+| 自绘弹窗、`window.confirm/alert` | `ClassicyWindow modal` / `ClassicyAlert` |
+| 组件内写死颜色/字号/间距 | 主题 CSS 变量 + HIG 变量 |
+| 同一区域多个默认按钮 / 无默认按钮 | 每可视区域恰好一个 `isDefault` |
+| 轮询失败弹 alert | 状态栏红字 + 保留旧数据 |
+| 按状态隐藏菜单项/按钮 | `disabled` 保留可见 |
+| 手动拼 `✓ ` 前缀 / `Cmd+S` 写法 | `checked` / `⌘S` |
+| 中文界面文案 | UI 英文 Title Case，注释中文 |
+| 窗口 id 含文件名等用户内容 | 实例派生 id + `analyticsPath` |
+| 多实例共享窗口 id | 派生 id（store 条目互踩） |
+| 主窗口初始尺寸接近全屏且无 `minimumSize` | 45–75% 视口 + minimumSize |
+| 只 `dispatch ClassicyWindowFocus` 开窗 | Open + Focus 双发 |
+| 在 appMenu 自建 Help / System(Sign Out) 菜单 | `useClassicyHelpMenu` / Desktop 统一注入 |
+| 终端 shell 命令等后端配置由客户端传入 | 服务端配置唯一来源（AGENTS.md 安全约定） |
+
+---
+
+## 附录 A：参考图设计要点拆解
+
+| 参考图 | 学到的规则 |
+|---|---|
+| `1.png` Paint | 工具栏分组（工具图标列 / 撤销类 / 文件类 push 按钮）；工具选中态凹陷；画布 inset 边框 + 右下缩角；主操作按钮（Export）双线环；色板选中指示 |
+| `2.png` Notes | 小号圆形图标按钮 + push 按钮混排工具栏；默认按钮（Delete）双线环；底部状态行：日期、页码、色点、缩放；窗口左下经典折角 |
+| `3.png` Mac OS 9 安装助手 | 模态对话框：顶部按钮行（默认在左但视觉最重，本项目按 HIG 统一默认在右）、米黄信息横幅、编号步骤列表（粗体标题 + 灰色状态 Waiting）、底部单确认按钮 |
+| `160950` Todo | 行内表单（输入 + Add 贴右）；复选框行首；选中行才显示 Remove（行末右对齐）；就地输入框行内编辑；空列表留白 |
+| `161049` New Folder | 紧凑模态对话框：标签 + 输入 + Cancel/Create（Create 默认在最右）；父窗变暗；列表窗口信息行 "0 items, 21.0 GB available"；窗口右下缩角 + 横向滚动条 |
+| `161118` Workspace | 图标视图：大图标 + 下方名称，选中名称高亮；同应用多窗口并存、各自标题栏 |
+| `161140/161156` Blue Pencil | SplitView 主从（左笔记列表单选高亮 / 右输入 + 输出上下两栏独立滚动）；底部按钮行 New（左下）/ Clear / Copy / Accept（右下默认）；状态栏左 Ready、错误红字，右模型徽章 |
+| `161252` World Clock + About | 顶部过滤输入；列表行：图标 + 粗体名称 + 大号右对齐时间 + 行末 ✕；状态栏 "1 city" + "Here: Shanghai · 16:12 · GMT+8"；About 窗：居中图标名称、标签左值右的情报行、蓝色下划线链接、磁盘进度条 |
+
+---
+
+*本规范随 classicy 升级与项目演进而维护；新增通用模式应先补入本规范再实现，实现与规范冲突时以规范为准并修正实现。*
