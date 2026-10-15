@@ -30,7 +30,7 @@
 
 ### 0.3 设计原则（按优先级排序）
 
-1. **一致性优先于个性**：新应用必须在窗口结构、控件选用、反馈方式上与既有 9 个应用（Monitor / Docker / Terminal / Files / Editor / Runner / Printer / Chat / imcolin）保持一致。用户在一个应用里学到的操作方式，必须能迁移到所有其他应用。
+1. **一致性优先于个性**：新应用必须在窗口结构、控件选用、反馈方式上与既有 9 个应用（Monitor / Docker / Terminal / Disk / Editor / Runner / Printer / Chat / imcolin）保持一致。用户在一个应用里学到的操作方式，必须能迁移到所有其他应用。
 2. **桌面隐喻与 WIMP**：一切皆窗口与对象；操作为「选择对象 → 对对象执行命令」（菜单 / 工具栏 / 右键菜单三条等价路径）。
 3. **状态可见**：系统在做什么、刚刚做完了什么、出了什么问题，必须能在窗口内直接看到（状态栏、进度、错误文本），不靠弹窗轰炸。
 4. **宽容而非阻断**：破坏性操作必须可确认、可取消；输入错误给出明确原因；网络失败保留上次正常数据并提示。
@@ -51,9 +51,8 @@
 ```
 ┌─ title bar ──────────────────────────── [✕] [▁] [□] ─┐  ← 19px，条纹底，标题居中加粗
 │ [icon] Window Title                                  │
-├─ header（可选：信息行，headerVariant="list"）──────────┤  ← 例："8 items, 21.0 GB available"
 ├─ contents ────────────────────────────────────────────┤
-│  toolbar（可选）                                      │
+│  toolbar band（可选：窗口操作按钮带，§3.2）            │  ← 浅色容器带 + 底部分隔线
 │  ┌ ControlGroup / SplitView / Table … ┐              │
 │  └────────────────────────────────────┘              │
 │  status bar（可选，placard 或自绘 sp-status）         │
@@ -67,7 +66,7 @@
 | 缩放盒 | 右上，主内容窗口保持 `zoomable`；模态对话框建议 `zoomable={false}` |
 | 折叠盒 | 保持默认；窗口无折叠必要时也无需禁用 |
 | 缩角 | `resizable` 主内容窗口保持 true；定尺寸对话框设 `resizable={false}` |
-| 信息行 | 列表型窗口（文件、会话、容器列表）在标题栏下用 `header` + `headerVariant="list"` 显示 "N items" 概要 |
+| 工具栏带 | 窗口级命令按钮置于内容区首部的浅色容器带（`--color-system-01` 底 + 1px 分隔线），见 §3.2；classicy 的 `header` 插槽仅用于列表型窗口的信息行 |
 | 状态栏 | 简单左置状态用 `placard`；需要「左上下文 + 右全局」双区时用自绘状态栏（见 §7.1） |
 
 ### 1.3 窗口类型与选用
@@ -121,6 +120,10 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
 - 有标准文本输入的应用用 `useClassicyEditMenu(idPrefix)`；操作对象不是文本框（CodeMirror、终端、文件选择）才自建 Edit 组。
 - 帮助项（快捷键说明、使用提示）经 `useClassicyHelpMenu(appId, useMemo(items))` 注册，**不自建 Help 菜单**。
 - 快捷键在菜单项上声明；浏览器/终端本地拦截的项标 `nativeShortcut: true` 并按需 `disabled`。
+- **classicy 菜单渲染两条必修项**（Disk 实战教训，2026-10）：
+  1. **勾选列一致性**：classicy 仅对 `checked !== undefined` 的项渲染 15px 勾选列——同一菜单内混用会导致标题左起点不齐（无勾选列项左移 21px）。含 `checked` 项的菜单必须给**所有**项显式声明 `checked`（不可用切换项写 `checked: false`）；无任何 checked 项的菜单则全部不声明。
+  2. **菜单不折行**：classicy 菜单项默认 `flex-wrap: wrap`，下拉宽度受顶级项宽度约束（仅 `min-width: 180px` 兜底），长标题/快捷键超出即折行——Mac 菜单从不折行、只应变宽。按菜单项 id 前缀覆盖：`li[id^="<前缀>-"] { flex-wrap: nowrap } li[id^="<前缀>-"] > p { white-space: nowrap }`。
+  3. **快捷键须真实绑定**：classicy 的 `keyboardShortcut` 仅作展示、不自动生效（不同于 TerminalApp 的 `nativeShortcut` 浏览器拦截）。菜单声明了快捷键的应用必须自建 `keydown` 监听执行同一动作，并跳过输入框/编辑器焦点（避免劫持打字）。
 
 ---
 
@@ -132,7 +135,8 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
 |---|---|---|
 | 命令按钮 | `ClassicyButton` | 裸 `<button>` |
 | 图标工具按钮 | `ClassicyBevelButton bevelWidth="small" square icon=…` 包 `ClassicyBalloonHelp` | 用 emoji/文字模拟图标按钮 |
-| 工具栏分组 | `ClassicyButtonToolbar` + `ClassicyButtonToolbarGroup size="small"` | 自己 flex 拼工具栏 |
+| 窗口操作按钮带 | 内容区首部的浅色容器带（`--color-system-01` 底 + 1px 分隔线）+ `ClassicyButton` push 文字按钮（§3.2：白色按钮面、HIG 12px 间距、12px 文字） | 按钮裸露在内容流第一行 / `ClassicyButtonToolbar` 容器 / icon 按钮进按钮带 |
+| 模式切换工具组（调色板） | `ClassicyButtonToolbar` + `ClassicyButtonToolbarGroup size="small"` + `ClassicyBevelButton square`（组内间距 ~4px） | 用 push 按钮表达模式切换 |
 | 单行文本 | `ClassicyInput`（`labelTitle`/`labelPosition`/`placeholder`/`onEnterFunc`） | 裸 `<input>` |
 | 多行文本 | `ClassicyInput` textarea 形态或终端/编辑器用专用组件 | — |
 | 布尔开关 | `ClassicyCheckbox` | 自制 switch |
@@ -152,7 +156,99 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
 | 气泡帮助 | `ClassicyBalloonHelp`（`content`/`title`/`position`） | 原生 `title` 属性 |
 | 右键菜单 | `ClassicyContextualMenuTarget` 包目标区域 | 监听 contextmenu 自绘 |
 
-### 3.2 按钮体系规则
+### 3.2 窗口操作按钮带（Window Action Button Strip）
+
+**范本：参考图 1「Paint」顶部按钮 + imcolin.fan 的容器化工具栏。** 用于承载窗口级命令（导航、新建、上传、下载、刷新等）的主窗口。核心特征：**按钮置于窗口内的浅色容器带中，该带与标题栏、内容区均视觉分开**——按钮不属于内容流（不随内容滚动），但容器带本身是窗口内容区的首个元素。
+
+> 演进记录：曾尝试「内容区第一行裸按钮」（无容器，与内容糊在一起，否决）→「header chrome 横带」（classicy header 插槽，高度链需补偿，且灰带观感偏重，否决）→ **本规范：窗口内浅色容器带（imcolin.fan 模式，终版）**。
+
+#### 3.2.1 结构
+
+```
+┌─ title bar ────────────────────────────────┐
+├─ contents ─────────────────────────────────┤
+│ ┌─ toolbar band（浅色容器带）─────────────┐ │
+│ │  [Back] [Up] …                         │ │  ← system-01 浅灰底，全宽
+│ ├─────────────────────────────────────────┤ │  ← 1px 分隔线与内容区分开
+│ │  icon/table content（白色，flex:1 滚动）│ │
+│ └─────────────────────────────────────────┘ │
+```
+
+- 容器带是内容区（`.classicyWindowContentsInner` flex column）的首个元素，`flex: 0 0 auto` 不参与滚动；与标题栏之间由窗口框线分开，与内容区之间由**底部分隔线**（`--color-system-05`）分开。
+
+#### 3.2.2 规则
+
+| # | 规则 | 值 / 做法 |
+|---|---|---|
+| 1 | 位置 | 内容区首部的**浅色容器带**；按钮不得裸露在内容流第一行（无容器的做法已否决） |
+| 2 | 容器带尺寸 | 高度 ~32px（按钮 20px + 上下 6px padding），全宽，`flex: 0 0 auto` |
+| 3 | 容器带配色 | 背景 `--color-system-01`（浅灰）；底边 1px `--color-system-05` 分隔线；左右 padding ~10px |
+| 4 | 按钮类型 | 一律 push **文字**按钮（`ClassicyButton`），动词短词；范本：`Undo` `Clear` `Resize` `Save…` `Export` |
+| 4b | 按钮面色 | 按钮面 = `--color-white`（**亮于容器带**，形成「亮按钮 / 浅带」层次）；`:active`（按下加深）保留 classicy 默认，**不得覆盖**（选择器写 `:enabled:not(:active)`）；`:disabled` 按规则 10 覆盖 |
+| 5 | 按钮尺寸 | **标准按钮**：保留 classicy 默认 58px 最小宽（`--hig-button-min-width`）与 HIG 8px 水平内边距（`--hig-button-text-padding`）；文字 12px（Platinum 经典 appFont 字号）；**禁止** `min-width: 0` 收窄或 `buttonSize="small"`（9.3px 过小） |
+| 6 | 排布 | 单排左对齐，按钮间距 = `var(--hig-button-gap-h)`（12px）；语义分组靠顺序表达，不加分组分隔符；行内同基线同高度。**必须 `margin: 0`**——classicy 按钮默认带 6px 外边距，与 gap 叠加会变成 18px |
+| 7 | default 环 | 仅当带内存在明确主操作时使用（范本 `Export`）；导航等无主操作的不设 |
+| 8 | icon 按钮 | `ClassicyBevelButton square` 等 icon 按钮**禁入按钮带**（仅用于模式/格式切换工具组，见 §3.1） |
+| 9 | 右端上下文（可选） | 按信息密度取舍：右对齐、小一号等宽字体（~11px）、超长省略号；不放可交互控件 |
+| 10 | 禁用态 | **Platinum 正宗化，不直接用 classicy 默认**：classicy 的 `:disabled` 会把按钮面退化为 `--color-system-03`（与旧条带同色、糊成一片）+ `--color-system-05` 灰边框；必须覆盖为**黑边框 + 容器带同色面（`--color-system-01`）+ 灰字 + 扁平（无 bevel）**——对齐真实 Mac OS 9 禁用钮（保留框，以扁平和灰字表达禁用） |
+
+#### 3.2.3 标准实现模板（可直接复制）
+
+```tsx
+<ClassicyWindow id={`${prefix}-main`} appId={appId} title="…" scrollable={false} appMenu={appMenu}>
+  {/* contents：flex column；工具栏带为首个元素，不随内容滚动 */}
+  <div className="sp-toolbar">
+    <ClassicyButton disabled={!canBack} onClickFunc={goBack}>Back</ClassicyButton>
+    <ClassicyButton disabled={!canUp} onClickFunc={goUp}>Up</ClassicyButton>
+  </div>
+  {/* 内容区（flex: 1 可滚动）… */}
+</ClassicyWindow>
+```
+
+```css
+/* 高度链前提：禁窗口级滚动 + ContentsInner 钉为 flex column（见 §4.1） */
+#<win> > .classicyWindowContents { overflow: hidden; }
+#<win> .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
+/* ① 容器带（共享类 .sp-toolbar，Disk / WatchDog OS 已在用）：浅灰底 + 1px 分隔线，
+      全宽，高 ~32px，不参与滚动；右端状态可加 .sp-toolbar-status（margin-left:auto） */
+.sp-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--hig-button-gap-h);
+  padding: 6px 10px;
+  background: var(--color-system-01);
+  border-bottom: var(--window-border-size) solid var(--color-system-05);
+}
+/* ② 按钮：HIG 12px 间距 + 标准按钮（58px 最小宽）+ 12px 文字；
+      margin:0 清除默认 6px 外边距（否则与 gap 叠加成 18px）；
+      白色按钮面亮于浅灰带 */
+.sp-toolbar .classicyButton { margin: 0; font-size: 12px; }
+.sp-toolbar .classicyButton:enabled:not(:active) { background-color: var(--color-white); }
+/* ③ 禁用态 Platinum 正宗化：黑框 + 带同色面 + 灰字 + 扁平 */
+.sp-toolbar .classicyButton:disabled { background-color: var(--color-system-01); border-color: var(--color-black); color: var(--color-system-05); }
+/* ④ 带内 PopUpMenu（WatchDog OS 刷新间隔即此用法）：classicy 默认 width:100% + flex-grow:2，
+      在 flex 带中会以整带宽为基础尺寸挤爆其他项（标签/按钮文字换行）——必须覆盖为
+      内容定宽 + 不收缩；高度对齐按钮保持带高一致 */
+.sp-toolbar > * { flex: 0 0 auto; }
+.sp-toolbar .classicyPopUpMenuWrapper { width: auto; }
+.sp-toolbar .classicyPopUpMenu { flex-grow: 0; width: 72px; height: var(--hig-button-height); }
+```
+
+> 选择器中的窗口定位 `#<win>` = `#{appId}_{windowId}`（点号转义，如 `#srv-finder\.app_fm-main`）。
+
+#### 3.2.4 检查清单（新应用落地时逐项过）
+
+- [ ] 按钮在内容区首部的**浅色容器带**内，不裸露在内容流第一行
+- [ ] 容器带：`system-01` 浅灰底 + 1px `system-05` 底部分隔线 + 左右 ~10px padding
+- [ ] 按钮为标准 push 文字按钮（58px 最小宽 + 12px 文字），间距 = `--hig-button-gap-h`，`margin: 0`，**不收缩**（`flex: 0 0 auto`，文字不换行）
+- [ ] 带内 PopUpMenu 已覆盖 `width: 100%`/`flex-grow: 2` 默认值（内容定宽，不挤爆其他项）
+- [ ] 按钮面白色（亮于带）；`:active` 不被覆盖
+- [ ] 禁用态为「黑框 + 带同色面 + 灰字 + 扁平」，不与内容糊成一片
+- [ ] 无 icon 按钮；无 default 环（除非带内有明确主操作）
+- [ ] `scrollable={false}` + ContentsInner flex 钉死，带不随内容滚动、横向滚动条贴窗口底
+
+### 3.3 默认按钮与对话框按钮行（HIG）
 
 **默认按钮（primary action）**——每个对话框/表单有且仅有一个：
 
@@ -161,12 +257,12 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
 ```
 
 - `isDefault` 按钮获得双线环并响应 Return；**同一可视区域内只允许一个**。
-- 按钮排布（HIG 顺序，参考 `New Folder` 对话框）：右下对齐，**默认按钮在最右**，取消紧邻其左；help 角色（如有）在最左。
+- 对话框按钮行（`ClassicyFormButtonRow`，HIG 顺序）：右下对齐，**默认按钮在最右**，取消紧邻其左；help 角色（如有）在最左。参考 `New Folder` 对话框。
 - 表单主操作禁用态：校验不通过时 `disabled` 主按钮（保留可见，不隐藏）。
-- 工具栏混排（参考 Paint）：图标工具组（左）→ push 按钮组（中）→ 文件操作组（右），组间以 `ClassicyButtonToolbarGroup` 分隔；push 按钮带 `…` 的（`Save…`）表示将弹出对话框。
-- 工具栏图标按钮必须挂 `ClassicyBalloonHelp`（悬停 600ms 出气泡），无文字按钮不能没有帮助。
+- **两套语义不得混用**：按钮带（§3.2）是左对齐命令组；对话框按钮行是右对齐确认组。
+- 按钮文案规则见 §8（动词开头；会弹对话框的命令加 `…`）。
 
-### 3.3 表单与对话框
+### 3.4 表单与对话框
 
 **模态对话框标准结构**（新建文件夹/重命名/设置统一模式）：
 
@@ -204,7 +300,7 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
                defaultButtonId="cancel" />
 ```
 
-### 3.4 行内表单（Inline Form Row）
+### 3.5 行内表单（Inline Form Row）
 
 参考 Todo 的 "New to-do… + Add"：输入框与主操作按钮同一行，按钮贴输入框右侧，Enter 等价于点按钮，空输入时按钮 disabled。适用于「快速添加一条」的场景，替代打开对话框。
 
@@ -215,7 +311,7 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
 ### 4.1 窗口三段式骨架
 
 ```
-toolbar（图标命令，ClassicyButtonToolbar）
+toolbar band（窗口操作按钮带：内容区首部浅色容器带，push 文字按钮，§3.2，可选）
    ↓
 content（ControlGroup 分区 / SplitView 主从 / Table，flex: 1 可滚动）
    ↓
@@ -371,7 +467,8 @@ status bar（左：上下文状态；右：全局信息）
 - [ ] `appMenu` 四段式（应用名/File/Edit/View/特有），`useMemo` 记忆化，id 规范 `<前缀>-m-<命令>`，英文文案，`…`/`checked`/`disabled` 规则
 - [ ] 有标准文本输入 → `useClassicyEditMenu(idPrefix)`；帮助项 → `useClassicyHelpMenu`
 - [ ] 主窗口 `initialSize` 合理 + `minimumSize`；窗口 id 稳定且不含用户内容；多实例 id 派生
-- [ ] 窗口结构 = 工具栏/内容/状态栏三段式；数据分区用 `ClassicyControlGroup`；主从用 `ClassicySplitView`
+- [ ] 窗口结构 = 工具栏带（内容区首部浅色容器带，§3.2，可选）/ 内容 / 状态栏三段式；数据分区用 `ClassicyControlGroup`；主从用 `ClassicySplitView`
+- [ ] 若用窗口操作按钮带：逐项过 §3.2.4 检查清单（浅色容器带 + 分隔线、白色按钮面、HIG 间距、禁用态正宗化）
 - [ ] 数据视图三态齐全（空/加载/错误保留旧数据）；错误进状态栏不进 alert
 - [ ] 表格列定义 `useMemo`；单选高亮名称标签；行内操作仅选中行出现且 `stopPropagation`；双击/Enter 激活
 - [ ] 对话框 = `modal` + `ClassicyForm layout="dialog"` + `FormButtonRow`；唯一 `isDefault` 在最右；Enter/Escape 生效
@@ -388,6 +485,7 @@ status bar（左：上下文状态；右：全局信息）
 | 禁止 | 原因 / 替代 |
 |---|---|
 | 裸 HTML `<button>/<input>/<select>/<table>` | 用对应 `Classicy*` 组件 |
+| 窗口操作按钮裸露在内容流第一行 / 用 icon 按钮 / 带底色工具栏容器 | §3.2 范本：内容区首部浅色容器带、push 文字按钮、白色按钮面 |
 | 自绘弹窗、`window.confirm/alert` | `ClassicyWindow modal` / `ClassicyAlert` |
 | 组件内写死颜色/字号/间距 | 主题 CSS 变量 + HIG 变量 |
 | 同一区域多个默认按钮 / 无默认按钮 | 每可视区域恰好一个 `isDefault` |

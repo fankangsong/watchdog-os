@@ -189,7 +189,7 @@ function fsReceiveFile(req, destAbs, maxBytes) {
 /** 读取文本文件：超限（tooLarge）或二进制（含 NUL 字节，binary）时返回标记而不返回内容 */
 async function fsReadText(abs) {
   const st = await fsp.stat(abs);
-  if (!st.isFile()) throw Object.assign(new Error('不是常规文件'), { code: 'EISDIR' });
+  if (!st.isFile()) throw Object.assign(new Error('Not a regular file'), { code: 'EISDIR' });
   const meta = { size: st.size, mtime: Math.floor(st.mtimeMs) };
   if (st.size > FS_MAX_TEXT) return { ...meta, tooLarge: true };
   const buf = await fsp.readFile(abs);
@@ -240,12 +240,12 @@ async function fsRoute(req, res, p, url) {
         return send(res, 200, { path: '', roots: FS_ROOTS, entries });
       }
       const abs = fsResolve(raw);
-      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
+      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: 'Path is outside the allowed roots' });
       const st = await fsp.stat(abs).catch(() => null);
-      if (!st) return send(res, 404, { error: '目录不存在' });
-      if (!st.isDirectory()) return send(res, 400, { error: '不是目录' });
+      if (!st) return send(res, 404, { error: 'Folder does not exist' });
+      if (!st.isDirectory()) return send(res, 400, { error: 'Not a folder' });
       const items = await fsp.readdir(abs, { withFileTypes: true }).catch(() => null);
-      if (!items) return send(res, 403, { error: '目录不可读（权限不足）' });
+      if (!items) return send(res, 403, { error: 'Folder is not readable (permission denied)' });
       const entries = [];
       for (const it of items) {
         // stat 失败（悬空软链 / 无权限）的条目直接跳过
@@ -259,10 +259,10 @@ async function fsRoute(req, res, p, url) {
     /* GET /api/fs/read：读文本（2MB 上限 + NUL 二进制嗅探） */
     if (p === '/api/fs/read' && method === 'GET') {
       const abs = fsResolve(q.get('path'));
-      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
+      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: 'Path is outside the allowed roots' });
       const st = await fsp.stat(abs).catch(() => null);
-      if (!st) return send(res, 404, { error: '文件不存在' });
-      if (!st.isFile()) return send(res, 400, { error: '不是常规文件' });
+      if (!st) return send(res, 404, { error: 'File does not exist' });
+      if (!st.isFile()) return send(res, 400, { error: 'Not a regular file' });
       const info = await fsReadText(abs);
       return send(res, 200, { path: abs, name: path.basename(abs), ...info });
     }
@@ -272,9 +272,9 @@ async function fsRoute(req, res, p, url) {
        预分配值（元数据延迟），按实际流读取到 EOF 输出（chunked）才不会截断或虚报。 */
     if (p === '/api/fs/raw' && method === 'GET') {
       const abs = fsResolve(q.get('path'));
-      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
+      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: 'Path is outside the allowed roots' });
       const st = await fsp.stat(abs).catch(() => null);
-      if (!st || !st.isFile()) return send(res, 404, { error: '文件不存在' });
+      if (!st || !st.isFile()) return send(res, 404, { error: 'File does not exist' });
       const ext = path.extname(abs).toLowerCase();
       const inline = FS_IMAGE_EXT.includes(ext) && q.get('download') !== '1';
       res.writeHead(200, {
@@ -292,18 +292,18 @@ async function fsRoute(req, res, p, url) {
        ?create=1 为「新建文件」语义：目标已存在时返回 409，避免误覆盖已有内容。 */
     if (p === '/api/fs/write' && method === 'PUT') {
       const abs = fsResolve(q.get('path'));
-      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
+      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: 'Path is outside the allowed roots' });
       if (q.get('create') === '1') {
         const exists = await fsp.stat(abs).catch(() => null);
-        if (exists) return send(res, 409, { error: '同名文件已存在' });
+        if (exists) return send(res, 409, { error: 'File already exists' });
       }
       let body;
       try {
         body = await readBody(req, FS_MAX_TEXT + 1);
       } catch {
-        return send(res, 413, { error: '内容超过大小限制' });
+        return send(res, 413, { error: 'Content exceeds the size limit' });
       }
-      if (Buffer.byteLength(body, 'utf8') > FS_MAX_TEXT) return send(res, 413, { error: '内容超过大小限制' });
+      if (Buffer.byteLength(body, 'utf8') > FS_MAX_TEXT) return send(res, 413, { error: 'Content exceeds the size limit' });
       await fsp.writeFile(abs, body, 'utf8');
       const st = await fsp.stat(abs);
       return send(res, 200, { ok: true, path: abs, size: st.size, mtime: Math.floor(st.mtimeMs) });
@@ -312,15 +312,15 @@ async function fsRoute(req, res, p, url) {
     /* POST /api/fs/upload：raw body 流式上传到 path 目录下（?name= 文件名，?overwrite=1 覆盖） */
     if (p === '/api/fs/upload' && method === 'POST') {
       const abs = fsResolve(q.get('path'));
-      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
+      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: 'Path is outside the allowed roots' });
       const name = fsSafeName(q.get('name') || '');
-      if (!name) return send(res, 400, { error: '文件名非法' });
+      if (!name) return send(res, 400, { error: 'Invalid file name' });
       const dest = path.join(abs, name);
       const st = await fsp.stat(dest).catch(() => null);
-      if (st && q.get('overwrite') !== '1') return send(res, 409, { error: '同名文件已存在' });
-      if (st && !st.isFile()) return send(res, 400, { error: '同名路径不是文件' });
+      if (st && q.get('overwrite') !== '1') return send(res, 409, { error: 'File already exists' });
+      if (st && !st.isFile()) return send(res, 400, { error: 'An existing item with that name is not a file' });
       const size = await fsReceiveFile(req, dest, FS_MAX_UPLOAD).catch((e) => {
-        send(res, 400, { error: (e && e.message) || '上传失败' });
+        send(res, 400, { error: (e && e.message) || 'Upload failed' });
         return null;
       });
       if (size == null) return;
@@ -332,7 +332,7 @@ async function fsRoute(req, res, p, url) {
       const body = await fsJson(req);
       if (!body) return send(res, 400, { error: 'Invalid request body' });
       const abs = fsResolve(body.path);
-      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
+      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: 'Path is outside the allowed roots' });
       await fsp.mkdir(abs, { recursive: true });
       return send(res, 200, { ok: true, path: abs });
     }
@@ -342,8 +342,8 @@ async function fsRoute(req, res, p, url) {
       const body = await fsJson(req);
       if (!body) return send(res, 400, { error: 'Invalid request body' });
       const abs = fsResolve(body.path);
-      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
-      if (fsIsRoot(abs)) return send(res, 403, { error: '不能删除根目录' });
+      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: 'Path is outside the allowed roots' });
+      if (fsIsRoot(abs)) return send(res, 403, { error: 'Cannot delete a root' });
       await fsp.rm(abs, { recursive: true, force: false });
       return send(res, 200, { ok: true });
     }
@@ -353,13 +353,13 @@ async function fsRoute(req, res, p, url) {
       const body = await fsJson(req);
       if (!body) return send(res, 400, { error: 'Invalid request body' });
       const abs = fsResolve(body.path);
-      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: '路径不在允许范围内' });
-      if (fsIsRoot(abs)) return send(res, 403, { error: '不能重命名根目录' });
+      if (!abs || !fsAllowed(abs)) return send(res, 403, { error: 'Path is outside the allowed roots' });
+      if (fsIsRoot(abs)) return send(res, 403, { error: 'Cannot rename a root' });
       const name = fsSafeName(body.name);
-      if (!name) return send(res, 400, { error: '文件名非法' });
+      if (!name) return send(res, 400, { error: 'Invalid file name' });
       const dest = path.join(path.dirname(abs), name);
       const exists = await fsp.stat(dest).catch(() => null);
-      if (exists) return send(res, 409, { error: '目标名称已存在' });
+      if (exists) return send(res, 409, { error: 'An item with that name already exists' });
       await fsp.rename(abs, dest);
       return send(res, 200, { ok: true, path: dest });
     }
@@ -389,13 +389,13 @@ async function fsRoute(req, res, p, url) {
     return send(res, 404, { error: 'not found' });
   } catch (e) {
     const code = (e && e.code) || '';
-    if (code === 'ENOENT') return send(res, 404, { error: '文件或目录不存在' });
-    if (code === 'EACCES' || code === 'EPERM') return send(res, 403, { error: '权限不足' });
-    if (code === 'EISDIR') return send(res, 400, { error: '是目录而非文件' });
-    if (code === 'ENOTDIR') return send(res, 400, { error: '不是目录' });
-    if (code === 'EEXIST') return send(res, 409, { error: '已存在同名文件或目录' });
-    if (code === 'ENOSPC') return send(res, 507, { error: '磁盘空间不足' });
-    if (code === 'EBUSY' || code === 'EBUSY resource busy or locked') return send(res, 409, { error: '文件被占用' });
+    if (code === 'ENOENT') return send(res, 404, { error: 'File or folder does not exist' });
+    if (code === 'EACCES' || code === 'EPERM') return send(res, 403, { error: 'Permission denied' });
+    if (code === 'EISDIR') return send(res, 400, { error: 'Is a folder, not a file' });
+    if (code === 'ENOTDIR') return send(res, 400, { error: 'Not a folder' });
+    if (code === 'EEXIST') return send(res, 409, { error: 'An item with the same name already exists' });
+    if (code === 'ENOSPC') return send(res, 507, { error: 'Disk is full' });
+    if (code === 'EBUSY' || code === 'EBUSY resource busy or locked') return send(res, 409, { error: 'File is in use' });
     return send(res, 500, { error: (e && e.message) || String(e) });
   }
 }
