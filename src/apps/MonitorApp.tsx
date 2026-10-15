@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClassicyApp, ClassicyButton, ClassicyControlGroup, ClassicyIcons, ClassicyPopUpMenu, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
+import { ClassicyApp, ClassicyButton, ClassicyIcons, ClassicyPopUpMenu, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
 import { fetchMetrics, fetchProcesses, logout, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
 import { SystemInfoPanel } from '../components/SystemInfoPanel';
@@ -69,7 +69,7 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
         title={m ? `${APP_NAME} · ${m.host.hostname}` : APP_NAME}
         icon={ClassicyIcons.applications.systemProfiler.app}
         appId={APP_ID}
-        scrollable
+        scrollable={false}
         resizable
         zoomable
         collapsable
@@ -79,50 +79,44 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
         minimumSize={[640, 460]}
         appMenu={appMenu}
       >
-        <div className="sp-block">
-          <ClassicyControlGroup label="Refresh">
-            <div className="sp-controls">
-              <div className="sp-ctrl">
-                <ClassicyPopUpMenu
-                  id="sp-refresh-interval"
-                  label="Refresh Interval"
-                  labelPosition="left"
-                  size="small"
-                  options={INTERVALS.map((s) => ({ value: String(s), label: `${s}s` }))}
-                  selected={String(intervalSec)}
-                  onChangeFunc={(e) => setIntervalSec(parseInt(e.target.value, 10))}
-                />
-              </div>
-              <div className="sp-ctrl">
-                <ClassicyButton buttonSize="small" margin="sm" onClickFunc={() => setPaused((p) => !p)}>
-                  {paused ? '▶ Resume' : '⏸ Pause'}
-                </ClassicyButton>
-              </div>
-              <div className="sp-ctrl">
-                <ClassicyButton buttonSize="small" margin="sm" onClickFunc={() => { metricsPoll.reload(); procsPoll.reload(); }}>
-                  Refresh Now
-                </ClassicyButton>
-              </div>
-              <span className="sp-pulse" style={{ flex: '0 0 auto' }} hidden={!paused}>Paused</span>
-            </div>
-          </ClassicyControlGroup>
+        {/* 窗口操作按钮带（规范 §3.2）：刷新控件集中于此，浅色容器带钉在顶部不随内容滚动 */}
+        <div className="sp-toolbar">
+          <ClassicyPopUpMenu
+            id="sp-refresh-interval"
+            label="Refresh Interval"
+            labelPosition="left"
+            size="small"
+            options={INTERVALS.map((s) => ({ value: String(s), label: `${s}s` }))}
+            selected={String(intervalSec)}
+            onChangeFunc={(e) => setIntervalSec(parseInt(e.target.value, 10))}
+          />
+          <ClassicyButton onClickFunc={() => setPaused((p) => !p)}>
+            {paused ? 'Resume' : 'Pause'}
+          </ClassicyButton>
+          <ClassicyButton onClickFunc={() => { metricsPoll.reload(); procsPoll.reload(); }}>
+            Refresh Now
+          </ClassicyButton>
+          {/* 右端状态（规则 9）：暂停指示 */}
+          <span className="sp-pulse sp-toolbar-status" hidden={!paused}>Paused</span>
         </div>
 
-        <div className="sp-block">
-          {m ? (
-            <>
-              <SystemInfoPanel host={m.host} temps={m.temps} />
-              <div className="sp-block">
-                <ResourcesPanel metrics={m} />
-              </div>
-            </>
-          ) : (
-            <p className="sp-dim">Loading…</p>
-          )}
-        </div>
+        <div className="sp-monitor-scroll">
+          <div className="sp-block">
+            {m ? (
+              <>
+                <SystemInfoPanel host={m.host} temps={m.temps} />
+                <div className="sp-block">
+                  <ResourcesPanel metrics={m} />
+                </div>
+              </>
+            ) : (
+              <p className="sp-dim">Loading…</p>
+            )}
+          </div>
 
-        <div className="sp-block">
-          <ProcessPanel processes={procsPoll.data} />
+          <div className="sp-block">
+            <ProcessPanel processes={procsPoll.data} />
+          </div>
         </div>
       </ClassicyWindow>
       {aboutWindow}

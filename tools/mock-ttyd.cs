@@ -6,22 +6,47 @@ using System.Threading;
 using System.Threading.Tasks;
 
 // Mock ttyd（本地开发/联调用）：
-//  - 解析并忽略 server/index.js 传入的 -i 127.0.0.1 -p 7681 <shell> 参数，固定监听 127.0.0.1:7681
+//  - 解析 server/index.js 传入的 -i <addr> -p <port> <shell...> 参数（缺省 127.0.0.1:7681）
+//    ⚠️ 早期版本硬编码 127.0.0.1:7681 并忽略 -p，导致它抢占别的实例的端口、
+//       本实例却因端口冲突静默退出，表现为「终端不可用」且无任何诊断信息。
 //  - GET /token          返回 {"token":"mock-token"}
 //  - WS   /ws            按 ttyd 帧协议工作：输出帧首字节 '0'，回显客户端输入
 // 由 server/index.js 通过 TTYD_PATH 指向本 exe 自动拉起，无需手动运行。
-// 注意：server/index.js 以 stdio:'ignore' spawn 本进程，任何控制台输出/异常都必须吞掉，避免崩溃。
+// ⚠️ 启动失败必须写 stderr 并以非 0 退出码结束：server 会把 stderr 以 [ttyd] 前缀透传到日志，
+//    是端口冲突 / 权限不足的唯一诊断来源（运行期异常仍吞掉，避免把无关噪音打进日志）。
+//    诊断文案一律用 ASCII：Console.Error 走系统 ANSI 代码页（中文环境下为 GBK），
+//    而 Node 侧按 UTF-8 渲染，写中文会变成乱码，诊断等于失效。
 class MockTtyd {
-    static void Main(string[] args) {
+    static int Main(string[] args) {
+        string host = "127.0.0.1";
+        int port = 7681;
+        for (int i = 0; i < args.Length; i++) {
+            if ((args[i] == "-i" || args[i] == "--interface") && i + 1 < args.Length) {
+                host = args[++i];
+            } else if ((args[i] == "-p" || args[i] == "--port") && i + 1 < args.Length) {
+                int parsed;
+                if (int.TryParse(args[++i], out parsed)) port = parsed;
+            }
+        }
+        // HttpListener 不接受通配地址，0.0.0.0 需写成 "+"
+        if (host == "0.0.0.0" || host == "*") host = "+";
+
+        var listener = new HttpListener();
+        string prefix = "http://" + host + ":" + port + "/";
         try {
-            Run();
-        } catch {}
+            listener.Prefixes.Add(prefix);
+            listener.Start();
+        } catch (Exception e) {
+            Console.Error.WriteLine("[mock-ttyd] failed to listen on " + prefix + ": " + e.Message);
+            return 1;
+        }
+        Console.Error.WriteLine("[mock-ttyd] listening on " + prefix);
+
+        Serve(listener);
+        return 0;
     }
 
-    static void Run() {
-        var listener = new HttpListener();
-        listener.Prefixes.Add("http://127.0.0.1:7681/");
-        listener.Start();
+    static void Serve(HttpListener listener) {
         while (true) {
             HttpListenerContext ctx = null;
             try {

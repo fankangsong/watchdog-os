@@ -243,8 +243,8 @@ export function fsUpload(
       }
       reject(new Error(data?.error || `HTTP ${xhr.status}`));
     };
-    xhr.onerror = () => reject(new Error('网络错误，上传失败'));
-    xhr.onabort = () => reject(new Error('上传已取消'));
+    xhr.onerror = () => reject(new Error('Network error — upload failed'));
+    xhr.onabort = () => reject(new Error('Upload canceled'));
     xhr.send(file);
   });
   return { promise, abort: () => xhr.abort() };

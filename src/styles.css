@@ -239,10 +239,11 @@ html, body, #root {
 /* ---------- 窗口内容通用 ---------- */
 /* 各模块（分组框）之间统一垂直间距，跟随 classicy 的 --window-padding-size */
 .sp-block + .sp-block { margin-top: calc(var(--window-padding-size) * 2); }
-.sp-controls { display: flex; align-items: center; gap: calc(var(--window-padding-size) * 1.5); flex-wrap: nowrap; }
-.sp-ctrl { flex: 1 1 0; min-width: 0; }
-.sp-ctrl > * { width: 100%; }
-.sp-ctrl select { width: 100%; }
+/* WatchDog OS 主窗口：工具栏带钉在顶部不随内容滚动——禁窗口级滚动，
+   ContentsInner 钉为 flex column，内容区自滚动（同 Disk 高度链模式） */
+#srv-monitor\.app_monitor-main > .classicyWindowContents { overflow: hidden; }
+#srv-monitor\.app_monitor-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
+.sp-monitor-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .sp-dim { color: var(--color-system-05); font-size: 12px; }
 .sp-pulse { color: var(--color-alert); font-size: 12px; }
 
@@ -293,38 +294,74 @@ html, body, #root {
 .sp-cellres-bar span { display: block; height: 100%; border-radius: 3px; }
 .sp-cmd { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 
-/* ---------- 文件管理器 / 文本编辑器 ---------- */
-.sp-fm { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
-.sp-fm-toolbar { flex-wrap: wrap; align-items: center; gap: 4px; }
-.sp-fm-path { flex: 1 1 200px; min-width: 150px; }
-.sp-fm-path input { box-sizing: border-box; width: 100%; height: calc(var(--hig-button-height) - var(--window-border-size) * 2); padding: 0 5px; font-size: 13px; font-family: var(--mono-font, monospace); }
-.sp-fm-split { flex: 1 1 auto; min-height: 0; }
-/* 分割条上下与容器对齐（覆盖 classicy 默认的上下 margin） */
-.sp-fm-split .classicySplitViewDivider { margin: 0; }
+/* ---------- 窗口操作按钮带（规范 §3.2，Disk / WatchDog OS 共用） ----------
+   浅色容器带与标题栏（窗口框线）、内容区（底部分隔线）均分开；按钮在带内不属于内容流。
+   带色 system-01 浅灰，按钮面提亮为白色（亮于带），黑色边框 + bevel 保证轮廓；
+   间距用 HIG 令牌 12px；margin:0 必须（classicy 按钮默认 6px 外边距会与 gap 叠加成 18px）；
+   文字 12px（Platinum 经典 appFont 字号）。
+   禁用态 Platinum 正宗化：黑框 + 带同色面 + 灰字 + 扁平（不用 classicy 默认的同色退化）。
+   配套高度链前提：窗口 scrollable={false} + ContentsInner 钉为 flex column。
+   ⚠️ 带内子项一律 flex:0 0 auto：classicy 的 PopUpMenu 默认 width:100% + flex-grow:2，
+      在 flex 带中会以整带宽为基础尺寸挤爆其他项，导致标签/按钮文字换行——需覆盖为
+      内容定宽（下拉 72px 稳定容纳 1s~30s，高度对齐按钮 20px 保持带高 32px 一致）。 */
+.sp-toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--hig-button-gap-h); padding: 6px 10px; background: var(--color-system-01); border-bottom: var(--window-border-size) solid var(--color-system-05); }
+.sp-toolbar > * { flex: 0 0 auto; }
+.sp-toolbar .classicyButton { margin: 0; font-size: 12px; }
+.sp-toolbar .classicyButton:enabled:not(:active) { background-color: var(--color-white); }
+.sp-toolbar .classicyButton:disabled { background-color: var(--color-system-01); border-color: var(--color-black); color: var(--color-system-05); }
+.sp-toolbar .classicyPopUpMenuWrapper { width: auto; }
+.sp-toolbar .classicyPopUpMenu { flex-grow: 0; width: 72px; height: var(--hig-button-height); }
+/* 带内右端状态信息（规则 9）：推到最右 */
+.sp-toolbar-status { margin-left: auto; }
 
-/* Files 主窗口：钉死内容区高度链。窗口 contents 为 block + overflow:auto，
-   工具栏与 height:100% 的 SplitView 叠加会整体溢出，底部（表格横向滚动条、状态栏）
-   被推出视口、横向滚动条随内容收缩。改为 flex column 并禁用窗口级滚动，
-   让 SplitView 恒占剩余高度：表格横向滚动条始终贴窗口底部（状态栏上方） */
+/* ---------- 文件管理器 / 文本编辑器 ---------- */
+/* Disk 菜单（菜单栏 / 右键 / 预览窗，项 id 均以 fm- 开头）防折行：
+   classicy 菜单项默认 flex-wrap:wrap + 标题可折行，下拉宽度受顶级项宽度约束
+   （仅 min-width:180px 兜底），长标题/快捷键超出即折行 —— Mac 菜单从不折行，只应变宽。
+   ⚠️ 必须限定在下拉 / 右键菜单上下文内，不能写成裸的 li[id^="fm-"]：
+   菜单栏顶级项（ul.classicyDesktopMenu 的直接子 li，id 形如 fm-file / fm-view / fm-go）同样是
+   .classicyMenuItem，内部为 标题 <p> + 下拉容器 .classicyMenuWrapper(width:100%)；下拉
+   ul.classicySubMenu 是 position:absolute 且 top:auto，位置取该容器的 static position ——
+   默认 flex-wrap:wrap 会让 width:100% 的容器换行落到第二行，下拉因此出现在标题下方；
+   改成 nowrap 后容器与标题同行并被 align-items:center 顶到菜单栏上沿，下拉整体溢出屏幕（菜单点不到）。
+   （useClassicyEditMenu 生成的顶级项 id 是 fm_edit，下划线，故 Edit 菜单不受影响。）
+   勾选列一致性在数据层保证（含 checked 的菜单给所有项显式声明 checked，见 FinderApp View 菜单）。 */
+ul.classicySubMenu li[id^="fm-"],
+ul.classicyContextMenu li[id^="fm-"] { flex-wrap: nowrap; }
+ul.classicySubMenu li[id^="fm-"] > p,
+ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
+/* 内容高度链：右键菜单容器层（ContextualMenuTarget 渲染一层 div）与主区均撑满剩余高度，
+   让图标/表格视图在窗口高度内自滚动（窗口级滚动禁用，表格横向滚动条贴窗口底部） */
+.sp-fm-ctx { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.sp-fm-main { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+
+/* Disk 主窗口：钉死内容区高度链。窗口 contents 为 block + overflow:auto，
+   会与 height:100% 的内容区叠加溢出。改为 flex column 并禁用窗口级滚动，
+   让内容区恒占剩余高度：表格横向滚动条始终贴窗口底部 */
 #srv-finder\.app_fm-main > .classicyWindowContents { overflow: hidden; }
 #srv-finder\.app_fm-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
-#srv-finder\.app_fm-main .classicyWindowContentsInner > .classicyButtonToolbar { flex: 0 0 auto; }
-.sp-fm-side { height: 100%; overflow: auto; padding: 6px 6px 8px 8px; box-sizing: border-box; background: var(--color-system-01); }
-.sp-fm-side-title { margin: 6px 0 3px; font-size: 12px; font-weight: 700; color: var(--color-system-06); }
 .sp-fm-empty { padding: 2px 4px 6px; font-size: 12px; color: var(--color-system-05); }
-/* 主表格区空目录占位：在表格区域内居中 */
+/* 主内容区空目录/加载占位：在区域内居中 */
 .sp-fm-empty-dir { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0; }
-/* 收藏夹/最近文件行按钮（FinderApp 收藏夹已组件化为 ClassicyTree，EditorApp「最近打开」仍在用） */
+/* 收藏夹/最近文件行按钮（Disk 已移除收藏夹；EditorApp「最近打开」仍在用） */
+.sp-fm-side-title { margin: 6px 0 3px; font-size: 12px; font-weight: 700; color: var(--color-system-06); }
 .sp-fm-fav-btn { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; border: none; background: none; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .sp-fm-fav-btn:hover { background: rgba(0, 0, 0, 0.08); }
 .sp-fm-fav-btn img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
 .sp-fm-fav-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-fm-fav-del { padding: 2px 5px; border: none; background: none; font-size: 13px; line-height: 1; color: var(--color-system-05); cursor: pointer; }
-.sp-fm-fav-del:hover { color: var(--color-alert); }
-.sp-fm-main { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+
+/* 图标视图（默认）：大图标 + 下方名称（参考图 Workspace），单元格网格排布 */
+.sp-fm-icons { flex: 1 1 auto; min-height: 0; overflow: auto; box-sizing: border-box; display: flex; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; gap: 8px 4px; padding: 12px 10px; }
+.sp-fm-icon { width: 92px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; }
+.sp-fm-icon img { width: 32px; height: 32px; image-rendering: pixelated; flex: 0 0 auto; }
+.sp-fm-icon-label { max-width: 100%; font-size: 12px; line-height: 1.25; text-align: center; word-break: break-word; padding: 0 2px; }
+/* 选中态：名称标签高亮 + 图标压暗（与列表视图的 OS8 风格一致） */
+.sp-fm-icon-selected .sp-fm-icon-label { color: var(--color-white); background: var(--color-system-07); }
+.sp-fm-icon-selected img { filter: contrast(0.75) brightness(0.5); }
+
 .sp-fm-table { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
 /* classicy 的 .classicyTableContainer 默认相对定位、高度随内容收缩（横向滚动条贴内容底部）；
-   钉满表格区高度，使横向滚动条始终位于窗口最底部（状态栏上方），不随文件数量变化 */
+   钉满表格区高度，使横向滚动条始终位于窗口最底部，不随文件数量变化 */
 .sp-fm-table > .classicyTableContainer { height: 100%; }
 .sp-fm-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .sp-fm-name img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
@@ -337,11 +374,8 @@ html, body, #root {
 .sp-fm-upload-row { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 1px 0; }
 .sp-fm-upload-name { width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }
 .sp-fm-upload-bar { flex: 1 1 auto; }
-.sp-fm-status { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 10px; padding: 4px 6px 6px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: var(--color-system-06); }
-.sp-fm-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 状态栏加载态：斑马纹进度条替换纯文本「读取中…」 */
-.sp-fm-status-main { display: inline-block; max-width: 60%; vertical-align: bottom; }
-.sp-fm-status-main .classicyProgress { width: 200px; vertical-align: middle; }
+/* 上传取消按钮：小号命令按钮，收紧内边距与最小宽度，与进度行协调 */
+.sp-fm-upload-row .classicyButton { min-width: 0; padding: 0 6px; line-height: 1.4; }
 
 /* 预览窗口（工具栏已移除，编辑/下载/视图切换迁入窗口菜单栏） */
 .sp-fm-preview { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
@@ -358,6 +392,10 @@ html, body, #root {
 
 /* Get Info 属性窗口 */
 .sp-fm-info { display: grid; gap: 6px; align-content: start; padding: 10px 14px; font-size: 12px; }
+/* 头部：居中图标 + 名称（对齐参考图 About This Computer 结构） */
+.sp-fm-info-head { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0 10px; }
+.sp-fm-info-icon { width: 32px; height: 32px; image-rendering: pixelated; }
+.sp-fm-info-name { font-weight: 700; font-size: 13px; text-align: center; word-break: break-all; }
 .sp-fm-info-row { display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: baseline; }
 .sp-fm-info-label { color: var(--color-system-04, #666); text-align: right; }
 .sp-fm-info-value { word-break: break-all; }
@@ -371,7 +409,7 @@ html, body, #root {
 .sp-dialog-recent { max-height: 160px; overflow: auto; border: 1px solid rgba(0, 0, 0, 0.2); background: var(--color-white); padding: 2px; }
 .sp-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
 /* ClassicyInput（classicyInputHolder）左置 label：input 是 width:100% 的 flex 项，
-   会挤压 label 造成逐字换行（Files 新建文件夹/新建文本文件等窄对话框最为明显）；
+   会挤压 label 造成逐字换行（Disk 新建文件夹/新建文本文件等窄对话框最为明显）；
    统一禁止 label 收缩与换行，保持单行展示 */
 .classicyInputHolder.classicyLabelLeft .classicyControlLabelHolder { flex: 0 0 auto; }
 .classicyInputHolder.classicyLabelLeft .classicyControlLabel { white-space: nowrap; }

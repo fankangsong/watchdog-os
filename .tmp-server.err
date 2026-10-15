@@ -1,0 +1,144 @@
+[ttyd] [2026/10/15 18:25:16:5575] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:25:16:5575] N: tty configuration:
+[2026/10/15 18:25:16:5575] N:   start command: bash
+[2026/10/15 18:25:16:5575] N:   close signal: SIGHUP (1)
+[2026/10/15 18:25:16:5575] N:   terminal type: xterm-256color
+[2026/10/15 18:25:16:5576] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:25:16:5580] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:25:16:5581] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:25:16:5582] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:25:16:5588] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:25:16:5606] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:25:16:5607] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:25:16:5607] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:25:21:7526] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:25:21:7527] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
+[ttyd] [2026/10/15 18:25:26:9194] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:25:26:9194] N: tty configuration:
+[2026/10/15 18:25:26:9194] N:   start command: bash
+[2026/10/15 18:25:26:9194] N:   close signal: SIGHUP (1)
+[2026/10/15 18:25:26:9195] N:   terminal type: xterm-256color
+[2026/10/15 18:25:26:9195] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:25:26:9196] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:25:26:9196] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:25:26:9196] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:25:26:9197] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:25:26:9200] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:25:26:9200] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:25:26:9200] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:25:37:0784] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:25:37:0784] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
+[ttyd] [2026/10/15 18:25:42:1876] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:25:42:1877] N: tty configuration:
+[2026/10/15 18:25:42:1877] N:   start command: bash
+[2026/10/15 18:25:42:1877] N:   close signal: SIGHUP (1)
+[2026/10/15 18:25:42:1877] N:   terminal type: xterm-256color
+[2026/10/15 18:25:42:1877] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:25:42:1879] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:25:42:1879] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:25:42:1880] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:25:42:1880] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:25:42:1885] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:25:42:1885] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:25:42:1885] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:26:02:4496] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:26:02:4496] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
+[ttyd] [2026/10/15 18:26:07:5999] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:26:07:5999] N: tty configuration:
+[2026/10/15 18:26:07:5999] N:   start command: bash
+[2026/10/15 18:26:07:5999] N:   close signal: SIGHUP (1)
+[2026/10/15 18:26:07:5999] N:   terminal type: xterm-256color
+[2026/10/15 18:26:07:6000] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:26:07:6001] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:26:07:6001] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:26:07:6002] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:26:07:6002] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:26:07:6004] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:26:07:6004] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:26:07:6004] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:26:57:3164] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:26:57:3165] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
+[ttyd] [2026/10/15 18:27:02:4631] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:27:02:4631] N: tty configuration:
+[2026/10/15 18:27:02:4631] N:   start command: bash
+[2026/10/15 18:27:02:4631] N:   close signal: SIGHUP (1)
+[2026/10/15 18:27:02:4631] N:   terminal type: xterm-256color
+[2026/10/15 18:27:02:4631] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:27:02:4632] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:27:02:4633] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:27:02:4633] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:27:02:4633] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:27:02:4635] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:27:02:4635] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:27:02:4635] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:27:07:6333] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:27:07:6334] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
+[ttyd] [2026/10/15 18:27:17:7230] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:27:17:7230] N: tty configuration:
+[2026/10/15 18:27:17:7230] N:   start command: bash
+[2026/10/15 18:27:17:7231] N:   close signal: SIGHUP (1)
+[2026/10/15 18:27:17:7231] N:   terminal type: xterm-256color
+[2026/10/15 18:27:17:7231] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:27:17:7233] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:27:17:7233] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:27:17:7234] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:27:17:7234] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:27:17:7239] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:27:17:7239] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:27:17:7239] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:27:22:9091] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:27:22:9091] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
+[ttyd] [2026/10/15 18:27:43:0870] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:27:43:0871] N: tty configuration:
+[2026/10/15 18:27:43:0871] N:   start command: bash
+[2026/10/15 18:27:43:0871] N:   close signal: SIGHUP (1)
+[2026/10/15 18:27:43:0871] N:   terminal type: xterm-256color
+[2026/10/15 18:27:43:0871] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:27:43:0872] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:27:43:0872] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:27:43:0873] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:27:43:0873] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:27:43:0876] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:27:43:0876] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:27:43:0876] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:27:48:2413] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:27:48:2413] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
+[ttyd] [2026/10/15 18:28:28:4285] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:28:28:4286] N: tty configuration:
+[2026/10/15 18:28:28:4286] N:   start command: bash
+[2026/10/15 18:28:28:4287] N:   close signal: SIGHUP (1)
+[2026/10/15 18:28:28:4287] N:   terminal type: xterm-256color
+[2026/10/15 18:28:28:4287] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:28:28:4288] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:28:28:4289] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:28:28:4289] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:28:28:4290] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:28:28:4295] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:28:28:4295] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:28:28:4295] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:28:33:6500] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:28:33:6500] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
+[ttyd] [2026/10/15 18:29:33:7635] N: ttyd 1.7.7-40e79c7 (libwebsockets 4.3.3-unknown)
+[2026/10/15 18:29:33:7636] N: tty configuration:
+[2026/10/15 18:29:33:7636] N:   start command: bash
+[2026/10/15 18:29:33:7636] N:   close signal: SIGHUP (1)
+[2026/10/15 18:29:33:7636] N:   terminal type: xterm-256color
+[2026/10/15 18:29:33:7636] N: lws_create_context: LWS: 4.3.3-unknown, MbedTLS-2.28.5 NET SRV H1 H2 WS ConMon IPV6-off
+[ttyd] [2026/10/15 18:29:33:7639] N: elops_init_pt_uv:  Using foreign event loop...
+[2026/10/15 18:29:33:7639] N: __lws_lc_tag:  ++ [wsi|0|pipe] (1)
+[2026/10/15 18:29:33:7640] N: __lws_lc_tag:  ++ [vh|0|netlink] (1)
+[2026/10/15 18:29:33:7640] N: __lws_lc_tag:  ++ [vh|1|default|127.0.0.1|127.0.0.1|7681] (2)
+[2026/10/15 18:29:33:7646] N: [vh|1|default|127.0.0.1|127.0.0.1|7681]: lws_socket_bind: source ads 127.0.0.1
+[2026/10/15 18:29:33:7647] N: __lws_lc_tag:  ++ [wsi|1|listen|default|127.0.0.1|7681] (2)
+[2026/10/15 18:29:33:7647] N:  Listening on port: 7681
+[ttyd] [2026/10/15 18:29:38:9607] N: received signal: SIGTERM (15), exiting...
+[2026/10/15 18:29:38:9607] N: send ^C to force exit.
+[warn] ttyd 进程退出（退出码 0），终端暂不可用，稍后重试（请确认端口 7681 未被其他 ttyd 占用）
