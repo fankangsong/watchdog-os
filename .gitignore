@@ -6,6 +6,8 @@ data/
 *.log
 .DS_Store
 tools/ttyd.exe
+# 图标生成器的预览产物，可随时重新生成（tools/pixel-icon.py）
+tools/preview/
 # 页面无障碍快照可能含已填写的明文口令，禁止入库
 login.yaml
 

@@ -23,6 +23,7 @@
 import os
 import re
 import struct
+import sys
 import zlib
 
 W = H = 32
@@ -332,6 +333,37 @@ def verify(g, svg):
     return problems
 
 
+def lint_imports():
+    """扫描 src 下所有图标 import，强制带 `?no-inline`。
+
+    为什么需要机器来守：Vite 内联 SVG 时产出的 data URI 含单引号，会让 classicy
+    注入的 CSS 自定义属性被浏览器**静默丢弃**（style 属性整个消失，页面不报错、
+    控制台无输出），纯靠人 review 极易漏掉。这里把 SOP §6.2 变成硬失败。
+    """
+    problems = []
+    src = os.path.join(ROOT, 'src')
+    pattern = re.compile(
+        r"""from\s+['"](?P<path>[^'"]*assets/icons/(?P<name>[^'"?]+)\.svg)(?P<query>\?[^'"]*)?['"]""")
+    seen = 0
+    for dirpath, _dirs, files in os.walk(src):
+        for fn in sorted(files):
+            if not fn.endswith(('.tsx', '.ts')):
+                continue
+            path = os.path.join(dirpath, fn)
+            with open(path, encoding='utf-8') as f:
+                text = f.read()
+            for m in pattern.finditer(text):
+                seen += 1
+                query = m.group('query') or ''
+                if 'no-inline' not in query:
+                    problems.append('%s → import %s 缺少 ?no-inline（当前 %s）'
+                                    % (os.path.relpath(path, ROOT).replace('\\', '/'),
+                                       m.group('path'), query or '(无查询串)'))
+    if seen == 0:
+        problems.append('未扫描到任何图标 import，检查 src 目录是否正确')
+    return seen, problems
+
+
 # ---------------------------------------------------------------- 主流程
 def emit(g, name):
     print('=== %s ===' % name)
@@ -372,3 +404,13 @@ if __name__ == '__main__':
     emit(build_terminal(), 'terminal')
     emit(build_chat(), 'chat')
     print('preview dir: %s' % PREVIEW_DIR)
+
+    seen, problems = lint_imports()
+    print('')
+    if problems:
+        print('imports: FAIL（扫描 %d 处）' % seen)
+        for p in problems:
+            print('  - ' + p)
+        print('\n图标 import 必须带 ?no-inline，否则 classicy 桌面遮罩会静默失效（见 docs/icon-pipeline.md §6.2）')
+        sys.exit(1)
+    print('imports: PASS（%d 处图标 import 全部带 ?no-inline）' % seen)

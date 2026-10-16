@@ -11,7 +11,7 @@
 ```mermaid
 flowchart TD
     A["需求：某应用需要图标"] --> B{"ClassicyIcons 内置命名空间<br/>有语义贴近的图标？"}
-    B -->|"有"| C["直接用内置<br/>design-spec §7.4 默认路径<br/>在 src/Desktop.tsx 登记"]
+    B -->|"有"| C["直接用内置 ClassicyIcons<br/>把图标常量传给 ClassicyApp"]
     B -->|"无 / 语义明显更强"| D["进入自绘流程"]
     D --> E["确认规格<br/>32×32 · viewBox 0 0 32 32"]
     E --> F["在 tools/pixel-icon.py 增加<br/>build_xxx()：写 32×32 字符网格<br/>+ 语义调色板"]
@@ -99,6 +99,7 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 | 输出 | `to_svg()` 每色一个 `<path>`，`M x y h w v h h -w z`；浅色先画、深色后画 |
 | 自检 | `verify()` 校验 §7.4 硬约束与矩形不重叠 |
 | **回读** | `parse_svg_grid()` 解析**落盘文件**还原网格，与源网格逐像素比对 |
+| **源码守卫** | `lint_imports()` 扫 `src/**/*.{ts,tsx}`，发现图标 import 没带 `?no-inline` 即 **exit 1** |
 | 预览 | `rasterize()` 从 SVG 几何光栅化 → 8x 预览；`shrink()` 降采样出「16px 档观感」 |
 
 新增图标 = 复制一份 `build_xxx()`，在 `__main__` 里加一行 `emit(build_xxx(), 'xxx')`。
@@ -109,21 +110,57 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 
 ```
 □ 生成器输出 verify: PASS
-□ 生成器输出 roundtrip: PASS          ← 最关键，抓 §6.1 的 bug
+□ 生成器输出 roundtrip: PASS          ← 抓 §6.1 的 bug
+□ 生成器输出 imports: PASS            ← 机器强制，抓 §6.2 的 bug
 □ svg 体积 < 4 KB
 □ 只含 <path>，无 <text> / <font>
 □ viewBox="0 0 32 32" + shape-rendering="crispEdges"
 □ 读过 tools/preview/xxx-8x.png，32px 档主体可辨
-□ import 带 ?no-inline
 □ npm run build 成功
 □ dist 产物形态符合预期（独立 .svg 文件，无 data URI）
 □ npx tsc --noEmit 通过
 □ 提醒用户清 localStorage（§6.3）
 ```
 
+> 前三项由 `python tools/pixel-icon.py` 自动校验并在失败时 `exit 1`，不依赖人 review。
+
 ---
 
 ## 5. 接入
+
+本项目**不是**在 `src/Desktop.tsx` 里注册图标（那里只挂载组件、不含图标代码），而是**应用组件自己注册**。三步：
+
+### ① 应用组件内定义常量
+
+```ts
+// src/apps/TerminalApp.tsx
+import terminalIcon from '../assets/icons/terminal.svg?no-inline';
+
+const APP_ID = 'srv-terminal.app';     // 必须以 .app 结尾
+const APP_NAME = 'Terminal';
+/** 应用图标：自绘 SVG（Mac OS 9 窗口 + 终端提示符），见 src/assets/icons/terminal.svg */
+const ICON = terminalIcon;
+```
+
+### ② 用 `ClassicyApp` 注册，窗口的 `icon` 决定标题栏图标
+
+```tsx
+<ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="terminal-main">
+  <ClassicyWindow id="terminal-main" title={APP_NAME} icon={ICON} appId={APP_ID} … />
+```
+
+`ClassicyApp` 的 `icon` → 桌面图标；`ClassicyWindow` 的 `icon` → 标题栏图标。两者都要传，否则标题栏会退回内置图标。
+
+### ③ 在 `src/Desktop.tsx` 挂载组件
+
+```tsx
+<ClassicyDesktop …>
+  <TerminalApp onLogout={onLogout} />
+```
+
+`Desktop.tsx` **不含任何图标代码**，不需要为换图标而改动它。
+
+### import 写法（硬性要求）
 
 ```ts
 // ✅ 正确
@@ -136,7 +173,7 @@ import terminalIcon from '../assets/icons/terminal.svg';
 import terminalIcon from '../assets/icons/terminal.svg?url';
 ```
 
-在 `src/Desktop.tsx` 登记应用（`APP_ID` 以 `.app` 结尾）。
+> ⚠️ design-spec §7.4 写的「在 `src/Desktop.tsx` 登记」在本项目是**过时表述**，实际以本节为准。
 
 ---
 
@@ -195,6 +232,8 @@ else
 ```
 
 **解法：`?no-inline`**（注意 `?url` **不够**，它不绕过 `assetsInlineLimit`）。
+
+**防回归：`lint_imports()`**。这类 bug 的恶劣之处在于**完全静默** —— 浏览器丢弃非法 CSS 值时页面不报错、控制台无输出，肉眼 review 极易漏。`tools/pixel-icon.py` 会扫 `src/**/*.{ts,tsx}`，发现图标 import 缺 `?no-inline` 直接 `exit 1`。已用两种错误写法（无查询串、`?url`）实测拦截。
 
 > 这是**历史遗留**：旧的渐变版图标同样中招（且更糟 —— 渐变里的 `url(#term-shell)` 连括号都是非法的）。不是某次改动引入的。
 
