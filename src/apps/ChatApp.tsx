@@ -23,10 +23,16 @@ import {
 } from '../api';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 import { quitMenuItem } from '../quitMenuItem';
+// ⚠️ 必须用 ?no-inline（仅 ?url 不够）让 Vite 输出独立文件 URL。
+// 原因同 TerminalApp：classicy 桌面图标把图标地址写进 CSS 的
+// --classicy-icon-mask: url(...)，而 Vite 内联 SVG 时会把双引号换成单引号，
+// 导致 CSS 无引号 url() 非法、自定义属性被浏览器丢弃，遮罩失效。
+import chatIcon from '../assets/icons/chat.svg?no-inline';
 
 const APP_ID = 'srv-chat.app';
 const APP_NAME = 'Chat';
-const ICON = ClassicyIcons.applications.pager.app;
+/** 应用图标：自绘 SVG（Mac OS 9 层叠对话气泡），见 src/assets/icons/chat.svg */
+const ICON = chatIcon;
 
 /** 会话流中的一个气泡（UI 状态模型，发送时才映射回 OpenAI ChatMessage） */
 interface ChatBubble {

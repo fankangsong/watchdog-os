@@ -27,6 +27,7 @@ node test/test-terminal-ws.js [port]# 终端链路验证（直连 ttyd 端口：
 $env:PASSWORD='<访问密码>'; node test/test-smoke.js       # 端到端冒烟（默认 BASE_HOST=http://localhost:3000）
 $env:PASSWORD='<访问密码>'; node test/test-basepath.js    # basePath 子路径冒烟（默认 BASE_HOST=http://localhost:3001）
 ./run.sh start|restart|stop|status   # Linux 服务器上的 systemd 服务管理
+# 像素画（CodeBuddy 技能 pixelart）：用自然语言触发，如「用 pixelart 技能画 32x32 的终端图标」；/pixelart 是 Claude Code 的斜杠命令写法，本 IDE 不支持
 ```
 
 > ⚠️ 测试脚本统一放在 `test/`，运维/同步类脚本放在 `scripts/`。自起服务的脚本会自行注入测试用 `JWT_SECRET`，连接既有服务的脚本需自行提供 `PASSWORD`。
@@ -124,7 +125,7 @@ static.js # 静态资源服务（只服务 dist/：serveIndex 返回 SPA 入口�
 lib/ # http.js 基础工具 / auth.js JWT 鉴权
 api/ # metrics / printer / terminal / runner / chat / fs
 src/ # React 前端源码
-apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Disk，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）
+apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Macintosh HD，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）
 components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板
 hooks/ # usePolling —— 数据轮询 Hook
 api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理）
@@ -135,7 +136,9 @@ format.ts # 格式化工具
 vite.config.ts # Vite 配置（见下方注意事项）
 dist/ # 构建产物（勿手动修改）
 test/ # 零依赖冒烟测试脚本（自起 server 子进程或连接既有服务）
-docs/ # design/ 交互设计参考图（外部范本）；design-spec.md 全套交互与设计规范
+docs/ # design/ 交互设计参考图（外部范本）；design-spec.md 全套交互与设计规范；icon-pipeline.md 图标制作标准流程（32×32 规格、tools/pixel-icon.py 生成器、踩坑记录）
+tools/ # 开发辅助工具；pixel-icon.py 图标生成器 + 自检（零依赖 Python，运行后自建 preview/ 预览目录）
+skills/ # 项目级 CodeBuddy 技能；pixelart/ 为像素画技能（入口 SKILL.md，references/ 存 GUIDE 与引擎源码），经 .codebuddy/skills/pixelart 目录联接加载（.codebuddy/ 已入 .gitignore，联接不入库）
 run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ 内）
 
 ```
@@ -158,7 +161,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - 前端 `RunnerApp`：状态区（Idle/Running/上次结果）+ Build/Stop 按钮 + 等宽日志区；轮询间隔运行中 2s、空闲 10s，新日志自动滚底
 - ⚠️ `build.sh` 含 `git push` 与 COS 上传等真实发布动作，Windows 本机验证 UI 时不要点击 Build
 
-### Disk（文件管理器）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`）
+### Macintosh HD（文件管理器）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`）
 
 - 后端 `server/api/fs.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`copy`（POST `{ path, dir }` 递归复制文件/目录：同名**不覆盖**，按 Finder 惯例自动追加 ` copy` / ` copy 2` 后缀——扩展名前插入；目标目录位于源目录内部（含自身）时 400 防递归；根目录禁止复制；符号链接按链接本身复制，Windows 无权限时回退复制目标内容；失败清理半截副本）、`favorites`（GET/PUT，持久化到用户目录 `~/.watchdog-os/data.json`——与项目目录解耦，同步脚本/重部署不丢收藏；临时文件 + rename 原子写）
 - 安全约定：所有路径经 `path.resolve` 规范化并校验在允许根内（`FS_ROOTS` 环境变量可覆盖，默认 Windows 为项目盘符 + C 盘、POSIX 为 `/`）；根目录禁止删除/重命名/复制；文件名清洗只取 basename
@@ -202,6 +205,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
    - 外代是否放行 WS 升级（Nginx/openresty 需 `proxy_http_version 1.1` + `proxy_set_header Upgrade $http_upgrade` + `proxy_set_header Connection "upgrade"`）；
    - 外代多会改写 `Host` 头，watchdog 的 `originAllowed()` 按 Host 推导同源白名单，匹配不上浏览器 `Origin` → 升级被拒（返回 403）。**修复：`.env` 的 `PUBLIC_ORIGIN` 显式加入外部访问域名（逗号分隔多域名）后 `./run.sh restart`**；
    - 判别技巧：不带 `Origin` 头的脚本请求走外代能 101、带则失败，即可锁定是 Origin 校验而非代理本身。
+10. **桌面上的 `Finder.app` 图标要手动移除**：classicy 启动时会自行往桌面塞一个虚拟磁盘图标（`appId: 'Finder.app'` / 名称 `Macintosh HD` / DOM id `#Finder.app.shortcut`），与本项目的文件管理器图标同名并排出现（清缓存、刷新、重登都会复现）。⚠️ classicy 当前版本**不把桌面状态持久化到 localStorage**（实测无 `classicyDesktopState` 键），所以这不是脏数据、无法靠清缓存解决，只能运行时 dispatch `ClassicyDesktopIconRemove`。`src/Desktop.tsx` 的 `RemoveClassicySampleFinderIcon` 用 **store 订阅**（`useAppManager(selector)` + `useEffect`）实现，**不要改成固定 setTimeout** —— 子组件 effect 先于父组件执行，与 classicy 内部的添加时机有竞态。排查桌面图标问题时，先用 `document.querySelectorAll('.classicyDesktopIcon')` 读 DOM 上的 `id`（即 appId）确认归属。
 
 ## 菜单设计规范（macOS / classicy）
 
@@ -304,3 +308,4 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏（含 `~/.watchdog-os/data.json` 落盘位置断言）/越权防护等 30 项）。
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。
+- 桌面图标：改桌面应用（新增/改名/换图标）或触碰 `Desktop.tsx` 的图标清理逻辑后，用浏览器实测 `document.querySelectorAll('.classicyDesktopIcon')` 的数量与 `id`（`id` 即 appId），确认没有多余图标（如 classicy 示例的 `Finder.app.shortcut`）。

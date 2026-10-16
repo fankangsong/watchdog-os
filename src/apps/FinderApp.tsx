@@ -1,4 +1,4 @@
-// Disk 应用外壳：主浏览窗口 + 收藏夹列表窗口 + 收藏目标文件夹窗口注册表。
+// Macintosh HD 应用外壳：主浏览窗口 + 收藏夹列表窗口 + 收藏目标文件夹窗口注册表。
 // 浏览主体为 FinderBrowser（按 winId + initialPath 多实例，各自独立导航状态）；
 // 收藏夹数据经 favoritesStore（服务端 ~/.watchdog-os/data.json 持久化）在各窗口间共享——
 // 右键文件夹 Add/Remove from Favorites、工具栏 Favorites 按钮、菜单栏 Favorites 菜单
@@ -16,13 +16,12 @@ import {
   useClassicyContextualMenu,
 } from 'classicy';
 import type { ClassicyMenuItem, ClassicyTableColumn } from 'classicy';
-import { baseName, FAVORITES_WIN_ID, FinderBrowser, folderWinId, ICON, MAIN_WIN_ID } from './FinderBrowser';
+import { baseName, FAVORITES_WIN_ID, FinderBrowser, folderWinId, APP_NAME, ICON, MAIN_WIN_ID } from './FinderBrowser';
 import { removeFavorites, useFavorites } from '../favoritesStore';
 import { logout } from '../api';
 import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-finder.app';
-const APP_NAME = 'Disk';
 /** 收藏夹窗口图标（classicy 内建 Favorites 文件夹图标） */
 const FAV_ICON = ClassicyIcons.system.folders.favorites;
 

@@ -10,7 +10,6 @@ import {
   ClassicyContextualMenuTarget,
   ClassicyForm,
   ClassicyFormButtonRow,
-  ClassicyIcons,
   ClassicyInput,
   ClassicyKbd,
   ClassicyPopUpMenu,
@@ -22,10 +21,18 @@ import type { ClassicyAlertType, ClassicyMenuItem } from 'classicy';
 import { getTerminalToken, TerminalUnavailable, Unauthorized } from '../api';
 
 import { quitMenuItem } from '../quitMenuItem';
+// ⚠️ 必须用 ?no-inline（仅 ?url 不够，它不绕过 assetsInlineLimit）让 Vite 输出独立文件 URL。
+// classicy 桌面图标把图标地址写进 CSS 自定义属性 --classicy-icon-mask: url(...)，
+// 而 Vite 的 svgToDataURL 在「非 base64 分支」会把 SVG 的双引号全换成单引号
+// （产出 data:image/svg+xml,<svg xmlns='...'>）。CSS 无引号 url() 不允许出现 '，
+// 整条声明非法 → 浏览器 CSSOM 拒绝 setProperty → style 属性整个丢失 → 遮罩失效。
+// 内置 PNG 图标走 base64 分支，无引号，故不受影响。
+import terminalIcon from '../assets/icons/terminal.svg?no-inline';
 
 const APP_ID = 'srv-terminal.app';
 const APP_NAME = 'Terminal';
-const ICON = ClassicyIcons.system.network.terminal;
+/** 应用图标：自绘 SVG（Mac OS 9 窗口 + 终端提示符），见 src/assets/icons/terminal.svg */
+const ICON = terminalIcon;
 
 /* ttyd 客户端帧协议（1.7.x）：二进制帧首字节为操作码（ASCII 字符） */
 const OP_INPUT = 0x30;  // '0' 键盘输入
