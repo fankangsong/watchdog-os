@@ -3,6 +3,7 @@ import {
   ClassicyAppManagerProvider,
   ClassicyDesktop,
   ClassicyIcons,
+  dispatch,
   useAppManager,
 } from 'classicy';
 import type { ClassicyStore } from 'classicy';
@@ -19,21 +20,28 @@ import { ChatApp } from './apps/ChatApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 
-// 一次性迁移：classicy 把桌面状态持久化在 localStorage 的 classicyDesktopState，
-// 应用更名（FileManager → Finder）后旧 id `srv-filemanager.app` 的注册条目仍留在快照里，
-// 会在桌面持续渲染旧「File Manager」图标。这里在桌面启动前把残留条目清掉。
-try {
-  const raw = localStorage.getItem('classicyDesktopState');
-  if (raw) {
-    const state = JSON.parse(raw);
-    const apps = state?.System?.Manager?.Applications?.apps;
-    if (apps && 'srv-filemanager.app' in apps) {
-      delete apps['srv-filemanager.app'];
-      localStorage.setItem('classicyDesktopState', JSON.stringify(state));
-    }
-  }
-} catch {
-  // 解析失败不影响启动（classicy 自身会因 schema 校验失败回退默认状态）
+/**
+ * classicy 内置示例应用（Finder.app）的 id。
+ *
+ * 本项目不渲染它，但 classicy 启动时会自行往桌面塞一个虚拟磁盘图标：
+ * `appId: 'Finder.app' / appName: 'Macintosh HD' / kind: 'drive'`
+ * （DOM 上是 `#Finder.app.shortcut`），与本项目的文件管理器图标同名并排出现。
+ * 注意它**不是**持久化脏数据——当前版本根本不写 localStorage，清缓存后依旧复现，
+ * 所以只能在运行时移除，且要订阅 store：子组件的 effect 先于父组件执行，
+ * 固定延时的做法会与 classicy 内部的添加时机竞态。
+ */
+const CLASSICY_SAMPLE_FINDER_ID = 'Finder.app';
+
+/** 移除 classicy 示例 Finder 的桌面图标（订阅式：无论何时被添加都会清掉） */
+function RemoveClassicySampleFinderIcon() {
+  const hasSampleIcon = useAppManager((s) =>
+    s.System.Manager.Desktop.icons.some((i) => i.appId === CLASSICY_SAMPLE_FINDER_ID)
+  );
+  useEffect(() => {
+    if (!hasSampleIcon) return;
+    dispatch({ type: 'ClassicyDesktopIconRemove', app: { id: CLASSICY_SAMPLE_FINDER_ID } });
+  }, [hasSampleIcon]);
+  return null;
 }
 
 // Zustand v5 将 setState 等 API 挂在 create 返回的 hook 函数对象上，
@@ -82,7 +90,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
   return null;
 }
 
-// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Finder / 文本编辑器 / Runner / 打印机 / 聊天
+// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Macintosh HD（文件管理器）/ 文本编辑器 / Runner / 打印机 / 聊天
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   return (
     <ClassicyAppManagerProvider
@@ -95,6 +103,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
       defaultMuted
     >
       <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg}>
+        <RemoveClassicySampleFinderIcon />
         <MonitorApp onLogout={onLogout} />
         <DockerApp onLogout={onLogout} />
         <ImcolinApp />

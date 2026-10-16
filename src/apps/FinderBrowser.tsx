@@ -1,4 +1,4 @@
-// Finder 浏览主体（Disk 应用的窗口内容，按 winId + initialPath 支持多实例）：
+// Finder 浏览主体（Macintosh HD 应用的窗口内容，按 winId + initialPath 支持多实例）：
 // 主窗口（根列表起步）、收藏夹双击新开的文件夹窗口共用本组件，各自持有独立的
 // 当前目录/选中/历史/预览等状态。默认图标视图（大图标 + 下方名称，OS8 选中高亮），
 // View 菜单可切换列表视图。无侧栏/状态栏（对齐 docs/design 参考图 Workspace）：
@@ -50,13 +50,13 @@ import { CodeEditor } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 
 const APP_ID = 'srv-finder.app';
-const APP_NAME = 'Disk';
-export const ICON = ClassicyIcons.system.folders.directory;
+export const APP_NAME = 'Macintosh HD';
+/** 应用图标：classicy 的磁盘图标（与 macOS 的 Macintosh HD 卷图标一致），应用/窗口/根行共用 */
+export const ICON = ClassicyIcons.system.drives.disk;
 /** 主窗口 id（根列表视图起步） */
 export const MAIN_WIN_ID = 'fm-main';
 /** 收藏夹列表窗口 id（由 FinderApp 渲染，各浏览窗口派发打开） */
 export const FAVORITES_WIN_ID = 'fm-favorites';
-const DRIVE_ICON = ClassicyIcons.system.drives.disk;
 const MAX_PREVIEWS = 3;
 /** 新建文本文件的默认名（对话框内可改，含扩展名） */
 const DEFAULT_NEW_FILE = 'untitled.txt';
@@ -655,7 +655,7 @@ export function FinderBrowser({
   );
 
   /** 根列表视图（未进入任何目录）用磁盘图标，其余按扩展名细分 */
-  const displayIcon = useCallback((e: FsEntry) => (!current && e.type === 'dir' ? DRIVE_ICON : iconFor(e)), [current]);
+  const displayIcon = useCallback((e: FsEntry) => (!current && e.type === 'dir' ? ICON : iconFor(e)), [current]);
 
   const goBack = useCallback(() => {
     setBackStack((s) => {

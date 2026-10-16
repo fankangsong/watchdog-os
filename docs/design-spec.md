@@ -425,7 +425,11 @@ status bar（左：上下文状态；右：全局信息）
 ### 7.4 图标
 
 - 统一 `ClassicyIcons` 命名空间（`system.*` / `applications.*` / `controlPanels.*`）；工具栏图标 16px 档，桌面/标题栏 32px 档。
-- 新应用无专用图标时选语义最接近的内置图标，并在 `src/Desktop.tsx` 登记；不自制图标、不用 emoji 代替。
+- 新应用无专用图标时选语义最接近的内置图标，并在 `src/Desktop.tsx` 登记；不用 emoji 代替。
+- 自绘图标放 `src/assets/icons/*.svg`，`viewBox="0 0 32 32"`（桌面与标题栏同档，矢量可任意缩放）；仅在本项目语义强于内置图标时自绘（如 `terminal.svg` / `chat.svg`），其余沿用内置。
+- 自绘 SVG 约定：**不用 `<text>`/`<font>`**（各平台字体不一致，图标会走形），字符一律用 `<path>` 画；`id`（渐变等）加模块前缀防冲突；靠浮雕高光与暗边做 Mac OS 9 的 3D 感，不加投影；加 `shape-rendering="crispEdges"` 防止相邻像素插值出灰缝；文件控制在 4 KB 内。
+- ⚠️ classicy 把应用注册信息持久化在 localStorage，其注册 reducer（`lq`）**对已存在条目不更新 `name`/`icon`**，换图标后老用户需清 `localStorage.classicyDesktopState` 才能看到新图标。
+- ⚠️ **自绘图标的 `import` 必须带 `?no-inline`**（`import x from './x.svg?no-inline'`）。Vite 的 `svgToDataURL` 在非 base64 分支会把 SVG 双引号替换为单引号，产出含 `'` 的 data URI；CSS 无引号 `url()` 不允许该字符，整条声明非法 → classicy 注入的 `--classicy-icon-mask` 被 CSSOM 丢弃 → 桌面遮罩失效、黑底与斜纹直接透出。**`?url` 不够**，它不绕过 `assetsInlineLimit`。完整流程与踩坑记录见 [icon-pipeline.md](./icon-pipeline.md)。
 
 ---
 
@@ -462,7 +466,7 @@ status bar（左：上下文状态；右：全局信息）
 
 设计或改造一个应用时，按序确认：
 
-- [ ] 在 `src/Desktop.tsx` 登记；`APP_ID` 以 `.app` 结尾；图标取自 `ClassicyIcons`
+- [ ] 在 `src/Desktop.tsx` 登记；`APP_ID` 以 `.app` 结尾；图标取自 `ClassicyIcons`（语义强时可自绘 SVG，见 §7.4）
 - [ ] `useClassicyAboutMenu` → `aboutMenuItem` 进应用名菜单 + 渲染 `aboutWindow`
 - [ ] `appMenu` 四段式（应用名/File/Edit/View/特有），`useMemo` 记忆化，id 规范 `<前缀>-m-<命令>`，英文文案，`…`/`checked`/`disabled` 规则
 - [ ] 有标准文本输入 → `useClassicyEditMenu(idPrefix)`；帮助项 → `useClassicyHelpMenu`
