@@ -18,14 +18,14 @@ const PASSWORD = process.env.PASSWORD;
   let r = await fetch(HOST + '/api/metrics', { redirect: 'manual' });
   check('无前缀 /api/metrics → 404', r.status === 404, 'got ' + r.status);
 
-  // 前缀下首页 200：dist/ 存在时走 SPA 分支（未登录/已登录返回同一份 Vite index.html，
-  // 登录页与仪表盘由前端按鉴权态切换），否则返回旧版 login.html
+  // 前缀下首页 200：SPA 分支下未登录/已登录返回同一份 Vite index.html，
+  // 登录页与仪表盘由前端按鉴权态切换
   r = await fetch(HOST + P + '/', { redirect: 'manual' });
   const body = await r.text();
   const isSpa = body.includes('id="root"');
   check(
-    isSpa ? '带前缀首页 → SPA 入口 200' : '带前缀首页 → 登录页 200',
-    r.status === 200 && (isSpa || body.includes('login-form')),
+    '带前缀首页 → SPA 入口 200',
+    r.status === 200 && isSpa,
     'got ' + r.status + ' spa=' + isSpa
   );
 
@@ -48,33 +48,26 @@ const PASSWORD = process.env.PASSWORD;
   check('带前缀 metrics 200', r.status === 200);
   check('指标完整', m.cpu && m.mem && Array.isArray(m.disks));
 
-  // 登录后首页：SPA 模式下与未登录时同一份 index.html，鉴权态由前端切换
+  // 登录后首页：与未登录时同一份 index.html，鉴权态由前端切换
   r = await fetch(HOST + P + '/', { headers: { Cookie: cookie } });
   const dash = await r.text();
   check(
-    isSpa ? '已登录首页仍为 SPA 入口' : '登录后首页为仪表盘',
-    r.status === 200 && (isSpa || dash.includes('cpu-arc')),
+    '已登录首页仍为 SPA 入口',
+    r.status === 200 && dash.includes('id="root"'),
     'got ' + r.status + ' spa=' + isSpa
   );
 
-  // 静态资源带前缀可访问：SPA 用index.html 引用的 /assets/* 哈希文件，旧版用 /app.js + /style.css
-  if (isSpa) {
-    const asset = (body.match(/src="\.?\/?(assets\/[^"]+\.js)"/) || [])[1];
-    check('首页引用了 assets 脚本', !!asset, body.slice(0, 120));
-    if (asset) {
-      r = await fetch(HOST + P + '/' + asset);
-      check('带前缀 ' + asset + ' 200', r.status === 200, 'got ' + r.status);
-    }
-    const css = (body.match(/href="\.?\/?(assets\/[^"]+\.css)"/) || [])[1];
-    if (css) {
-      r = await fetch(HOST + P + '/' + css);
-      check('带前缀 ' + css + ' 200', r.status === 200, 'got ' + r.status);
-    }
-  } else {
-    r = await fetch(HOST + P + '/app.js');
-    check('带前缀 app.js 200', r.status === 200);
-    r = await fetch(HOST + P + '/style.css');
-    check('带前缀 style.css 200', r.status === 200);
+  // 静态资源带前缀可访问：SPA index.html 引用的 /assets/* 哈希文件
+  const asset = (body.match(/src="\.?\/?(assets\/[^"]+\.js)"/) || [])[1];
+  check('首页引用了 assets 脚本', !!asset, body.slice(0, 120));
+  if (asset) {
+    r = await fetch(HOST + P + '/' + asset);
+    check('带前缀 ' + asset + ' 200', r.status === 200, 'got ' + r.status);
+  }
+  const css = (body.match(/href="\.?\/?(assets\/[^"]+\.css)"/) || [])[1];
+  if (css) {
+    r = await fetch(HOST + P + '/' + css);
+    check('带前缀 ' + css + ' 200', r.status === 200, 'got ' + r.status);
   }
 
   // 模拟 Nginx 场景：health 公开
