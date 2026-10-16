@@ -1,6 +1,6 @@
 /**
  * 文件管理模块（FinderApp / EditorApp 数据源，零依赖 fs API）：
- * 目录浏览 / 文本读写 / 原始流下载 / 流式上传 / mkdir / delete / rename / 收藏夹。
+ * 目录浏览 / 文本读写 / 原始流下载 / 流式上传 / mkdir / delete / rename / 递归复制 / 收藏夹。
  * 从 server.js 原样搬移（原 1218-1606 行），函数体不变；
  * data/ 目录路径按模块新位置（server/api/）上跳两级定位到项目根。
  */
@@ -197,6 +197,45 @@ async function fsReadText(abs) {
   return { ...meta, content: buf.toString('utf8') };
 }
 
+/** 递归复制文件/目录（顺序执行，避免大目录一次性阻塞事件循环）。
+ *  符号链接按链接本身复制（防环）；Windows 无符号链接权限（EPERM）时回退为复制目标内容。 */
+async function fsCopyTree(src, dest) {
+  let st = await fsp.lstat(src);
+  if (st.isSymbolicLink()) {
+    try {
+      await fsp.symlink(await fsp.readlink(src), dest);
+      return;
+    } catch (e) {
+      if (!e || (e.code !== 'EPERM' && e.code !== 'EACCES')) throw e;
+      st = await fsp.stat(src); // 回退：按链接目标内容复制
+    }
+  }
+  if (st.isDirectory()) {
+    await fsp.mkdir(dest, { recursive: true });
+    for (const n of await fsp.readdir(src)) {
+      await fsCopyTree(path.join(src, n), path.join(dest, n));
+    }
+    return;
+  }
+  if (st.isFile()) {
+    await fsp.copyFile(src, dest);
+    return;
+  }
+  throw Object.assign(new Error('Unsupported file type'), { code: 'ENOTSUP' });
+}
+
+/** 目标已存在时按 Finder 惯例取不冲突名：name copy / name copy 2 …（后缀插在扩展名之前）；超限返回 null */
+async function fsFreeDest(dir, name) {
+  if (!(await fsp.stat(path.join(dir, name)).catch(() => null))) return path.join(dir, name);
+  const ext = path.extname(name);
+  const stem = ext ? name.slice(0, -ext.length) : name;
+  for (let i = 1; i <= 1000; i++) {
+    const dest = path.join(dir, `${stem} copy${i > 1 ? ` ${i}` : ''}${ext}`);
+    if (!(await fsp.stat(dest).catch(() => null))) return dest;
+  }
+  return null;
+}
+
 /* 收藏夹：持久化到 data/favorites.json（惰性加载 + 临时文件原子替换写） */
 let fsFavorites = null;
 async function fsLoadFavorites() {
@@ -362,6 +401,37 @@ async function fsRoute(req, res, p, url) {
       if (exists) return send(res, 409, { error: 'An item with that name already exists' });
       await fsp.rename(abs, dest);
       return send(res, 200, { ok: true, path: dest });
+    }
+
+    /* POST /api/fs/copy：复制文件/目录到指定目录（body: { path, dir }，递归）。
+       同名不覆盖：按 Finder 惯例自动追加 " copy" / " copy 2" 后缀；失败时清理半截副本。 */
+    if (p === '/api/fs/copy' && method === 'POST') {
+      const body = await fsJson(req);
+      if (!body) return send(res, 400, { error: 'Invalid request body' });
+      const abs = fsResolve(body.path);
+      const dir = fsResolve(body.dir);
+      if (!abs || !dir || !fsAllowed(abs) || !fsAllowed(dir)) {
+        return send(res, 403, { error: 'Path is outside the allowed roots' });
+      }
+      if (fsIsRoot(abs)) return send(res, 403, { error: 'Cannot copy a root' });
+      const st = await fsp.stat(abs).catch(() => null);
+      if (!st) return send(res, 404, { error: 'File or folder does not exist' });
+      const dst = await fsp.stat(dir).catch(() => null);
+      if (!dst || !dst.isDirectory()) return send(res, 400, { error: 'Destination is not a folder' });
+      // 目标目录不能位于源目录内部（含自身），否则副本会进入源目录形成递归；
+      // 复制到父目录（同目录复制）是安全的：自动后缀保证目标名与源不同且互为兄弟
+      if (st.isDirectory() && (dir === abs || dir.startsWith(abs + path.sep))) {
+        return send(res, 400, { error: 'Cannot copy a folder into itself' });
+      }
+      const dest = await fsFreeDest(dir, path.basename(abs));
+      if (!dest) return send(res, 409, { error: 'Too many items with the same name' });
+      try {
+        await fsCopyTree(abs, dest);
+      } catch (e) {
+        await fsp.rm(dest, { recursive: true, force: true }).catch(() => {});
+        throw e;
+      }
+      return send(res, 200, { ok: true, path: dest, name: path.basename(dest) });
     }
 
     /* GET/PUT /api/fs/favorites：收藏目录列表（服务端持久化，跨浏览器生效） */

@@ -101,7 +101,7 @@ Runner（脚本任务构建）：由 `RUNNER_ENABLED` / `RUNNER_SCRIPT` / `RUNNE
 - **无默认口令**：`PASSWORD` 未配置时进程直接退出（内置默认口令会让「以为改了配置」的部署直接暴露在局域网）。
 - **只认 Cookie**：`checkAuth` 仅从 HttpOnly 会话 Cookie 取令牌，**不接受** `Authorization: Bearer` / `x-auth-token`（令牌不应脱离浏览器使用）。脚本化调用请从 `/api/login` 的 `Set-Cookie` 取 `name=value` 段放到 `Cookie` 头。
 - **令牌不回传**：`/api/login` 响应体只有 `{ ok, expiresIn }`，token 仅存在于 `Set-Cookie`；Cookie 属性为 `Path=BASE; HttpOnly; SameSite=Lax` + 按策略追加的 `Secure`。
-- **WS 来源校验**：终端 WS 升级在鉴权之后额外校验 `Origin`（缺 `Origin` 放行以兼容 curl / 脚本；跨站来源一律拒绝）。反向代理或跨协议访问时显式配置 `PUBLIC_ORIGIN`。
+- **WS 来源校验**：终端 WS 升级在鉴权之后额外校验 `Origin`（缺 `Origin` 放行以兼容 curl / 脚本；跨站来源一律拒绝）。反向代理或跨协议访问时显式配置 `PUBLIC_ORIGIN`（逗号分隔多域名）。**升级被拒时返回明确 HTTP 状态（401/403/503）而非静默断开**——静默 destroy 会被反代翻成 502 Bad Gateway，把「Origin 不匹配」掩盖成“连接失败”，是排障第一手线索；浏览器 Network 面板可直接看到被拒的状态码
 - **签名校验固定 HS256**：`verifyJwt` 不读取 `header.alg`（`alg:none` 与 RS256→HS256 混淆攻击因此不成立），签名用 `timingSafeEqual` 常数时间比较，`exp` 必须为有限数字。
 - **会话不可吊销**（已知取舍）：`/api/logout` 只清 Cookie，服务端无会话表，泄露的 token 在 `JWT_EXPIRES_IN` 内始终有效。缩短有效期是当前唯一的缓解手段。
 - ✅ **终端端口的网络隔离（已评估，当前接受）**：ttyd 以 `-i 127.0.0.1` 启动，只监听回环地址（实测确认，不绑 `0.0.0.0`），且对外只暴露面板端口、经反向代理 /端口转发访问。**走面板的 WS 路径必须先过 JWT 校验**（实测：无 Cookie / 伪造 `Authorization` / 伪造 `x-auth-token` 一律被拒，正确 Cookie 才升级），因此互联网与局域网攻击者都无法触达终端。
@@ -148,6 +148,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - `terminal.ttydArgs`：传给 ttyd 的要运行 shell 及参数，默认 `["bash"]`。⚠️ **坑**：ttyd 继承的是 systemd 的最小 PATH 且 `bash` 非登录 shell 不加载用户 profile，导致用户自行安装的命令（如 mise 管理的 `pi`、`~/.local/bin` 等）在 Dashboard 终端里「command not found」。服务器（tkp）上已改为 `TTYD_ARGS=["zsh","-l"]`（在远端 `.env` 配置，同步脚本不上传 `.env`，不会回退），使终端与 ssh 登录环境一致（交互式登录 zsh 会加载 `~/.zshrc`，含 `eval "$(mise activate zsh)"`）
 - 鉴权：`/api/terminal/token`（HTTP 转发 ttyd /token）与 `/api/terminal/ws`（upgrade 裸 TCP 管道转发到 ttyd /ws）均先走 `checkAuth` JWT 校验（只认 Cookie），再判启用状态（401 优先于 503）；WS 升级在鉴权之后额外校验 `Origin`（见「会话鉴权安全约定」）。`503 Terminal disabled` 表示配置未启用，`503 Terminal unavailable` 表示 ttyd 进程未就绪（前端会显示浮层并每 5s 自动重连）
 - 前端 `src/apps/TerminalApp.tsx`：xterm.js（@xterm/xterm + @xterm/addon-fit）直连代理后的 WebSocket，实现 ttyd 二进制帧协议（服务端首字节 `0` 输出 / `1` 标题；客户端 `0` 输入 / `1` resize + 首条 JSON 认证消息）。握手必须声明子协议 `tty`（`new WebSocket(url, 'tty')`），1.6.x / 1.7.x 均要求，否则连接会被立即关闭（黑屏无输出）
+- **WS 握手失败必须可见**：`ws.onerror` / `onclose`（未经 open 的关闭）与 `connect()` 的其余异常都会 `setError` 弹出浮层并接入 5s 自动重连——历史上只打 console，界面停在「只闪光标、无法输入、无任何反馈」；被替换/清理的连接（设置变更重建终端）不误报。ttyd 1.6.x 无凭据时 `/token` 返回 `{"token":""}`，URL 带空 token 不影响 1.6.x 握手（1.7.x 同样放行）
 - WS 代理为裸 TCP 管道（`net.connect` 改写请求行后双向 pipe），不实现 WS 帧编解码；修改升级逻辑时保持 Cookie / `Authorization` / `x-auth-token` 均不外传给 ttyd、对端 socket 对称销毁
 
 ### Runner（脚本任务构建，RunnerApp + `/api/runner/*`）
@@ -160,10 +161,15 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 
 ### Disk（文件管理器）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`）
 
-- 后端 `server/api/fs.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`favorites`（GET/PUT，持久化到 `data/favorites.json`，临时文件 + rename 原子写）
-- 安全约定：所有路径经 `path.resolve` 规范化并校验在允许根内（`FS_ROOTS` 环境变量可覆盖，默认 Windows 为项目盘符 + C 盘、POSIX 为 `/`）；根目录禁止删除/重命名；文件名清洗只取 basename
+- 后端 `server/api/fs.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`copy`（POST `{ path, dir }` 递归复制文件/目录：同名**不覆盖**，按 Finder 惯例自动追加 ` copy` / ` copy 2` 后缀——扩展名前插入；目标目录位于源目录内部（含自身）时 400 防递归；根目录禁止复制；符号链接按链接本身复制，Windows 无权限时回退复制目标内容；失败清理半截副本）、`favorites`（GET/PUT，持久化到 `data/favorites.json`，临时文件 + rename 原子写）
+- 安全约定：所有路径经 `path.resolve` 规范化并校验在允许根内（`FS_ROOTS` 环境变量可覆盖，默认 Windows 为项目盘符 + C 盘、POSIX 为 `/`）；根目录禁止删除/重命名/复制；文件名清洗只取 basename
 - ⚠️ **Windows ReFS/Dev Drive 坑**：刚写入文件的 `stat.size` 可能是预分配值（元数据延迟），`raw` 接口因此**不设 Content-Length**（chunked 读到 EOF）；`list` 的大小列在 Dev Drive 上刚写入时也可能短暂虚高，生产 Linux 无此问题
-- 前端 `FinderApp`：SplitView 左（收藏夹 + ClassicyTree 目录树懒加载）/ 右（ClassicyTable 多选文件列表：名称/大小/修改时间/权限），工具栏 + 右键菜单（打开/编辑/下载/重命名（可改扩展名）/删除/收藏/新建文件夹/新建文本文件），上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
+- 前端 `FinderApp`：默认图标视图（大图标 + 下方名称）/ 列表视图（ClassicyTable 多选：名称/大小/修改时间/权限，目录行内联展开），View 菜单切换并持久化。文件操作三路等价——**菜单栏**、**右键菜单**、**快捷键**：
+  - **Edit 菜单自建并内联实现**（操作对象是文件选择而非文本框，不用 `useClassicyEditMenu`）：Cut ⌘X / Copy ⌘C / Paste ⌘V / Select All ⌘A / Delete… ⌘⌫（Delete 键同效），置灰规则按选中态/剪贴板/当前目录
+  - 右键菜单：条目菜单（Open / Open with Editor / Download / Cut / Copy / Get Info… / Rename… / Delete…）绑定到**菜单作用对象**（右键时即时改选后的条目组）；空白处菜单（New Folder… / New Text File… / Upload File… / Paste / Refresh / Open Parent Folder）
+  - 剪贴板为应用内 state（条目快照 + copy/cut 模式）：Paste 走 `/api/fs/copy` 服务端递归复制；**Cut = 先复制后删源**（复制失败不删源），粘贴后清空剪贴板；同名由服务端自动追加 ` copy` 后缀，无破坏性覆盖；剪切条目置灰（`sp-fm-icon-cut` / `sp-fm-row-cut`）直至粘贴或重新剪切
+  - 快捷键经 window keydown 真实绑定（classicy 的 `keyboardShortcut` 仅作展示）：焦点在输入框/编辑器时放行，不劫持对话框内打字
+  - 上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
 - 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify），主题/字号/字体偏好存 localStorage，未保存关闭有 `onBeforeClose` veto 确认
 - 跨应用联动：`src/editorBridge.ts` 的 `openInEditor(path)` —— 记录 pendingPath + dispatch `ClassicyAppOpen`/`ClassicyWindowOpen` + DOM 事件双通道（挂载消费 pending、已挂载走事件），避免竞态
 
@@ -192,6 +198,10 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
    - Windows 上 `Get-NetTCPConnection -State Listen -LocalPort <ttydPort>` 看端口被谁占；注意 **`wslrelay.exe`（WSL2 端口转发）也会占它**，说明 WSL 内有 ttyd 或其它服务在监听同端口 —— `wsl -e bash -lc 'ss -tlnp | grep <port>'` 可定位，`pkill -x ttyd` 清理；
    - `netsh http show servicestate | Select-String <port>` 查 HTTP.sys 注册（HttpListener 程序，如 mock ttyd 会走这里，socket 属 PID 4）；
    - WSL 模式下残留的 ttyd 不会被 Windows 侧进程自动回收（Windows 杀 `wsl.exe` 不保证 Linux 侧退出），需显式 `pkill -x ttyd`。
+9. **排查「终端经反向代理 502 / 浏览器 WebSocket connection failed」**：ttyd 与 watchdog 直连均正常、仅经外代失败时，按序检查：
+   - 外代是否放行 WS 升级（Nginx/openresty 需 `proxy_http_version 1.1` + `proxy_set_header Upgrade $http_upgrade` + `proxy_set_header Connection "upgrade"`）；
+   - 外代多会改写 `Host` 头，watchdog 的 `originAllowed()` 按 Host 推导同源白名单，匹配不上浏览器 `Origin` → 升级被拒（返回 403）。**修复：`.env` 的 `PUBLIC_ORIGIN` 显式加入外部访问域名（逗号分隔多域名）后 `./run.sh restart`**；
+   - 判别技巧：不带 `Origin` 头的脚本请求走外代能 101、带则失败，即可锁定是 Origin 校验而非代理本身。
 
 ## 菜单设计规范（macOS / classicy）
 
@@ -291,6 +301,6 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 
 - 前端：`npm run build` 确认无 TS / 构建错误（可用 `npx tsc --noEmit` 做全量类型检查）。
 - 后端：`npm start` 后用密码登录，确认指标接口正常返回（未配 `PASSWORD` / `JWT_SECRET` 时进程应拒绝启动并打印 `[fatal]`）。
-- 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/收藏/越权防护等 20 项）。
+- 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏/越权防护等 29 项）。
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。

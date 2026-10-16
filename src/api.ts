@@ -205,6 +205,17 @@ export const fsRename = (path: string, name: string) =>
     body: JSON.stringify({ path, name }),
   });
 
+/**
+ * 复制文件/目录到目标目录（服务端递归复制）。
+ * 同名不覆盖：服务端按 Finder 惯例自动追加 " copy" / " copy 2" 后缀，响应回传实际路径。
+ */
+export const fsCopy = (path: string, dir: string) =>
+  request<{ ok: true; path: string; name: string }>('./api/fs/copy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, dir }),
+  });
+
 export const fsGetFavorites = () => request<{ favorites: string[] }>('./api/fs/favorites');
 
 export const fsSetFavorites = (favorites: string[]) =>

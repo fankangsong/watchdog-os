@@ -2,7 +2,9 @@
 // 无工具栏/侧栏/状态栏（对齐 docs/design 参考图 Workspace）：新建/上传/下载/删除/重命名统一走
 // 右键菜单与菜单栏，目录导航经双击进入 + Go 菜单（Back ⌘[ / Open Parent Folder ⌘↑）。
 // 支持上传（进度/取消/覆盖确认）、新建文件夹、新建文本文件、重命名（可改扩展名）、删除、
-// Get Info，以及图片/文本/Markdown 预览窗口。
+// 复制/剪切/粘贴（服务端递归复制，同名自动追加 copy 后缀）、Get Info，
+// 以及图片/文本/Markdown 预览窗口。文件选择类命令走 Edit 菜单（Cut/Copy/Paste/Select All/Delete…）
+// 与快捷键（⌘C/⌘X/⌘V/⌘A/⌘⌫），与右键菜单三路等价。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
@@ -22,10 +24,10 @@ import {
   dispatch,
   useClassicyAboutMenu,
   useClassicyContextualMenu,
-  useClassicyEditMenu,
 } from 'classicy';
 import type { ClassicyMenuItem, ClassicyTableColumn } from 'classicy';
 import {
+  fsCopy,
   fsDelete,
   fsList,
   fsMkdir,
@@ -270,8 +272,8 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
   const [viewMode, setViewModeState] = useState<ViewMode>(loadViewMode);
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
-  // 对话框的 ClassicyInput 为标准文本框，编辑命令作用于最后聚焦的文本框
-  const editMenuItem = useClassicyEditMenu('fm');
+  // 剪贴板：Copy/Cut 时的条目快照；mode 决定 Paste 是复制还是移动（剪切）
+  const [clipboard, setClipboard] = useState<{ entries: FsEntry[]; mode: 'copy' | 'cut' } | null>(null);
   // 命令式右键菜单：图标视图在事件时构建菜单（含未选中项的即时改选），保证菜单与点击目标一致
   const { showContextMenu } = useClassicyContextualMenu();
   const [dialog, setDialog] = useState<FmDialog | null>(null);
@@ -447,6 +449,54 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
     [doDelete]
   );
 
+  /** 放入剪贴板（Copy 复制 / Cut 剪切）；右键菜单绑定到菜单自身作用对象 list */
+  const setClipboardFor = useCallback((list: FsEntry[], mode: 'copy' | 'cut') => {
+    if (!list.length) return;
+    setClipboard({ entries: list, mode });
+  }, []);
+
+  /**
+   * 粘贴：Copy 模式为服务端递归复制；Cut 模式先复制后删源（复制失败不删源，避免数据丢失），
+   * 完成后清空剪贴板。同名冲突由服务端自动追加 " copy" 后缀，不做破坏性覆盖。
+   */
+  const doPaste = useCallback(async () => {
+    if (!clipboard) return;
+    const { entries: list, mode } = clipboard;
+    if (!list.length) {
+      setClipboard(null);
+      return;
+    }
+    if (!current) {
+      setAlert({
+        alertType: 'caution',
+        label: 'Cannot Paste',
+        message: 'Open a folder before pasting.',
+        buttons: [{ id: 'ok', label: 'OK', role: 'default' }],
+      });
+      return;
+    }
+    const created: string[] = [];
+    try {
+      for (const e of list) {
+        // 剪切到条目所在目录自身：空操作（与 macOS Finder 一致）
+        if (mode === 'cut' && parentPath(e.path) === current) continue;
+        const r = await fsCopy(e.path, current);
+        created.push(r.path);
+        if (mode === 'cut') await fsDelete(e.path);
+      }
+      if (mode === 'cut') setClipboard(null); // 剪切粘贴后清空；复制保留以便多次粘贴
+      childrenCache.current.delete(current);
+      await fetchDir(current);
+      // fetchDir 会清空选中，粘贴完成后选中新建条目
+      if (created.length) setSelected(created);
+    } catch (e) {
+      if (e instanceof Unauthorized) return handleLogout();
+      childrenCache.current.delete(current);
+      await fetchDir(current).catch(() => {});
+      stopAlert('Paste Failed', (e as Error).message);
+    }
+  }, [clipboard, current, fetchDir, handleLogout, stopAlert]);
+
   const uploadOne = useCallback(
     async (dir: string, file: File, key: string, overwrite: boolean) => {
       setUploads((u) => [...u, { key, name: file.name, loaded: 0, total: file.size }]);
@@ -555,9 +605,18 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
     () => (showHidden ? entries : entries.filter((e) => !e.name.startsWith('.'))),
     [entries, showHidden]
   );
+  /** 全选当前可见条目（受 Show Hidden Files 过滤影响） */
+  const selectAllVisible = useCallback(() => {
+    setSelected(visibleEntries.map((e) => e.path));
+  }, [visibleEntries]);
   // 表格行数组：treeVersion 变化时强制新引用，让 ClassicyTable 重新求值 getSubRows
   //（子目录懒加载完成后立即在已展开的父行下渲染子行）
   const tableRows = useMemo(() => [...visibleEntries], [visibleEntries, treeVersion]);
+  // 剪切待移动的条目集合：粘贴或重新剪切前置灰显示（macOS Finder 语义）
+  const cutPaths = useMemo(
+    () => (clipboard?.mode === 'cut' ? new Set(clipboard.entries.map((e) => e.path)) : null),
+    [clipboard]
+  );
 
   /** 根列表视图（未进入任何目录）用磁盘图标，其余按扩展名细分 */
   const displayIcon = useCallback((e: FsEntry) => (!current && e.type === 'dir' ? DRIVE_ICON : iconFor(e)), [current]);
@@ -594,6 +653,38 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [goBack, goUp]);
 
+  // 文件编辑类快捷键真实绑定：classicy 的 keyboardShortcut 仅作展示、不自动生效，
+  // 这里按菜单声明补齐行为（⌘C 复制 / ⌘X 剪切 / ⌘V 粘贴 / ⌘A 全选 / ⌘⌫ 或 Delete 删除）。
+  // 普通 Backspace 不绑定（Windows 用户预期它是“向上”，macOS Finder 亦不用它删除）。
+  // 焦点在输入框/编辑器（对话框、CodeMirror）时放行，不劫持打字。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === 'c') {
+        e.preventDefault();
+        setClipboardFor(selectedEntries, 'copy');
+      } else if (mod && k === 'x') {
+        e.preventDefault();
+        setClipboardFor(selectedEntries, 'cut');
+      } else if (mod && k === 'v') {
+        e.preventDefault();
+        void doPaste();
+      } else if (mod && k === 'a') {
+        e.preventDefault();
+        selectAllVisible();
+      } else if ((mod && e.key === 'Backspace') || (!mod && e.key === 'Delete')) {
+        e.preventDefault();
+        requestDelete(selectedEntries);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedEntries, setClipboardFor, doPaste, selectAllVisible, requestDelete]);
+
   // 新建文本文件对话框（预填默认名，可在输入时修改扩展名）
   const openNewFileDialog = useCallback(() => {
     setDialogValue(DEFAULT_NEW_FILE);
@@ -626,9 +717,17 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
       if (list.some((f) => f.type === 'file')) {
         items.push({ id: 'fm-cm-download', title: 'Download', onClickFunc: () => downloadEntries(list) });
       }
+      items.push(
+        { id: 'spacer' },
+        // 剪切/复制绑定到菜单作用对象 list（而非渲染时的选中态），保证与点击目标一致
+        { id: 'fm-cm-cut', title: 'Cut', onClickFunc: () => setClipboardFor(list, 'cut') },
+        { id: 'fm-cm-copy', title: 'Copy', onClickFunc: () => setClipboardFor(list, 'copy') }
+      );
       if (list.length === 1) {
-        items.push({ id: 'fm-cm-info', title: 'Get Info…', onClickFunc: () => setInfoEntry(first) });
-        items.push({ id: 'fm-cm-rename', title: 'Rename…', onClickFunc: () => openRenameDialog(first) });
+        items.push(
+          { id: 'fm-cm-info', title: 'Get Info…', onClickFunc: () => setInfoEntry(first) },
+          { id: 'fm-cm-rename', title: 'Rename…', onClickFunc: () => openRenameDialog(first) }
+        );
       }
       items.push(
         { id: 'spacer' },
@@ -640,7 +739,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
       );
       return items;
     },
-    [openEntry, downloadEntries, requestDelete, openRenameDialog]
+    [openEntry, downloadEntries, requestDelete, openRenameDialog, setClipboardFor]
   );
 
   /** 空白处菜单：作用于当前目录 */
@@ -655,13 +754,15 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
         onClickFunc: () => fileInputRef.current?.click(),
       },
       { id: 'spacer' },
+      { id: 'fm-cm-paste', title: 'Paste', disabled: !clipboard || !current, onClickFunc: () => void doPaste() },
+      { id: 'spacer' },
       { id: 'fm-cm-refresh', title: 'Refresh', onClickFunc: () => void fetchDir(current) },
     ];
     if (current) {
       items.push({ id: 'fm-cm-parent', title: 'Open Parent Folder', onClickFunc: goUp });
     }
     return items;
-  }, [current, openNewFolderDialog, openNewFileDialog, fetchDir, goUp]);
+  }, [current, clipboard, openNewFolderDialog, openNewFileDialog, fetchDir, goUp, doPaste]);
 
   // 表格视图右键菜单（ContextualMenuTarget 按渲染时选中态解析；必须 useMemo）
   const menuItems: ClassicyMenuItem[] = useMemo(
@@ -765,6 +866,53 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
     [displayIcon]
   );
 
+  /**
+   * Edit 组（自建并内联实现）：操作对象是文件选择而非文本框，
+   * 故不用 useClassicyEditMenu（AGENTS.md 菜单规范）。与右键菜单、快捷键三路等价。
+   */
+  const editMenuItems: ClassicyMenuItem[] = useMemo(
+    () => [
+      {
+        id: 'fm-m-cut',
+        title: 'Cut',
+        keyboardShortcut: '⌘X',
+        disabled: selectedEntries.length === 0,
+        onClickFunc: () => setClipboardFor(selectedEntries, 'cut'),
+      },
+      {
+        id: 'fm-m-copy',
+        title: 'Copy',
+        keyboardShortcut: '⌘C',
+        disabled: selectedEntries.length === 0,
+        onClickFunc: () => setClipboardFor(selectedEntries, 'copy'),
+      },
+      {
+        id: 'fm-m-paste',
+        title: 'Paste',
+        keyboardShortcut: '⌘V',
+        disabled: !clipboard || !current,
+        onClickFunc: () => void doPaste(),
+      },
+      { id: 'spacer' },
+      {
+        id: 'fm-m-selectall',
+        title: 'Select All',
+        keyboardShortcut: '⌘A',
+        disabled: visibleEntries.length === 0,
+        onClickFunc: selectAllVisible,
+      },
+      { id: 'spacer' },
+      {
+        id: 'fm-m-delete',
+        title: 'Delete…',
+        keyboardShortcut: '⌘⌫',
+        disabled: selectedEntries.length === 0,
+        onClickFunc: () => requestDelete(selectedEntries),
+      },
+    ],
+    [selectedEntries, clipboard, current, visibleEntries.length, setClipboardFor, doPaste, selectAllVisible, requestDelete]
+  );
+
   const appMenu = useMemo(
     () => [
       {
@@ -814,7 +962,11 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
           },
         ],
       },
-      editMenuItem,
+      {
+        id: 'fm-edit',
+        title: 'Edit',
+        menuChildren: editMenuItems,
+      },
       {
         id: 'fm-view',
         title: 'View',
@@ -866,7 +1018,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
     ],
     [
       aboutMenuItem,
-      editMenuItem,
+      editMenuItems,
       viewMode,
       showHidden,
       current,
@@ -930,7 +1082,13 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
                   <div
                     key={entry.path}
                     data-fm-item={entry.path}
-                    className={selected.includes(entry.path) ? 'sp-fm-icon sp-fm-icon-selected' : 'sp-fm-icon'}
+                    className={[
+                      'sp-fm-icon',
+                      selected.includes(entry.path) ? 'sp-fm-icon-selected' : '',
+                      cutPaths?.has(entry.path) ? 'sp-fm-icon-cut' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                     title={entry.type === 'dir' ? entry.name : `${entry.name} — ${fmtBytes(entry.size)}`}
                     onClick={(e) => handleIconClick(entry, idx, e)}
                     onDoubleClick={() => openEntry(entry)}
@@ -952,7 +1110,9 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
                   onSelectionChange={setSelected}
                   onActivateRow={(_id, row) => openEntry(row)}
                   defaultSort={{ columnId: 'name' }}
-                  rowClassName={(_r, sel) => (sel ? 'sp-fm-row-selected' : undefined)}
+                  rowClassName={(r, sel) =>
+                    sel ? 'sp-fm-row-selected' : cutPaths?.has(r.path) ? 'sp-fm-row-cut' : undefined
+                  }
                   // 目录行内联展开：首列 disclosure 三角就地预览子目录（双击/回车仍进目录）
                   rowCanExpand={(r) => {
                     if (r.type !== 'dir') return false;

@@ -34,6 +34,13 @@ const OP_RESIZE = 0x31; // '1' 终端尺寸 {columns, rows}
    否则握手成功后连接会被立即关闭（表现为黑屏、无任何输出） */
 const WS_SUBPROTOCOL = 'tty';
 
+/** WS 握手失败/连接中断的统一提示：经反向代理访问时最常见原因是 WS 升级未放行，
+ *  或服务端 PUBLIC_ORIGIN 未包含当前访问域名（watchdog 的 Origin 校验会拒绝升级）。
+ *  历史上该失败只打 console，界面停在「只闪光标无任何反馈」的状态。 */
+const WS_FAILED_MSG =
+  'Cannot reach the terminal server (WebSocket handshake failed). ' +
+  'If you access this through a reverse proxy, make sure WebSocket upgrades are allowed.';
+
 const enc = new TextEncoder();
 
 /** 复制文本到剪贴板：优先异步 Clipboard API，非安全上下文（如 http 局域网）时降级 execCommand */
@@ -262,7 +269,9 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
     setAlert({
       alertType: 'caution',
       label: '无法读取剪贴板',
-      message: '当前部署不是安全上下文（http 局域网访问），浏览器禁止脚本读取剪贴板。请改用 Ctrl+V，或在终端里右键选择 Paste。',
+      message:
+        'This deployment is not a secure context (http LAN access), so the browser blocks script access to the clipboard. ' +
+        'Use Ctrl+V instead, or right-click in the terminal and choose Paste.',
     });
   }, []);
 
@@ -356,12 +365,18 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
         // '2' SET_PREFERENCES 忽略
       };
       ws.onclose = () => {
+        // 仅当前连接（未被重建/清理替换）的关闭才视为故障：设置变更等主动重建时
+        // wsRef.current 已被置空或替换，不能误报错误触发重连浮层
         if (wsRef.current === ws) {
           wsRef.current = null;
+          // 握手失败或连接中断：给出可见提示并接入 5s 自动重连，
+          // 避免界面停在「只闪光标、无法输入、无任何反馈」
+          setError(WS_FAILED_MSG);
         }
       };
       ws.onerror = () => {
         console.error('[Terminal] WebSocket 连接失败');
+        if (wsRef.current === ws) setError(WS_FAILED_MSG);
       };
     } catch (e) {
       if (e instanceof Unauthorized) {
@@ -377,7 +392,9 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
         setError(e.message);
         return;
       }
+      // 其余失败（如令牌接口网络错误）：同样给出可见提示并自动重连，不静默
       console.error('[Terminal] 连接失败：', e);
+      setError((e as Error).message || 'Connection failed');
     }
   }, [handleLogout]);
 
@@ -698,7 +715,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       >
         {disabled ? (
           <div className="sp-term-disabled">
-            终端功能未启用：请在服务器 .env 中设置 TERMINAL_ENABLED=true，并确认已安装 ttyd。
+            Terminal is disabled: set TERMINAL_ENABLED=true in the server .env and make sure ttyd is installed.
           </div>
         ) : (
           // 右键菜单需要真实包裹终端容器才能覆盖桌面默认菜单；
@@ -709,10 +726,10 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
               <div className="sp-term" ref={setContainer} />
               {error && (
                 <div className="sp-term-overlay">
-                  <div className="sp-term-overlay-msg">终端暂时不可用：{error}</div>
-                  <div className="sp-term-overlay-tip">服务端会自动重试拉起 ttyd，也可手动重试。</div>
+                  <div className="sp-term-overlay-msg">Terminal unavailable: {error}</div>
+                  <div className="sp-term-overlay-tip">The server retries automatically; you can also retry now.</div>
                   <ClassicyButton buttonSize="small" onClickFunc={reconnect}>
-                    重试
+                    Retry
                   </ClassicyButton>
                 </div>
               )}
@@ -743,7 +760,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
           alertType={alert.alertType}
           label={alert.label}
           message={alert.message}
-          buttons={[{ id: 'ok', label: '好', role: 'default' }]}
+          buttons={[{ id: 'ok', label: 'OK', role: 'default' }]}
           onClose={() => setAlert(null)}
         />
       )}

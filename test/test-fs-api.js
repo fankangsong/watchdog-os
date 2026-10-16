@@ -202,8 +202,106 @@ async function waitHealth() {
     ).json();
     ok('rename with extension change', rn2.ok === true && fs.existsSync(path.join(TMP, 'b.md')));
 
-    // 越权路径防护（允许根外路径：Windows 用其他盘符，POSIX 用根目录本身）
+    // copy：同目录复制不覆盖，自动追加 " copy" 后缀且内容一致
+    // 越权路径（允许根外）：Windows 用其他盘符，POSIX 用根目录本身
     const outside = process.platform === 'win32' ? 'E:\\' : '/';
+    const cp1 = await (
+      await fetch(`${BASE}/api/fs/copy`, {
+        method: 'POST',
+        headers: { ...H, 'content-type': 'application/json' },
+        body: JSON.stringify({ path: path.join(TMP, 'b.md'), dir: TMP }),
+      })
+    ).json();
+    ok(
+      'copy same dir auto suffix',
+      cp1.ok === true &&
+        cp1.name === 'b copy.md' &&
+        fs.readFileSync(path.join(TMP, 'b copy.md'), 'utf8') === fs.readFileSync(path.join(TMP, 'b.md'), 'utf8'),
+      `name=${cp1.name}`
+    );
+
+    // copy：再次复制生成 " copy 2"（后缀递增，仍不覆盖）
+    const cp1b = await (
+      await fetch(`${BASE}/api/fs/copy`, {
+        method: 'POST',
+        headers: { ...H, 'content-type': 'application/json' },
+        body: JSON.stringify({ path: path.join(TMP, 'b.md'), dir: TMP }),
+      })
+    ).json();
+    ok('copy second auto suffix', cp1b.name === 'b copy 2.md', `name=${cp1b.name}`);
+
+    // copy：跨目录复制（目标目录需存在）
+    fs.mkdirSync(path.join(TMP, 'dst'), { recursive: true });
+    const cp2 = await (
+      await fetch(`${BASE}/api/fs/copy`, {
+        method: 'POST',
+        headers: { ...H, 'content-type': 'application/json' },
+        body: JSON.stringify({ path: path.join(TMP, 'b.md'), dir: path.join(TMP, 'dst') }),
+      })
+    ).json();
+    ok(
+      'copy cross dir',
+      cp2.ok === true &&
+        fs.readFileSync(path.join(TMP, 'dst', 'b.md'), 'utf8') === fs.readFileSync(path.join(TMP, 'b.md'), 'utf8')
+    );
+
+    // copy：目录递归复制（含子目录与文件）
+    fs.mkdirSync(path.join(TMP, 'tree', 'inner'), { recursive: true });
+    fs.writeFileSync(path.join(TMP, 'tree', 'inner', 'f.txt'), 'nested');
+    const cp3 = await (
+      await fetch(`${BASE}/api/fs/copy`, {
+        method: 'POST',
+        headers: { ...H, 'content-type': 'application/json' },
+        body: JSON.stringify({ path: path.join(TMP, 'tree'), dir: TMP }),
+      })
+    ).json();
+    ok(
+      'copy dir recursive',
+      cp3.ok === true &&
+        cp3.name === 'tree copy' &&
+        fs.readFileSync(path.join(TMP, 'tree copy', 'inner', 'f.txt'), 'utf8') === 'nested',
+      `name=${cp3.name}`
+    );
+
+    // copy：目录复制进自身子树 → 400（否则无限递归）
+    const cp4 = await fetch(`${BASE}/api/fs/copy`, {
+      method: 'POST',
+      headers: { ...H, 'content-type': 'application/json' },
+      body: JSON.stringify({ path: path.join(TMP, 'tree'), dir: path.join(TMP, 'tree') }),
+    });
+    ok('copy into itself 400', cp4.status === 400, `status=${cp4.status}`);
+
+    // copy：源不存在 → 404
+    const cp5 = await fetch(`${BASE}/api/fs/copy`, {
+      method: 'POST',
+      headers: { ...H, 'content-type': 'application/json' },
+      body: JSON.stringify({ path: path.join(TMP, 'nope.txt'), dir: TMP }),
+    });
+    ok('copy missing 404', cp5.status === 404, `status=${cp5.status}`);
+
+    // copy：目标不是目录 → 400
+    const cp6 = await fetch(`${BASE}/api/fs/copy`, {
+      method: 'POST',
+      headers: { ...H, 'content-type': 'application/json' },
+      body: JSON.stringify({ path: path.join(TMP, 'b.md'), dir: path.join(TMP, 'b.md') }),
+    });
+    ok('copy dest not dir 400', cp6.status === 400, `status=${cp6.status}`);
+
+    // copy：越权路径 403 / 根目录禁止复制
+    const cp7 = await fetch(`${BASE}/api/fs/copy`, {
+      method: 'POST',
+      headers: { ...H, 'content-type': 'application/json' },
+      body: JSON.stringify({ path: path.join(TMP, 'b.md'), dir: outside }),
+    });
+    ok('copy outside root 403', cp7.status === 403, `status=${cp7.status}`);
+    const cp8 = await fetch(`${BASE}/api/fs/copy`, {
+      method: 'POST',
+      headers: { ...H, 'content-type': 'application/json' },
+      body: JSON.stringify({ path: roots.roots[0], dir: TMP }),
+    });
+    ok('copy root forbidden 403', cp8.status === 403, `status=${cp8.status}`);
+
+    // 越权路径防护（复用在 copy 前已声明的 outside）
     const bad = await fetch(`${BASE}/api/fs/list?path=${encodeURIComponent(outside)}`, { headers: H });
     ok('traversal guard 403', bad.status === 403, `status=${bad.status}`);
     const badRoot = await fetch(`${BASE}/api/fs/delete`, {

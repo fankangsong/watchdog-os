@@ -358,6 +358,8 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 /* 选中态：名称标签高亮 + 图标压暗（与列表视图的 OS8 风格一致） */
 .sp-fm-icon-selected .sp-fm-icon-label { color: var(--color-white); background: var(--color-system-07); }
 .sp-fm-icon-selected img { filter: contrast(0.75) brightness(0.5); }
+/* 剪切待移动态：整格置灰（macOS Finder 语义），粘贴或重新剪切后恢复 */
+.sp-fm-icon-cut { opacity: 0.45; }
 
 .sp-fm-table { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
 /* classicy 的 .classicyTableContainer 默认相对定位、高度随内容收缩（横向滚动条贴内容底部）；
@@ -370,6 +372,8 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-fm-table .sp-fm-row-selected { color: inherit; background: transparent; }
 .sp-fm-table .sp-fm-row-selected .sp-fm-name { color: var(--color-white); background: var(--color-system-07); }
 .sp-fm-table .sp-fm-row-selected .sp-fm-name img { filter: contrast(0.75) brightness(0.5); }
+/* 剪切待移动态：名称标签置灰（与图标视图的 sp-fm-icon-cut 对应） */
+.sp-fm-table .sp-fm-row-cut .sp-fm-name { opacity: 0.45; }
 .sp-fm-uploads { flex: 0 0 auto; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); }
 .sp-fm-upload-row { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 1px 0; }
 .sp-fm-upload-name { width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }

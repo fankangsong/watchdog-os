@@ -245,7 +245,23 @@ async function route(req, res, url) {
   return send(res, 404, { error: 'not found' });
 }
 
-/** WebSocket 升级：仅放行鉴权后的终端代理路径（与 route() 相同的 BASE 前缀剥离逻辑） */
+/**
+ * 拒绝 WS 升级：先回一句 HTTP 错误再断开。
+ * 静默 destroy 会被反向代理翻成 502 Bad Gateway，把「Origin 不匹配 / 未登录」等
+ * 真实原因掩盖掉（浏览器只报 WebSocket connection failed）；明确的状态码可在
+ * 浏览器 Network 面板与外代日志里直接看到，是排障第一手线索。
+ */
+function rejectUpgrade(socket, status, reason) {
+  try {
+    socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+  } catch {
+    /* socket 已损坏时放弃写响应，直接断开 */
+    socket.destroy();
+  }
+}
+
+/** WebSocket 升级：仅放行鉴权后的终端代理路径（与 route() 相同的 BASE 前缀剥离逻辑）。
+ *  401 优先于 503/403（与 HTTP 路由一致：未通过鉴权者无法据此探测终端配置）。 */
 function handleUpgrade(req, socket) {
   try {
     const url = new URL(req.url, 'http://localhost');
@@ -253,14 +269,14 @@ function handleUpgrade(req, socket) {
     if (BASE !== '/') {
       if (p === BASE || p === BASE + '/') p = '/';
       else if (p.startsWith(BASE + '/')) p = p.slice(BASE.length);
-      else { socket.destroy(); return; }
+      else return rejectUpgrade(socket, 404, 'Not Found');
     }
-    if (p !== '/api/terminal/ws') { socket.destroy(); return; }
+    if (p !== '/api/terminal/ws') return rejectUpgrade(socket, 404, 'Not Found');
     // 鉴权在前、来源校验在后：未通过鉴权者无法据此探测 Origin 配置
-    if (!cfg.terminal.enabled || !terminal.ttydReady() || !checkAuth(req) || !originAllowed(req)) {
-      socket.destroy();
-      return;
-    }
+    if (!checkAuth(req)) return rejectUpgrade(socket, 401, 'Unauthorized');
+    if (!cfg.terminal.enabled) return rejectUpgrade(socket, 503, 'Terminal disabled');
+    if (!terminal.ttydReady()) return rejectUpgrade(socket, 503, 'Terminal unavailable');
+    if (!originAllowed(req)) return rejectUpgrade(socket, 403, 'Origin not allowed');
     terminal.proxyTerminalWs(req, socket, url.search);
   } catch {
     socket.destroy();
