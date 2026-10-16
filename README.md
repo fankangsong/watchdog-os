@@ -199,8 +199,7 @@ server/              # 零依赖后端
   lib/               # HTTP 工具 / JWT 鉴权
   api/               # 各功能 API 模块
 src/                 # React 前端源码
-public/              # 旧版零依赖前端（仅 dist/ 不存在时回退使用，勿放新资源）
-dist/                # 前端构建产物
+dist/                # 前端构建产物（唯一被服务的静态根；缺失时首页返回 503 提示先 npm run build）
 test/                # 冒烟测试脚本
 tools/               # 开发工具（mock-ttyd 源码与产物）
 data/                # 运行时数据（收藏夹、任务日志等，自动生成）
