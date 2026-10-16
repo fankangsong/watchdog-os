@@ -340,6 +340,9 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
    让内容区恒占剩余高度：表格横向滚动条始终贴窗口底部 */
 #srv-finder\.app_fm-main > .classicyWindowContents { overflow: hidden; }
 #srv-finder\.app_fm-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
+/* 收藏目标文件夹窗口（fm-folder-*，FinderBrowser 实例）与主窗口共用同一内容高度链 */
+[id^="srv-finder.app_fm-folder-"] > .classicyWindowContents { overflow: hidden; }
+[id^="srv-finder.app_fm-folder-"] .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
 .sp-fm-empty { padding: 2px 4px 6px; font-size: 12px; color: var(--color-system-05); }
 /* 主内容区空目录/加载占位：在区域内居中 */
 .sp-fm-empty-dir { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0; }
@@ -380,6 +383,15 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-fm-upload-bar { flex: 1 1 auto; }
 /* 上传取消按钮：小号命令按钮，收紧内边距与最小宽度，与进度行协调 */
 .sp-fm-upload-row .classicyButton { min-width: 0; padding: 0 6px; line-height: 1.4; }
+
+/* 收藏夹列表窗口（fm-favorites）：ClassicyTable 列表 + 空态引导 */
+.sp-fm-fav { height: 100%; box-sizing: border-box; overflow: auto; }
+.sp-fm-fav > .classicyTableContainer { height: 100%; }
+.sp-fm-fav-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.sp-fm-fav-name img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
+/* 路径列：单行省略 + title 提示全路径（长路径下保持列表可读） */
+.sp-fm-fav-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-system-04, #666); }
+.sp-fm-fav-empty { height: 100%; display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; padding: 16px; text-align: center; color: #777; font-size: 13px; }
 
 /* 预览窗口（工具栏已移除，编辑/下载/视图切换迁入窗口菜单栏） */
 .sp-fm-preview { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
