@@ -190,7 +190,7 @@ async function waitDone(H, timeoutMs = 15000) {
     child.kill('SIGTERM');
   }
 
-  // 清理临时目录与测试产生的项目日志（不动 data/favorites.json）
+  // 清理临时目录与测试产生的项目日志（不动用户目录 ~/.watchdog-os/data.json 收藏夹）
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* 忽略 */ }
   for (const f of ['data/runner.log', 'data/runner.log.old']) {
     try { fs.rmSync(path.join(ROOT, f), { force: true }); } catch { /* 忽略 */ }

@@ -2,12 +2,13 @@
  * 文件管理模块（FinderApp / EditorApp 数据源，零依赖 fs API）：
  * 目录浏览 / 文本读写 / 原始流下载 / 流式上传 / mkdir / delete / rename / 递归复制 / 收藏夹。
  * 从 server.js 原样搬移（原 1218-1606 行），函数体不变；
- * data/ 目录路径按模块新位置（server/api/）上跳两级定位到项目根。
+ * 收藏夹持久化在用户目录（~/.watchdog-os/data.json），与项目目录无关。
  */
 'use strict';
 
 const fs = require('fs');
 const fsp = require('fs').promises;
+const os = require('os');
 const path = require('path');
 const { readBody, send } = require('../lib/http');
 
@@ -39,8 +40,10 @@ const FS_ROOTS = (() => {
 const FS_MAX_TEXT = 2 * 1024 * 1024;    // 文本读取/保存上限 2MB
 const FS_MAX_UPLOAD = 50 * 1024 * 1024; // 上传单文件上限 50MB
 const FS_FAV_MAX = 100;                 // 收藏夹条目上限
-const FS_DATA_DIR = path.join(__dirname, '..', '..', 'data');
-const FS_FAV_FILE = path.join(FS_DATA_DIR, 'favorites.json');
+/* 收藏夹落盘到用户目录 ~/.watchdog-os/data.json（与项目目录解耦：同步脚本/重部署不丢收藏；
+   文件为通用数据文件，当前仅含 favorites 键，便于后续扩展其它用户数据） */
+const FS_FAV_DIR = path.join(os.homedir(), '.watchdog-os');
+const FS_FAV_FILE = path.join(FS_FAV_DIR, 'data.json');
 
 /* 图片扩展名：raw 接口唯一允许内联输出的类型（其余一律 attachment 下载，防止内联 HTML/XSS） */
 const FS_IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif', '.svg'];
@@ -236,7 +239,7 @@ async function fsFreeDest(dir, name) {
   return null;
 }
 
-/* 收藏夹：持久化到 data/favorites.json（惰性加载 + 临时文件原子替换写） */
+/* 收藏夹：持久化到用户目录 ~/.watchdog-os/data.json（惰性加载 + 临时文件原子替换写） */
 let fsFavorites = null;
 async function fsLoadFavorites() {
   if (fsFavorites) return fsFavorites;
@@ -250,7 +253,7 @@ async function fsLoadFavorites() {
 }
 
 async function fsSaveFavorites(list) {
-  await fsp.mkdir(FS_DATA_DIR, { recursive: true });
+  await fsp.mkdir(FS_FAV_DIR, { recursive: true });
   const tmp = `${FS_FAV_FILE}.${process.pid}.tmp`;
   await fsp.writeFile(tmp, JSON.stringify({ favorites: list }, null, 2) + '\n', 'utf8');
   await fsp.rename(tmp, FS_FAV_FILE);

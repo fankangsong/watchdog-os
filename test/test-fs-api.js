@@ -182,6 +182,20 @@ async function waitHealth() {
     const f2 = await (await fetch(`${BASE}/api/fs/favorites`, { headers: H })).json();
     ok('favorites persist', f1.ok === true && Array.isArray(f2.favorites) && f2.favorites.length === 1, (f2.favorites || []).join(';'));
 
+    // 收藏落盘位置：用户目录 ~/.watchdog-os/data.json（与项目目录解耦，同步/重部署不丢收藏）
+    const favFile = path.join(os.homedir(), '.watchdog-os', 'data.json');
+    let favOnDisk = null;
+    try {
+      favOnDisk = JSON.parse(fs.readFileSync(favFile, 'utf8'));
+    } catch {
+      /* 文件不存在时保持 null */
+    }
+    ok(
+      'favorites saved to ~/.watchdog-os/data.json',
+      !!favOnDisk && Array.isArray(favOnDisk.favorites) && favOnDisk.favorites.includes(TMP),
+      favFile
+    );
+
     // rename
     const rn = await (
       await fetch(`${BASE}/api/fs/rename`, {
