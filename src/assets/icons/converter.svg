@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" shape-rendering="crispEdges">
+  <!-- 左侧源照片（HEIC）：白底黑框 + 太阳 + 山 -->
+  <path fill="#ffffff" d="M3 7h10v18h-10z"/>
+  <path fill="#e8c84a" d="M9 10h3v3h-3z"/>
+  <path fill="#7cc47f" d="M5 13h1v1h-1zM4 14h3v1h-3zM4 15h4v1h-4zM3 16h6v1h-6zM3 17h7v1h-7zM3 18h8v1h-8zM3 19h9v1h-9zM3 20h10v1h-10zM3 21h10v1h-10zM3 22h10v1h-10z"/>
+  <path fill="#46a049" d="M6 14h1v1h-1zM7 15h1v1h-1zM8 16h1v1h-1zM9 17h1v1h-1zM10 18h1v1h-1zM11 19h1v1h-1zM12 20h1v3h-1z"/>
+  <path fill="#3a3a44" d="M2 6h12v1h-12zM2 6h1v20h-1zM14 6h1v20h-1zM2 25h12v1h-12z"/>
+  <!-- 中间箭头：像素风右向 -->
+  <path fill="#3a3a44" d="M14 16h3v2h-3zM17 14h1v1h-1zM17 15h2v1h-2zM17 16h2v2h-2zM17 18h2v1h-2zM17 19h1v1h-1z"/>
+  <!-- 右侧输出照片（JPEG）：同构偏移 +17 -->
+  <path fill="#ffffff" d="M20 7h10v18h-10z"/>
+  <path fill="#e8c84a" d="M26 10h3v3h-3z"/>
+  <path fill="#7cc47f" d="M22 13h1v1h-1zM21 14h3v1h-3zM21 15h4v1h-4zM20 16h6v1h-6zM20 17h7v1h-7zM20 18h8v1h-8zM20 19h9v1h-9zM20 20h10v1h-10zM20 21h10v1h-10zM20 22h10v1h-10z"/>
+  <path fill="#46a049" d="M23 14h1v1h-1zM24 15h1v1h-1zM25 16h1v1h-1zM26 17h1v1h-1zM27 18h1v1h-1zM28 19h1v1h-1zM29 20h1v3h-1z"/>
+  <path fill="#3a3a44" d="M19 6h12v1h-12zM19 6h1v20h-1zM31 6h1v20h-1zM19 25h12v1h-12z"/>
+</svg>

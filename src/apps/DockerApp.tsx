@@ -1,18 +1,23 @@
 import { useEffect, useMemo } from 'react';
-import { ClassicyApp, ClassicyControlGroup, ClassicyIcons, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
+import { ClassicyApp, ClassicyControlGroup, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
 import { fetchDocker, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
 import { DockerTable } from '../components/DockerTable';
 import { quitMenuItem } from '../quitMenuItem';
+// ⚠️ 必须用 ?no-inline（仅 ?url 不够，它不绕过 assetsInlineLimit）让 Vite 输出独立文件 URL，
+// 否则 classicy 桌面图标遮罩会静默失效（见 docs/icon-pipeline.md §6.2）。
+import dockerIcon from '../assets/icons/docker.svg?no-inline';
 
 const APP_ID = 'srv-docker.app';
 const APP_NAME = 'Docker';
+/** 应用图标：自绘 SVG（蓝鲸驮集装箱），见 src/assets/icons/docker.svg */
+const ICON = dockerIcon;
 
 // 窗口2：Docker 容器列表（仅窗口打开时轮询）
 export function DockerApp({ onLogout }: { onLogout?: () => void }) {
   const poll = usePolling(fetchDocker, 5000);
 
-  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal);
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 
   useEffect(() => {
     if (poll.error instanceof Unauthorized) onLogout?.();
@@ -26,7 +31,7 @@ export function DockerApp({ onLogout }: { onLogout?: () => void }) {
         menuChildren: [
           aboutMenuItem,
           { id: 'spacer' },
-          quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal),
+          quitMenuItem(APP_ID, APP_NAME, ICON),
         ],
       },
     ],
@@ -34,11 +39,11 @@ export function DockerApp({ onLogout }: { onLogout?: () => void }) {
   );
 
   return (
-    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ClassicyIcons.system.network.terminal} defaultWindow="docker-main">
+    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="docker-main">
       <ClassicyWindow
         id="docker-main"
         title={APP_NAME}
-        icon={ClassicyIcons.system.network.terminal}
+        icon={ICON}
         appId={APP_ID}
         scrollable
         resizable

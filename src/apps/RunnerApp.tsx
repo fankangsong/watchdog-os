@@ -5,16 +5,20 @@ import {
   ClassicyButtonToolbar,
   ClassicyButtonToolbarGroup,
   ClassicyControlGroup,
-  ClassicyIcons,
   ClassicyWindow,
   useClassicyAboutMenu,
 } from 'classicy';
 import { fetchRunnerStatus, startRunnerBuild, stopRunnerBuild, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
 import { quitMenuItem } from '../quitMenuItem';
+// ⚠️ 必须用 ?no-inline（仅 ?url 不够，它不绕过 assetsInlineLimit）让 Vite 输出独立文件 URL，
+// 否则 classicy 桌面图标遮罩会静默失效（见 docs/icon-pipeline.md §6.2）。
+import runnerIcon from '../assets/icons/runner.svg?no-inline';
 
 const APP_ID = 'srv-runner.app';
 const APP_NAME = 'Runner';
+/** 应用图标：自绘 SVG（Mac OS 9 窗口 + 播放键），见 src/assets/icons/runner.svg */
+const ICON = runnerIcon;
 
 function fmtDuration(ms: number): string {
   const s = Math.round(ms / 1000);
@@ -33,7 +37,7 @@ export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
   const [intervalMs, setIntervalMs] = useState(10000);
   const poll = usePolling(fetchRunnerStatus, intervalMs);
 
-  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal);
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
   const running = poll.data?.running === true;
   const enabled = poll.data?.enabled === true;
 
@@ -63,7 +67,7 @@ export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
         menuChildren: [
           aboutMenuItem,
           { id: 'spacer' },
-          quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.system.network.terminal),
+          quitMenuItem(APP_ID, APP_NAME, ICON),
         ],
       },
     ],
@@ -99,11 +103,11 @@ export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
   const last = poll.data?.last ?? null;
 
   return (
-    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ClassicyIcons.system.network.terminal} defaultWindow="runner-main">
+    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="runner-main">
       <ClassicyWindow
         id="runner-main"
         title={APP_NAME}
-        icon={ClassicyIcons.system.network.terminal}
+        icon={ICON}
         appId={APP_ID}
         scrollable
         resizable

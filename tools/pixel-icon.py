@@ -9,10 +9,16 @@
 产物：
   src/assets/icons/terminal.svg   32x32, viewBox="0 0 32 32", crispEdges, 仅 <path>
   src/assets/icons/chat.svg       同上
+  src/assets/icons/docker.svg     同上
+  src/assets/icons/runner.svg     同上
+  src/assets/icons/fm-back.svg    16x16, viewBox="0 0 16 16"（窗口操作按钮带内嵌图标）
+  src/assets/icons/fm-up.svg      同上
+  src/assets/icons/fm-fav.svg     同上
   tools/pixel-icon/preview/*.png   预览（非交付物，可删）
 
 约束（docs/design-spec.md 7.4）：
-  - viewBox 0 0 32 32，与 classicy 内置桌面/标题栏图标同档（实测 32x32 PNG）
+  - 32 档：viewBox 0 0 32 32，与 classicy 内置桌面/标题栏图标同档（实测 32x32 PNG）
+  - 16 档：viewBox 0 0 16 16，工具栏图标档（按钮内嵌图标 1:1 渲染，见 icon-pipeline.md §1.2）
   - 禁用 <text>/<font>，字符一律 <path>
   - 靠浮雕高光（顶/左）与暗边（下/右）做 Mac OS 9 的 3D 感，不加投影
   - 体积 < 4 KB，便于 Vite 内联为 data URI
@@ -27,6 +33,15 @@ import sys
 import zlib
 
 W = H = 32
+
+
+def set_size(n):
+    """切换网格尺寸：32 = 桌面/标题栏档；16 = 工具栏按钮内嵌图标档（icon-pipeline.md §1.2）。
+
+    所有绘制/输出函数均在调用时读取全局 W/H，故构建前调用一次即可。
+    """
+    global W, H
+    W = H = n
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON_DIR = os.path.join(ROOT, 'src', 'assets', 'icons')
 PREVIEW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'preview')
@@ -53,6 +68,12 @@ PALETTE = {
     'w': '#f4f4f8',     # 白气泡基色
     'd': '#dcdde7',     # 白气泡暗部
     'g': '#71717f',     # 灰文本线
+    # --- Runner（播放键，绿）---
+    'G': '#2c6e31',     # 播放键暗部
+    'P': '#46a049',     # 播放键基色
+    'p': '#7cc47f',     # 播放键高光
+    # --- 按钮内嵌图标（16 档工具栏字形，单色）---
+    'C': 'currentColor',  # 跟随宿主元素文字色：按钮启用=黑、禁用=灰、按下=白（Platinum 三态一致）
 }
 
 # 换算成 RGB
@@ -60,6 +81,8 @@ RGB = {}
 for _k, _v in PALETTE.items():
     if _v is None:
         RGB[_k] = (0, 0, 0, 0)
+    elif _v == 'currentColor':
+        RGB[_k] = (0, 0, 0, 255)   # 预览按黑色画；真实颜色由浏览器上下文决定
     else:
         RGB[_k] = (int(_v[1:3], 16), int(_v[3:5], 16), int(_v[5:7], 16), 255)
 
@@ -102,6 +125,44 @@ def blit(g, rows, x, y):
         for i, c in enumerate(row):
             if 0 <= y + j < H and 0 <= x + i < W and c != '.':
                 g[y + j][x + i] = c
+    return g
+
+
+# ---------------------------------------------------------------- 剪影工具
+def sil_rect(sil, x0, y0, x1, y1):
+    """把 [x0..x1] x [y0..y1]（闭区间）标进剪影。"""
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            if 0 <= x < W and 0 <= y < H:
+                sil[y][x] = True
+
+
+def bevel(g, sil, base, hi, lo):
+    """按左上光源给剪影上色：顶/左 -> hi，底/右 -> lo，内部 -> base。"""
+    for y in range(H):
+        for x in range(W):
+            if not sil[y][x]:
+                continue
+            up = y > 0 and sil[y - 1][x]
+            down = y < H - 1 and sil[y + 1][x]
+            left = x > 0 and sil[y][x - 1]
+            if not up or not left:
+                g[y][x] = hi
+            elif not down or (x < W - 1 and not sil[y][x + 1]):
+                g[y][x] = lo
+            else:
+                g[y][x] = base
+
+
+def outline(g, sil, c):
+    """给剪影描 1px 外框（4 邻域在剪影内即描）。"""
+    for y in range(H):
+        for x in range(W):
+            if sil[y][x]:
+                continue
+            if ((y > 0 and sil[y - 1][x]) or (y < H - 1 and sil[y + 1][x]) or
+                    (x > 0 and sil[y][x - 1]) or (x < W - 1 and sil[y][x + 1])):
+                g[y][x] = c
 
 
 # ---------------------------------------------------------------- 图形
@@ -177,6 +238,142 @@ def build_chat():
     return g
 
 
+def build_docker():
+    """Docker：蓝鲸驮三只白色集装箱（对齐 Docker Logo 构图）。"""
+    g = blank()
+
+    # 鲸体剪影（头左尾右，尾鳍上扬）：y13..y22 为主体，y10..y17 右侧为尾鳍
+    sil = [[False] * W for _ in range(H)]
+    sil_rect(sil, 5, 13, 24, 13)      # 背（右上接尾柄）
+    sil_rect(sil, 4, 14, 23, 14)
+    sil_rect(sil, 4, 15, 23, 15)
+    sil_rect(sil, 3, 16, 23, 16)      # 头部前缘最左
+    sil_rect(sil, 3, 17, 23, 17)
+    sil_rect(sil, 3, 18, 22, 18)
+    sil_rect(sil, 3, 19, 22, 19)
+    sil_rect(sil, 4, 20, 21, 20)
+    sil_rect(sil, 5, 21, 20, 21)
+    sil_rect(sil, 7, 22, 18, 22)      # 腹部底线
+    sil_rect(sil, 23, 10, 26, 10)     # 上尾鳍
+    sil_rect(sil, 22, 11, 26, 12)
+    sil_rect(sil, 22, 15, 26, 15)     # 下尾鳍
+    sil_rect(sil, 22, 16, 25, 16)
+    sil_rect(sil, 23, 17, 25, 17)
+
+    # 立体色（顶/左 h，底/右 m，内部 b）+ 深蓝外框 N
+    bevel(g, sil, 'b', 'h', 'm')
+    outline(g, sil, 'N')
+    # 眼睛 1px（白）
+    g[16][5] = 'T'
+
+    # 三只集装箱 5x4 @ y9..y12：顶高光 W、中 w、底暗 d（盖在鲸背轮廓上）
+    for x0 in (5, 11, 17):
+        fill(g, x0, 9, 5, 1, 'W')
+        fill(g, x0, 10, 5, 2, 'w')
+        fill(g, x0, 12, 5, 1, 'd')
+    return g
+
+
+def build_runner():
+    """Runner：Mac OS 9 窗口 + 绿色播放键 + 日志行（脚本任务构建）。"""
+    g = blank()
+
+    # 窗口外框（与 terminal 同构，保持桌面观感统一）x2..x29 / y2..y29
+    fill(g, 2, 2, 28, 28, 'L')
+    hline(g, 2, 2, 28, 'K')
+    hline(g, 2, 29, 28, 'K')
+    vline(g, 2, 2, 28, 'K')
+    vline(g, 29, 2, 28, 'K')
+
+    # 标题栏 y3..y8
+    fill(g, 3, 3, 26, 6, 'L')
+    fill(g, 3, 3, 26, 1, 'W')
+    fill(g, 3, 5, 26, 1, 'M')
+    fill(g, 3, 8, 26, 1, 'D')
+    fill(g, 13, 4, 5, 1, 'M')          # 标题居中短横
+
+    # 内容区：右侧与底部压暗边（光源左上）
+    fill(g, 3, 9, 26, 19, 'L')
+    fill(g, 28, 9, 1, 19, 'M')
+    fill(g, 3, 27, 26, 1, 'M')
+    fill(g, 3, 28, 26, 1, 'D')
+    fill(g, 28, 26, 1, 2, 'D')
+
+    # 播放三角（左尖右宽）x13..x18 / y11..y21
+    sil = [[False] * W for _ in range(H)]
+    for i, w in enumerate((1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1)):
+        sil_rect(sil, 13, 11 + i, 12 + w, 11 + i)
+    bevel(g, sil, 'P', 'p', 'G')
+
+    # 日志行（灰，递减宽度，像被截断的输出）
+    hline(g, 11, 23, 12, 'g')
+    hline(g, 11, 25, 8, 'g')
+    return g
+
+
+# ---------------------------------------------------------------- 16 档：窗口操作按钮带内嵌图标
+# 规格见 docs/icon-pipeline.md §1.2：16x16 网格 1:1 渲染（.sp-tb-icon），单色 'C'（currentColor）
+# 跟随按钮文字色——启用黑 / 禁用灰（.sp-toolbar :disabled 规则）/ 按下白（classicy :active），
+# 无需为每个状态备图，也不用 CSS 滤镜模拟。
+def build_fm_back():
+    """Back：左箭头（三角头 5x9 + 柄 6x2）。
+
+    Mac OS 9 导航字形：头为左尖三角（垂直基边在右、 apex 在左中），柄接基边向右伸出；
+    整体 10x9，四周 ≥1px 透明边。
+    """
+    g = blank()
+    blit(g, [
+        '.......C........',
+        '......CC........',
+        '.....CCC........',
+        '....CCCC........',
+        '...CCCCCCCCCC...',
+        '....CCCCCCCCC...',
+        '.....CCC........',
+        '......CC........',
+        '.......C........',
+    ], 0, 3)
+    return g
+
+
+def build_fm_up():
+    """Up：上箭头（三角头 10x5 + 柄 2x6）——与 Back 同参数旋转 90° 的视觉效果。"""
+    g = blank()
+    blit(g, [
+        '.......CC.......',
+        '......CCCC......',
+        '.....CCCCCC.....',
+        '....CCCCCCCC....',
+        '...CCCCCCCCCC...',
+        '.......CC.......',
+        '.......CC.......',
+        '.......CC.......',
+        '.......CC.......',
+        '.......CC.......',
+    ], 0, 3)
+    return g
+
+
+def build_fm_fav():
+    """Favorites：五角星（12x12，上尖 + 双臂 + 张开的双腿）。"""
+    g = blank()
+    blit(g, [
+        '.....CC.....',
+        '.....CC.....',
+        '....CCCC....',
+        '....CCCC....',
+        'CCCCCCCCCCCC',
+        '.CCCCCCCCCC.',
+        '..CCCCCCCC..',
+        '...CCCCCC...',
+        '..CCCCCCCC..',
+        '.CCCC..CCCC.',
+        '.CCC....CCC.',
+        'CC........CC',
+    ], 2, 2)
+    return g
+
+
 # ---------------------------------------------------------------- SVG 输出
 def merge_rects(g):
     """贪心最大同色矩形合并，返回 [(x, y, w, h, ch)]。"""
@@ -211,8 +408,8 @@ def to_svg(g, name):
     # verify() 已断言矩形互不重叠，故此顺序只影响接缝观感，不影响正确性。
     order = sorted(by_color, key=lambda c: -sum(RGB[c][i] for i in range(3)))
 
-    parts = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" '
-             'width="32" height="32" shape-rendering="crispEdges">']
+    parts = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" '
+             'width="%d" height="%d" shape-rendering="crispEdges">' % (W, H, W, H)]
     for c in order:
         d = ''.join('M%d %dh%dv%dh-%dz' % (x, y, w, h, w) for (x, y, w, h) in by_color[c])
         parts.append('<path fill="%s" d="%s"/>' % (PALETTE[c], d))
@@ -309,9 +506,11 @@ def preview(g, name):
     os.makedirs(PREVIEW_DIR, exist_ok=True)
     buf = rasterize(merge_rects(g))
     write_png(os.path.join(PREVIEW_DIR, '%s-8x.png' % name), upscale(buf, 8), W * 8, H * 8)
-    small = shrink(buf, 2)                     # 32 -> 16
-    write_png(os.path.join(PREVIEW_DIR, '%s-16px-8x.png' % name),
-              upscale(small, 8), len(small[0]) * 8, len(small) * 8)
+    if H >= 32:
+        # 仅 32 档输出 16px 缩略观感（16 档本身就是工具栏目标尺寸，无需再缩）
+        small = shrink(buf, 2)                     # 32 -> 16
+        write_png(os.path.join(PREVIEW_DIR, '%s-16px-8x.png' % name),
+                  upscale(small, 8), len(small[0]) * 8, len(small) * 8)
 
 
 def verify(g, svg):
@@ -319,8 +518,8 @@ def verify(g, svg):
     problems = []
     if '<text' in svg or '<font' in svg:
         problems.append('SVG 含 <text>/<font>（7.4 禁止）')
-    if 'viewBox="0 0 32 32"' not in svg:
-        problems.append('viewBox 非 0 0 32 32')
+    if 'viewBox="0 0 %d %d"' % (W, H) not in svg:
+        problems.append('viewBox 非 0 0 %d %d' % (W, H))
     if 'shape-rendering="crispEdges"' not in svg:
         problems.append('缺 shape-rendering=crispEdges（缩放会糊）')
     covered = set()
@@ -401,8 +600,17 @@ def emit(g, name):
 
 if __name__ == '__main__':
     os.makedirs(ICON_DIR, exist_ok=True)
+    # 32 档：桌面/标题栏图标
+    set_size(32)
     emit(build_terminal(), 'terminal')
     emit(build_chat(), 'chat')
+    emit(build_docker(), 'docker')
+    emit(build_runner(), 'runner')
+    # 16 档：窗口操作按钮带内嵌图标（Back / Up / Favorites，见 icon-pipeline.md §1.2）
+    set_size(16)
+    emit(build_fm_back(), 'fm-back')
+    emit(build_fm_up(), 'fm-up')
+    emit(build_fm_fav(), 'fm-fav')
     print('preview dir: %s' % PREVIEW_DIR)
 
     seen, problems = lint_imports()

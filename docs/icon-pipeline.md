@@ -2,7 +2,7 @@
 
 本项目全部**桌面图标 / 标题栏图标**的制作流程。规范来源是 [`design-spec.md`](./design-spec.md) §7.4；本文补充**可执行的步骤、自动校验与踩坑记录**。
 
-> 术语：下文「图标」一律指 `src/assets/icons/*.svg`。工具栏图标（16×16）遵循 design-spec §3.2「icon 按钮禁入按钮带」，本流程不涉及。
+> 术语：下文「图标」一律指 `src/assets/icons/*.svg`。桌面/标题栏图标为 32×32 档；工具栏按钮内嵌图标为 16×16 档（见 §1.2，本流程同样覆盖）。design-spec §3.2 规则 8 禁入按钮带的是**独立 icon 按钮**（`ClassicyBevelButton square`），不禁止 push 文字按钮携带前置图标。
 
 ---
 
@@ -13,7 +13,7 @@ flowchart TD
     A["需求：某应用需要图标"] --> B{"ClassicyIcons 内置命名空间<br/>有语义贴近的图标？"}
     B -->|"有"| C["直接用内置 ClassicyIcons<br/>把图标常量传给 ClassicyApp"]
     B -->|"无 / 语义明显更强"| D["进入自绘流程"]
-    D --> E["确认规格<br/>32×32 · viewBox 0 0 32 32"]
+    D --> E["确认规格<br/>32×32 桌面/标题栏 · 16×16 按钮内嵌（§1.2）"]
     E --> F["在 tools/pixel-icon.py 增加<br/>build_xxx()：写 32×32 字符网格<br/>+ 语义调色板"]
     F --> G["按顺序绘制<br/>剪影 → 基色 → 暗部 下/右<br/>→ 高光 上/左 → 细节"]
     G --> H["运行生成器<br/>输出 SVG + 预览 PNG"]
@@ -61,6 +61,30 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 
 **结论：桌面与标题栏同档 32×32。** 这是硬指标，不是估的。
 
+### 1.2 16×16 档：窗口操作按钮带内嵌图标
+
+按钮带（design-spec §3.2）的 push 文字按钮可携带**前置图标**（Back / Up / Favorites 三枚，`src/assets/icons/fm-*.svg`）。规格与约定：
+
+| 项 | 值 | 依据 |
+|---|---|---|
+| 画布 | **16×16**，`viewBox="0 0 16 16"` | design-spec §7.4「工具栏图标 16px 档」 |
+| 渲染 | **1:1** 渲染在 16px（`.sp-tb-icon` 宽高 16px） | 缩放即糊，16 档没有缩小空间 |
+| 尺寸依据 | 按钮 20px 高（`--hig-button-height`）− 边框 2px − 内边距 2px = 16px 内容盒，图标恰好填满并随按钮 flex 行垂直居中；文字 12px，图标 ≤ 文字盒 | §3.2.2 规则 5 |
+| 颜色 | **单色 `currentColor`**（调色板键 `C`） | 跟随宿主按钮文字色：启用黑 / 禁用灰（`sp-toolbar :disabled`）/ 按下白（classicy `:active`），三态零成本一致，禁用以滤镜模拟 |
+| 元素 | 同 32 档：仅 `<path>`、无 `<text>`、`crispEdges`、≥1px 透明边 | §7.4 / skills/pixelart |
+| 导入 | 同样必须 `?no-inline` | §6.2 |
+
+生成方式与 32 档同链路：`tools/pixel-icon.py` 里 `set_size(16)` 后新增 `build_xxx()`（用 `blit` 贴 16 列字符行），在 `__main__` 的 16 档区块加一行 `emit(build_xxx(), 'xxx')`。`verify` / `roundtrip` / `preview` 均按当前 `W/H` 自适应；16 档预览只出 `xxx-8x.png`（本身就是目标尺寸，不再缩 16px 观感）。
+
+接入样式（`src/styles.css`，与 `.sp-toolbar` 规则同址）：
+
+```css
+.sp-toolbar .classicyButton:has(.sp-tb-icon) { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.sp-toolbar .classicyButton .sp-tb-icon { width: 16px; height: 16px; flex: 0 0 auto; image-rendering: pixelated; }
+```
+
+`:has()` 把影响面限制在带图标的按钮上，无图标按钮（如 WatchDog OS 的 Refresh Now）布局零变化。接入后仍需过 §4 检查清单（`npm run build` 后确认 dist 产物是独立 `.svg` 文件而非 data URI）。
+
 ---
 
 ## 2. 绘制规范
@@ -85,6 +109,9 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 | `S` `B` `T` | `#282830` `#111116` `#f6f6f8` | 屏幕外圈 / 屏底 / 终端文字 |
 | `N` `b` `m` `h` | `#1b3d72` `#4a86d8` `#2a62b2` `#a8cff5` | 蓝色气泡描边/基/暗/高光 |
 | `O` `w` `d` `g` | `#2b2b33` `#f4f4f8` `#dcdde7` `#71717f` | 白色气泡描边/基/暗/灰文本 |
+| `N` `b` `m` `h` | `#1b3d72` `#4a86d8` `#2a62b2` `#a8cff5` | Docker 鲸描边/基/暗/高光 |
+| `G` `P` `p` | `#2c6e31` `#46a049` `#7cc47f` | Runner 播放键暗/基/高光 |
+| `C` | `currentColor` | 16 档按钮字形专用：单色跟随宿主文字三态（§1.2），非固定色 |
 
 ---
 
@@ -94,13 +121,14 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 
 | 能力 | 说明 |
 |---|---|
-| 构建 | `build_terminal()` / `build_chat()` —— 用 `fill` / `hline` / `roundbox` / `blit` 画 32×32 网格 |
+| 构建 | `build_terminal()` / `build_chat()` / `build_docker()` / `build_runner()`（32 档）与 `build_fm_back()` / `build_fm_up()` / `build_fm_fav()`（16 档）—— 用 `fill` / `hline` / `roundbox` / `blit` 画网格；异形主体（鲸、三角）用 `sil_rect()` 搭剪影 + `bevel()` 上立体色 + `outline()` 描外框 |
+| 尺寸切换 | `set_size(32/16)` —— 全部绘制/输出函数调用时读全局 `W/H`，构建前切一次即可；`to_svg` / `verify` / `preview` 随之自适应 |
 | 合并 | `merge_rects()` 贪心最大同色矩形（先横向游程、再纵向扩展） |
 | 输出 | `to_svg()` 每色一个 `<path>`，`M x y h w v h h -w z`；浅色先画、深色后画 |
 | 自检 | `verify()` 校验 §7.4 硬约束与矩形不重叠 |
 | **回读** | `parse_svg_grid()` 解析**落盘文件**还原网格，与源网格逐像素比对 |
 | **源码守卫** | `lint_imports()` 扫 `src/**/*.{ts,tsx}`，发现图标 import 没带 `?no-inline` 即 **exit 1** |
-| 预览 | `rasterize()` 从 SVG 几何光栅化 → 8x 预览；`shrink()` 降采样出「16px 档观感」 |
+| 预览 | `rasterize()` 从 SVG 几何光栅化 → 8x 预览；`shrink()` 降采样出「16px 档观感」（仅 32 档输出） |
 
 新增图标 = 复制一份 `build_xxx()`，在 `__main__` 里加一行 `emit(build_xxx(), 'xxx')`。
 

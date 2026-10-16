@@ -189,6 +189,7 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
 | 6 | 排布 | 单排左对齐，按钮间距 = `var(--hig-button-gap-h)`（12px）；语义分组靠顺序表达，不加分组分隔符；行内同基线同高度。**必须 `margin: 0`**——classicy 按钮默认带 6px 外边距，与 gap 叠加会变成 18px |
 | 7 | default 环 | 仅当带内存在明确主操作时使用（范本 `Export`）；导航等无主操作的不设 |
 | 8 | icon 按钮 | `ClassicyBevelButton square` 等 icon 按钮**禁入按钮带**（仅用于模式/格式切换工具组，见 §3.1） |
+| 8b | 按钮内嵌前置图标 | 允许：push 文字按钮可带 16px 前置小图标（位于文本左侧、垂直居中、间距 ~5px，`.sp-tb-icon`）。图标须单色 `currentColor`（跟随文字三态：启用黑 / 禁用灰 / 按下白），语义与按钮动词一致；图标是文字陪衬，不把按钮变成 icon 按钮。现有用例：Macintosh HD 的 Back / Up / Favorites（制作流程见 icon-pipeline.md §1.2） |
 | 9 | 右端上下文（可选） | 按信息密度取舍：右对齐、小一号等宽字体（~11px）、超长省略号；不放可交互控件 |
 | 10 | 禁用态 | **Platinum 正宗化，不直接用 classicy 默认**：classicy 的 `:disabled` 会把按钮面退化为 `--color-system-03`（与旧条带同色、糊成一片）+ `--color-system-05` 灰边框；必须覆盖为**黑边框 + 容器带同色面（`--color-system-01`）+ 灰字 + 扁平（无 bevel）**——对齐真实 Mac OS 9 禁用钮（保留框，以扁平和灰字表达禁用） |
 
@@ -425,6 +426,7 @@ status bar（左：上下文状态；右：全局信息）
 ### 7.4 图标
 
 - 统一 `ClassicyIcons` 命名空间（`system.*` / `applications.*` / `controlPanels.*`）；工具栏图标 16px 档，桌面/标题栏 32px 档。
+- 按钮带 push 文字按钮的前置小图标（§3.2.2 规则 8b）：16×16、1:1 渲染、单色 `currentColor` 跟随文字三态；自绘，制作流程见 [icon-pipeline.md](./icon-pipeline.md) §1.2。
 - 新应用无专用图标时选语义最接近的内置图标，并在 `src/Desktop.tsx` 登记；不用 emoji 代替。
 - 自绘图标放 `src/assets/icons/*.svg`，`viewBox="0 0 32 32"`（桌面与标题栏同档，矢量可任意缩放）；仅在本项目语义强于内置图标时自绘（如 `terminal.svg` / `chat.svg`），其余沿用内置。
 - 自绘 SVG 约定：**不用 `<text>`/`<font>`**（各平台字体不一致，图标会走形），字符一律用 `<path>` 画；`id`（渐变等）加模块前缀防冲突；靠浮雕高光与暗边做 Mac OS 9 的 3D 感，不加投影；加 `shape-rendering="crispEdges"` 防止相邻像素插值出灰缝；文件控制在 4 KB 内。
