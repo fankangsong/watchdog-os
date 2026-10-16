@@ -192,10 +192,10 @@ const ORIGIN_ALLOW_LIST = envStr('PUBLIC_ORIGIN', '')
   .map((s) => s.trim().replace(/\/+$/, '').toLowerCase())
   .filter(Boolean);
 
-/* 静态目录：优先 SPA 构建产物 dist/，不存在时回退旧 public/ */
+/* 静态目录：只服务 SPA 构建产物 dist/（旧版零依赖前端已移除）。
+   dist/ 不存在时不静默降级，由 static.js 的 serveIndex 返回 503 + 构建提示。 */
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
-const PUBLIC_DIR = fs.existsSync(DIST_DIR) ? DIST_DIR : path.join(ROOT_DIR, 'public');
-const SPA_MODE = PUBLIC_DIR === DIST_DIR;
+const PUBLIC_DIR = DIST_DIR;
 
 module.exports = {
   cfg,
@@ -207,5 +207,4 @@ module.exports = {
   ORIGIN_ALLOW_LIST,
   DIST_DIR,
   PUBLIC_DIR,
-  SPA_MODE,
 };

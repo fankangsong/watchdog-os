@@ -28,14 +28,8 @@ async function req(path, opts = {}, cookies = '') {
 
   log('--- 未登录 ---');
   let r = await req('/');
-  // dist/ 存在时服务端走 SPA 分支：未登录/已登录都返回同一份 Vite index.html，
-  // 登录页与仪表盘由前端按鉴权态切换，故首页断言按是否 SPA 自适应
-  const isSpa = r.body.includes('id="root"');
-  check(
-    isSpa ? '首页返回 SPA 入口(200)' : '首页返回登录页(200)',
-    r.status === 200 && (isSpa || r.body.includes('login-form')),
-    `status=${r.status} spa=${isSpa}`
-  );
+  // SPA 分支：未登录/已登录都返回同一份 Vite index.html，登录页与仪表盘由前端按鉴权态切换
+  check('首页返回 SPA 入口(200)', r.status === 200 && r.body.includes('id="root"'), `status=${r.status}`);
   r = await req('/api/metrics');
   check('metrics 未授权 401', r.status === 401, `status=${r.status}`);
   r = await req('/api/docker');
@@ -77,11 +71,7 @@ async function req(path, opts = {}, cookies = '') {
 
   log('--- 已登录 ---');
   r = await req('/', {}, cookie);
-  check(
-    isSpa ? '已登录首页仍为 SPA 入口' : '首页返回仪表盘',
-    r.status === 200 && (isSpa || r.body.includes('cpu-arc')),
-    `status=${r.status} spa=${isSpa}`
-  );
+  check('已登录首页仍为 SPA 入口', r.status === 200 && r.body.includes('id="root"'), `status=${r.status}`);
   r = await req('/api/metrics', {}, cookie);
   const m = JSON.parse(r.body);
   check('metrics 200', r.status === 200);

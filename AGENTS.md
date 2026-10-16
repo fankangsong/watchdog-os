@@ -120,10 +120,9 @@ server/ # 零依赖后端（CommonJS，只用 Node 内置模块）
 index.js # 入口：组装各模块与生命周期（采集定时器、退出时清理 ttyd/runner）
 config.js # 配置加载（.env，唯一来源）+ basePath 规范化
 router.js # API 路由分发与 WS 升级处理
-static.js # 静态资源服务（dist/ 优先，回退 public/）
+static.js # 静态资源服务（只服务 dist/：serveIndex 返回 SPA 入口，dist 缺失时 503 提示构建）
 lib/ # http.js 基础工具 / auth.js JWT 鉴权
 api/ # metrics / printer / terminal / runner / chat / fs
-public/ # ⚠️ 旧版零依赖前端（server/index.js 回退用），不是 Vite 静态资源目录
 src/ # React 前端源码
 apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Disk，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）
 components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板
@@ -186,10 +185,10 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 
 ### 重要注意事项
 
-1. **`vite.config.ts` 中 `publicDir: false`**：`public/` 是旧版零依赖前端的回退目录，绝不能被 Vite 拷入 `dist`（会与构建产物冲突）。新增静态资源请勿放进 `public/`。
+1. **静态资源只有 `dist/` 一个来源**（旧版零依赖前端 `public/` 已删除）：`server/config.js` 的 `PUBLIC_DIR` 恒等于 `dist/`，`router.js` 只放行 `/assets/*`，其余路径 404；`dist/` 缺失时 `static.js` 的 `serveIndex` 返回 503 + 「先 `npm run build`」提示页（不静默降级）。新增静态资源走根 `index.html` 引用让 Vite 打进 `assets/`，并保持 `vite.config.ts` 的 `publicDir: false`。
 2. **`base: './'`**：构建产物使用相对路径，SPA 可在任意 basePath 子路径下直接运行。改动 `vite.config.ts` 时保持此行为。
 3. **`server/index.js` 零依赖**：只使用 Node.js 内置模块，不要引入第三方 npm 依赖。
-4. **鉴权**：会话校验（`checkAuth`，只认 HttpOnly Cookie）贯穿 REST API、WS 升级与静态页面，改动路由或静态服务逻辑时注意保持鉴权一致；新增需要鉴权的接口时用 `checkAuth` 而非自建校验。
+4. **鉴权**：会话校验（`checkAuth`，只认 HttpOnly Cookie）贯穿 REST API 与 WS 升级；静态页面无鉴权（SPA 入口对所有人返回同一份 `index.html`，登录态由前端 `LoginApp` 判 `/api/metrics` 401 后切换）。新增需要鉴权的接口时用 `checkAuth` 而非自建校验。
 5. **basePath**：后端与前端均需支持子路径部署，新增 API 路由时注意挂载在 `BASE` 前缀之下。
 6. **Node 版本**：`engines` 要求 `>=18.15`。
 7. **不新增鉴权旁路**：不要引入 `Authorization` / `x-auth-token` 之类的头鉴权、CORS 头或第三方 auth 中间件；会话只经 Cookie 传递（详见「会话鉴权安全约定」）。
