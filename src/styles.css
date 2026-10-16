@@ -309,6 +309,12 @@ html, body, #root {
 .sp-toolbar .classicyButton { margin: 0; font-size: 12px; }
 .sp-toolbar .classicyButton:enabled:not(:active) { background-color: var(--color-white); }
 .sp-toolbar .classicyButton:disabled { background-color: var(--color-system-01); border-color: var(--color-black); color: var(--color-system-05); }
+/* 按钮内嵌前置图标（Back/Up/Favorites，16x16 工具栏档，icon-pipeline.md §1.2）：
+   图标在文本左侧、随按钮 flex 行垂直居中；currentColor 让图标跟随文字三态
+   （启用黑 / 禁用随 :disabled 变灰 / 按下随 :active 变白），无需按态备图。
+   :has() 限定仅影响带图标的按钮，无图标按钮（如 WatchDog OS）布局零变化。 */
+.sp-toolbar .classicyButton:has(.sp-tb-icon) { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.sp-toolbar .classicyButton .sp-tb-icon { width: 16px; height: 16px; flex: 0 0 auto; image-rendering: pixelated; }
 .sp-toolbar .classicyPopUpMenuWrapper { width: auto; }
 .sp-toolbar .classicyPopUpMenu { flex-grow: 0; width: 72px; height: var(--hig-button-height); }
 /* 带内右端状态信息（规则 9）：推到最右 */
@@ -541,3 +547,44 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .classicyDesktopIconActiveAndOpen .classicyDesktopIconMaskOuter .classicyDesktopIconMask img {
   opacity: 0.5 !important;
 }
+
+/* ---------- HEIC 转换器（Converter） ---------- */
+/* 主窗口内容高度链（同 Macintosh HD 模式）：禁窗口级滚动 + ContentsInner 钉为 flex column，
+   让表格区恒占剩余高度、横向滚动条贴窗口底部 */
+#srv-converter\.app_converter-main > .classicyWindowContents { overflow: hidden; }
+#srv-converter\.app_converter-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
+/* 文件表格区：撑满剩余高度（同 .sp-fm-table 模式） */
+.sp-conv-table { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
+.sp-conv-table > .classicyTableContainer { height: 100%; }
+.sp-conv-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.sp-conv-name img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
+/* 选中态对齐 OS8 经典列表视图：行背景还原，只高亮名称标签（白字 + system-07 底），图标压暗 */
+.sp-conv-table .sp-conv-row-selected { color: inherit; background: transparent; }
+.sp-conv-table .sp-conv-row-selected .sp-conv-name { color: var(--color-white); background: var(--color-system-07); }
+.sp-conv-table .sp-conv-row-selected .sp-conv-name img { filter: contrast(0.75) brightness(0.5); }
+/* 空目录/加载占位：区域内居中（规范 §4.3 空态一句陈述） */
+.sp-conv-empty { display: flex; align-items: center; justify-content: center; flex: 1 1 auto; padding: 0; color: var(--color-system-05); font-size: 12px; }
+/* 转换进度区（任务进行中）：贴在状态栏上方，与 Macintosh HD 上传进度行同模式 */
+.sp-conv-progress { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; }
+.sp-conv-progress-name { width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }
+.sp-conv-progress-bar { flex: 1 1 auto; }
+.sp-conv-progress-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.sp-conv-progress .classicyButton { min-width: 0; padding: 0 6px; line-height: 1.4; }
+/* 状态栏：左上下文（错误红字 var(--color-error)）+ 右全局（质量档位） */
+.sp-conv-status { flex: 0 0 auto; display: flex; justify-content: space-between; gap: 10px; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: #444; }
+.sp-conv-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-conv-status-err { color: var(--color-error); }
+/* 帮助窗口 */
+.sp-conv-help { height: 100%; box-sizing: border-box; overflow: auto; padding: 10px 14px; font-size: 12px; line-height: 1.6; }
+.sp-conv-help-title { font-weight: 700; margin: 8px 0 4px; }
+.sp-conv-help-title:first-child { margin-top: 0; }
+.sp-conv-help-steps, .sp-conv-help-notes { margin: 0; padding-left: 18px; }
+.sp-conv-help-kbd { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+.sp-conv-help-kbd > span { display: inline-flex; align-items: center; gap: 6px; }
+/* Converter 菜单（菜单栏 / 右键，项 id 均以 cv- 开头）防折行（规范 §2 必修项 2）：
+   classicy 菜单项默认 flex-wrap:wrap + 标题可折行，下拉宽度受顶级项宽度约束，
+   长标题超出即折行 —— Mac 菜单从不折行、只应变宽 */
+ul.classicySubMenu li[id^="cv-"],
+ul.classicyContextMenu li[id^="cv-"] { flex-wrap: nowrap; }
+ul.classicySubMenu li[id^="cv-"] > p,
+ul.classicyContextMenu li[id^="cv-"] > p { white-space: nowrap; }

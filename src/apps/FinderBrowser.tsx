@@ -48,6 +48,11 @@ import { openInEditor } from '../editorBridge';
 import { quitMenuItem } from '../quitMenuItem';
 import { CodeEditor } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
+// 窗口操作按钮带内嵌图标（16x16 工具栏档，见 docs/icon-pipeline.md §1.2）：
+// 单色 currentColor 跟随按钮文字色，启用/禁用/按下三态自动一致
+import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
+import fmUpIcon from '../assets/icons/fm-up.svg?no-inline';
+import fmFavIcon from '../assets/icons/fm-fav.svg?no-inline';
 
 const APP_ID = 'srv-finder.app';
 export const APP_NAME = 'Macintosh HD';
@@ -1189,15 +1194,21 @@ export function FinderBrowser({
         <div className="sp-fm-main">
           {/* 窗口内工具栏带（规范 §3.2，与 WatchDog OS 共用 .sp-toolbar）：
               浅色容器带，与标题栏（窗口框线）、内容区（底部分隔线）均分开；
-              按钮不属于内容流，不随内容滚动 */}
+              按钮不属于内容流，不随内容滚动。按钮带 16px 前置图标（文本左侧垂直居中，
+              currentColor 跟随文字三态） */}
           <div className="sp-toolbar">
             <ClassicyButton disabled={backStack.length === 0} onClickFunc={goBack}>
+              <img className="sp-tb-icon" src={fmBackIcon} alt="" />
               Back
             </ClassicyButton>
             <ClassicyButton disabled={!current} onClickFunc={goUp}>
+              <img className="sp-tb-icon" src={fmUpIcon} alt="" />
               Up
             </ClassicyButton>
-            <ClassicyButton onClickFunc={openFavoritesWindow}>Favorites</ClassicyButton>
+            <ClassicyButton onClickFunc={openFavoritesWindow}>
+              <img className="sp-tb-icon" src={fmFavIcon} alt="" />
+              Favorites
+            </ClassicyButton>
           </div>
           {loading && entries.length === 0 ? (
             <div className="sp-fm-empty sp-fm-empty-dir">Loading…</div>

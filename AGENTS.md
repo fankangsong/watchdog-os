@@ -125,7 +125,7 @@ static.js # 静态资源服务（只服务 dist/：serveIndex 返回 SPA 入口�
 lib/ # http.js 基础工具 / auth.js JWT 鉴权
 api/ # metrics / printer / terminal / runner / chat / fs
 src/ # React 前端源码
-apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Macintosh HD，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）
+apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Macintosh HD，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）
 components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板
 hooks/ # usePolling —— 数据轮询 Hook
 api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理）
@@ -187,6 +187,15 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - 会话列表窗口 `chat-sessions`：常驻渲染树 + dispatch Open/Focus 显隐；四态（Loading / error+Retry / empty / ClassicyTable）；Refresh / Delete… 工具栏（删除走 ClassicyAlert caution 确认，删除当前会话回空会话）；单击行切换、双击/Enter 切换并关窗
 - ⚠️ 带会话请求头理论上可能造成 hermes 上下文重复（transcript 注入 + 全量重传）：若实测发现重复，回退方式为前端 `streamChat` 不传 `sessionId`（代理双向透传保留，无需改后端）
 
+### HEIC 转换器（ConverterApp：浏览器端 HEIC → JPEG）
+
+- 定位：把 `.heic` / `.heif` 图片转成 JPEG，**保存到原文件所在目录**（与 Finder 相同的 `/api/fs/*` 数据源与鉴权，**零后端改动**）
+- 解码在浏览器端完成：`heic-to`（libheif 编译为 WASM，**动态 `import('heic-to')`** 单独成 chunk、首次转换时才加载，避免拖慢首屏）；读取原文件字节走 `fetch(fsRawUrl(path))`（同源 + HttpOnly Cookie 天然鉴权），写出走既有 `fsUpload(原目录, File, overwrite)`
+- ⚠️ **heic-to 不应用 EXIF orientation**（2026-10-16 无头 Chromium 实测反证：600×800 存储 + Orientation=6 的样本，最终输出 800×600——若 heic-to 自行应用方向，前端再补偿就会二次旋转成 600×800 而断言失败）：竖拍 iPhone 照片（存储横向、EXIF 标记旋转）不补偿会整体旋转 90°。补偿方式：`exifr.parse(src, ['Orientation'])` 读方向（exifr 支持 HEIF 容器），2-8 经 `createImageBitmap` + canvas `transform` 矩阵旋转/翻转后重新编码；1 或无 EXIF 块直接输出。注：heic-to 的 WASM 解码跑在 **blob URL Worker** 里（`new Worker(URL.createObjectURL(...))`，代码内联在 chunk 中，Vite 无需产出单独 worker 文件），Node 无 Worker 环境跑不了，验证必须走真实浏览器
+- 前端 `ConverterApp.tsx`：窗口内文件浏览（ClassicyTable 多选，目录双击进入、HEIC 双击即转换）→ Convert…（⌘E）→ 目标已存在时 caution alert 确认覆盖（默认按钮 Cancel）→ 顺序转换（WASM 解码内存峰值高，不并发）→ 进度条 + 可取消 → 状态栏汇总。质量档 High/Medium/Low（0.92/0.8/0.6）经 `ClassicyPopUpMenu` 选择，偏好持久化 localStorage `srv-converter-prefs`
+- 图标为自绘 `src/assets/icons/converter.svg`（双照片 + 箭头，`?no-inline` 引入）；样式 `sp-conv-` 前缀在 `styles.css`（含主窗口高度链与 `cv-` 菜单项防折行规则）
+- 注：HEIC 可含多图（连拍/实况深度图），只转换主图；上传受 `/api/fs/upload` 50MB 上限约束（iPhone 照片一般 2-5MB，无虞）
+
 ### 重要注意事项
 
 1. **静态资源只有 `dist/` 一个来源**（旧版零依赖前端 `public/` 已删除）：`server/config.js` 的 `PUBLIC_DIR` 恒等于 `dist/`，`router.js` 只放行 `/assets/*`，其余路径 404；`dist/` 缺失时 `static.js` 的 `serveIndex` 返回 503 + 「先 `npm run build`」提示页（不静默降级）。新增静态资源走根 `index.html` 引用让 Vite 打进 `assets/`，并保持 `vite.config.ts` 的 `publicDir: false`。
@@ -206,6 +215,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
    - 外代多会改写 `Host` 头，watchdog 的 `originAllowed()` 按 Host 推导同源白名单，匹配不上浏览器 `Origin` → 升级被拒（返回 403）。**修复：`.env` 的 `PUBLIC_ORIGIN` 显式加入外部访问域名（逗号分隔多域名）后 `./run.sh restart`**；
    - 判别技巧：不带 `Origin` 头的脚本请求走外代能 101、带则失败，即可锁定是 Origin 校验而非代理本身。
 10. **桌面上的 `Finder.app` 图标要手动移除**：classicy 启动时会自行往桌面塞一个虚拟磁盘图标（`appId: 'Finder.app'` / 名称 `Macintosh HD` / DOM id `#Finder.app.shortcut`），与本项目的文件管理器图标同名并排出现（清缓存、刷新、重登都会复现）。⚠️ classicy 当前版本**不把桌面状态持久化到 localStorage**（实测无 `classicyDesktopState` 键），所以这不是脏数据、无法靠清缓存解决，只能运行时 dispatch `ClassicyDesktopIconRemove`。`src/Desktop.tsx` 的 `RemoveClassicySampleFinderIcon` 用 **store 订阅**（`useAppManager(selector)` + `useEffect`）实现，**不要改成固定 setTimeout** —— 子组件 effect 先于父组件执行，与 classicy 内部的添加时机有竞态。排查桌面图标问题时，先用 `document.querySelectorAll('.classicyDesktopIcon')` 读 DOM 上的 `id`（即 appId）确认归属。
+11. ⚠️ **classicy 0.79 的次窗口显隐机制（2026-10-16 实测，读 dist 源码 + 无头浏览器实证）**：`ClassicyWindow` **挂载即自发 dispatch `ClassicyWindowOpen`**（reducer 把窗口推入 app 的 store `windows` 且 `closed:false`），且 app 被打开（`ClassicyAppOpen`）时会把该 app **所有 store 窗口的 `closed` 置 false**。因此「常驻渲染树 + dispatch Open/Focus 控制显隐」的模式（Finder 收藏夹窗 `fm-favorites`、Chat 会话窗 `chat-sessions` 现用此法）在**每次打开 app 时次窗都会一并可见并抢焦点**（ConverterApp 开发时实测复现：帮助窗盖住主窗拦截点击）。**新应用需要隐藏次窗时一律用条件渲染**（`{open && <ClassicyWindow … onCloseFunc={() => setOpen(false)}>`，TerminalApp 快捷键窗模式）——挂载自注册会自动入 store 并聚焦，无需手动 Open/Focus 双发。既有的 Finder/Chat 两个常驻次窗受同一机制影响（代码级证据确凿），修复前先确认产品侧是否可接受。
 
 ## 菜单设计规范（macOS / classicy）
 
@@ -309,3 +319,4 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。
 - 桌面图标：改桌面应用（新增/改名/换图标）或触碰 `Desktop.tsx` 的图标清理逻辑后，用浏览器实测 `document.querySelectorAll('.classicyDesktopIcon')` 的数量与 `id`（`id` 即 appId），确认没有多余图标（如 classicy 示例的 `Finder.app.shortcut`）。
+- HEIC 转换器（Converter）：heic-to 的 WASM 解码依赖 blob Worker，**Node 冒烟测不了，必须真实浏览器**。一次性验证法（Playwright，用完 `npm uninstall -D playwright`，勿入库）：`npm i -D playwright && npx playwright install chromium`，起服务（`PASSWORD/JWT_SECRET/PORT/FS_ROOTS=<样本目录>`，注意项目 `.env` 的 `BASE_PATH` 会生效，基址要带子路径），无头 Chromium 走「登录 → 双击桌面图标开 Converter → 双击根目录行进样本目录 → Shift 连选 HEIC 行 → Convert… → 等状态栏 Converted N」，然后断言磁盘产物（解析 JPEG SOF 帧宽高；含 EXIF 方向用例）。样本可用 pillow-heif 生成（`venv + pip install pillow-heif`，`register_heif_opener()` 后才能 `save('.heic')`）。
