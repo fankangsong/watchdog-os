@@ -8,11 +8,11 @@
 
 const crypto = require('crypto');
 const os = require('os');
-const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, SPA_MODE, COOKIE_SECURE_MODE, ORIGIN_ALLOW_LIST } = require('./config');
+const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, COOKIE_SECURE_MODE, ORIGIN_ALLOW_LIST } = require('./config');
 const { send, redirect, safeEqual, readBody } = require('./lib/http');
 const { signJwt, checkAuth } = require('./lib/auth');
 const { state } = require('./api/metrics');
-const { serveFile } = require('./static');
+const { serveFile, serveIndex } = require('./static');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
@@ -223,22 +223,13 @@ async function route(req, res, url) {
   }
 
   /* ---- 静态页面 ---- */
-  if (SPA_MODE) {
-    // SPA：页面路径统一返回 index.html，登录/仪表盘由前端鉴权态决定
-    if (p === '/' || p === '/index.html' || p === '/login') {
-      return serveFile(res, 'index.html');
-    }
-  } else {
-    if (p === '/login') return serveFile(res, 'login.html');
-
-    if (p === '/' || p === '/index.html') {
-      if (!checkAuth(req)) return serveFile(res, 'login.html'); // 未验证 → 登录页
-      return serveFile(res, 'index.html');
-    }
+  // SPA：所有页面路径统一返回 index.html，登录 / 仪表盘由前端按鉴权态切换
+  if (p === '/' || p === '/index.html' || p === '/login') {
+    return serveIndex(res);
   }
 
-  // 静态资源：SPA 构建产物（assets/ 带 hash 文件）或旧 public 白名单
-  if (p.startsWith('/assets/') || p === '/style.css' || p === '/app.js' || p === '/favicon.svg') {
+  // 静态资源：仅构建产物 assets/（带内容 hash），其余路径一律 404
+  if (p.startsWith('/assets/')) {
     return serveFile(res, p.slice(1));
   }
 
