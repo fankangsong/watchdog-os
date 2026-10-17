@@ -12,8 +12,12 @@ const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, COOKIE_SECURE_MODE, ORIGIN_ALLOW_LI
 const { send, redirect, safeEqual, readBody } = require('./lib/http');
 const { signJwt, checkAuth } = require('./lib/auth');
 const { state } = require('./api/metrics');
+<<<<<<< HEAD
 const { printTestPage } = require('./api/printer');
 const { serveFile, serveIndex } = require('./static');
+=======
+const { serveFile, serveIndex, servePwaFile } = require('./static');
+>>>>>>> ba7f650449c3536386296ede92133ccb6ee9b38a
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
@@ -258,6 +262,11 @@ async function route(req, res, url) {
   // SPA：所有页面路径统一返回 index.html，登录 / 仪表盘由前端按鉴权态切换
   if (p === '/' || p === '/index.html' || p === '/login') {
     return serveIndex(res);
+  }
+
+  // PWA 文件：manifest / Service Worker / 图标（basePath 根下的固定路径，无鉴权）
+  if (p === '/manifest.webmanifest' || p === '/sw.js' || p.startsWith('/icons/')) {
+    return servePwaFile(res, p.slice(1));
   }
 
   // 静态资源：仅构建产物 assets/（带内容 hash），其余路径一律 404
