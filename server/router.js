@@ -12,12 +12,8 @@ const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, COOKIE_SECURE_MODE, ORIGIN_ALLOW_LI
 const { send, redirect, safeEqual, readBody } = require('./lib/http');
 const { signJwt, checkAuth } = require('./lib/auth');
 const { state } = require('./api/metrics');
-<<<<<<< HEAD
 const { printTestPage } = require('./api/printer');
-const { serveFile, serveIndex } = require('./static');
-=======
 const { serveFile, serveIndex, servePwaFile } = require('./static');
->>>>>>> ba7f650449c3536386296ede92133ccb6ee9b38a
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');

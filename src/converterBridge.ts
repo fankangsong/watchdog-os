@@ -5,7 +5,7 @@
 // 结构对齐 editorBridge.ts：pending 状态 + 双路径通知（事件即时 / 挂载时读取），
 // 避免与 FinderBrowser 相互 import 造成初始化环，Finder 常量在此处独立声明。
 import { ClassicyIcons, dispatch } from 'classicy';
-import type { FsEntry } from '../api';
+import type { FsEntry } from './api';
 
 /** Finder 应用常量（与 FinderBrowser.tsx 保持一致；独立声明避免 import 环） */
 export const FINDER_APP_ID = 'srv-finder.app';
