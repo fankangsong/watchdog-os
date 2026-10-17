@@ -95,21 +95,21 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   return (
     <ClassicyAppManagerProvider
-      disableSimpleText
-      disablePDFViewer
-      disableMoviePlayer
-      disablePictureViewer
-      disableHyperCard
-      disableWebViewer
-      defaultMuted
+      // disableSimpleText
+      // disablePDFViewer
+      // disableMoviePlayer
+      // disablePictureViewer
+      // disableHyperCard
+      // disableWebViewer
+      // defaultMuted
     >
       <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg}>
-        <RemoveClassicySampleFinderIcon />
+        <FinderApp onLogout={onLogout} />
+        {/* <RemoveClassicySampleFinderIcon /> */}
         <MonitorApp onLogout={onLogout} />
         <DockerApp onLogout={onLogout} />
         <ImcolinApp />
         <TerminalApp onLogout={onLogout} />
-        <FinderApp onLogout={onLogout} />
         <EditorApp onLogout={onLogout} />
         <RunnerApp onLogout={onLogout} />
         <PrinterApp onLogout={onLogout} />
