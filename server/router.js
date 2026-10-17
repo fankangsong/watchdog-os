@@ -17,6 +17,7 @@ const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { fsRoute } = require('./api/fs');
+const { prefsRoute } = require('./api/prefs');
 
 /**
  * 本次登录响应是否为会话 Cookie 附加 Secure 属性（COOKIE_SECURE 三态：auto / always / never）。
@@ -138,6 +139,14 @@ async function route(req, res, url) {
       return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
     }
     return fsRoute(req, res, p, url);
+  }
+
+  /* ---- 用户偏好 API（Editor 视图选项，落盘 ~/.watchdog-os/data.json，统一 JWT 鉴权）---- */
+  if (p.startsWith('/api/prefs/')) {
+    if (!checkAuth(req)) {
+      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+    }
+    return prefsRoute(req, res, p);
   }
 
   /* ---- Runner API（脚本任务触发，统一 JWT 鉴权）---- */

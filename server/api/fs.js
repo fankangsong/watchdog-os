@@ -2,15 +2,15 @@
  * 文件管理模块（FinderApp / EditorApp 数据源，零依赖 fs API）：
  * 目录浏览 / 文本读写 / 原始流下载 / 流式上传 / mkdir / delete / rename / 递归复制 / 收藏夹。
  * 从 server.js 原样搬移（原 1218-1606 行），函数体不变；
- * 收藏夹持久化在用户目录（~/.watchdog-os/data.json），与项目目录无关。
+ * 收藏夹持久化在用户目录（~/.watchdog-os/data.json，经 lib/userdata 合并写保留其它键），与项目目录无关。
  */
 'use strict';
 
 const fs = require('fs');
 const fsp = require('fs').promises;
-const os = require('os');
 const path = require('path');
 const { readBody, send } = require('../lib/http');
+const { loadUserData, saveUserData } = require('../lib/userdata');
 
 /* 允许浏览的根目录：默认 Windows 列出项目所在盘符与 C 盘，POSIX 为根目录；
    可用环境变量 FS_ROOTS 覆盖（按 path.delimiter 分隔，如 "C:\;D:\" 或 "/data:/home"）。 */
@@ -40,10 +40,6 @@ const FS_ROOTS = (() => {
 const FS_MAX_TEXT = 2 * 1024 * 1024;    // 文本读取/保存上限 2MB
 const FS_MAX_UPLOAD = 50 * 1024 * 1024; // 上传单文件上限 50MB
 const FS_FAV_MAX = 100;                 // 收藏夹条目上限
-/* 收藏夹落盘到用户目录 ~/.watchdog-os/data.json（与项目目录解耦：同步脚本/重部署不丢收藏；
-   文件为通用数据文件，当前仅含 favorites 键，便于后续扩展其它用户数据） */
-const FS_FAV_DIR = path.join(os.homedir(), '.watchdog-os');
-const FS_FAV_FILE = path.join(FS_FAV_DIR, 'data.json');
 
 /* 图片扩展名：raw 接口唯一允许内联输出的类型（其余一律 attachment 下载，防止内联 HTML/XSS） */
 const FS_IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif', '.svg'];
@@ -239,25 +235,15 @@ async function fsFreeDest(dir, name) {
   return null;
 }
 
-/* 收藏夹：持久化到用户目录 ~/.watchdog-os/data.json（惰性加载 + 临时文件原子替换写） */
-let fsFavorites = null;
+/* 收藏夹：持久化到用户目录 ~/.watchdog-os/data.json 的 favorites 键（惰性加载；
+   写经 lib/userdata 合并落盘，保留文件内其它模块的键） */
 async function fsLoadFavorites() {
-  if (fsFavorites) return fsFavorites;
-  try {
-    const j = JSON.parse(await fsp.readFile(FS_FAV_FILE, 'utf8'));
-    fsFavorites = Array.isArray(j.favorites) ? j.favorites.filter((x) => typeof x === 'string') : [];
-  } catch {
-    fsFavorites = [];
-  }
-  return fsFavorites;
+  const data = await loadUserData();
+  return Array.isArray(data.favorites) ? data.favorites.filter((x) => typeof x === 'string') : [];
 }
 
 async function fsSaveFavorites(list) {
-  await fsp.mkdir(FS_FAV_DIR, { recursive: true });
-  const tmp = `${FS_FAV_FILE}.${process.pid}.tmp`;
-  await fsp.writeFile(tmp, JSON.stringify({ favorites: list }, null, 2) + '\n', 'utf8');
-  await fsp.rename(tmp, FS_FAV_FILE);
-  fsFavorites = list;
+  await saveUserData({ favorites: list });
 }
 
 /** 文件管理 API 分发（进入前已完成 checkAuth，路径均已剥离 BASE 前缀） */

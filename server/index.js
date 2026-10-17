@@ -40,15 +40,62 @@ const server = http.createServer(async (req, res) => {
 
 server.on('upgrade', handleUpgrade);
 
-/* 后台采集：指标 / 打印机 / 终端 ttyd 子进程（失败自动退避重试） */
-startCollectTimers();
-startPrinterTimer(state);
-terminal.startTerminal();
+/** 监听错误（端口被占用等）：给出可操作提示后退出。
+ *  不加该监听时 EADDRINUSE 以裸堆栈崩溃（曾表现「重启后服务莫名不见、接口全失联」） */
+server.on('error', (e) => {
+  if (e && e.code === 'EADDRINUSE') {
+    console.error(
+      `[fatal] 端口 ${cfg.port} 已被占用，无法监听（${cfg.host}）。请先停止旧实例；` +
+        `Windows 可用：Get-NetTCPConnection -LocalPort ${cfg.port} | ` +
+        `ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }`
+    );
+  } else {
+    console.error('[fatal] HTTP 服务错误:', e);
+  }
+  process.exit(1);
+});
 
 server.listen(cfg.port, cfg.host, () => {
   console.log(`[sysprobe] listening on http://${cfg.host}:${cfg.port}${BASE === '/' ? '/' : BASE}`);
   console.log(`[sysprobe] basePath=${BASE}  鉴权已启用（密码来自 .env）`);
 });
+
+/* 后台采集：指标 / 打印机 / 终端 ttyd 子进程（失败自动退避重试）。
+   全部置于 listen 之后，与 HTTP 服务解耦：任一后台模块启动异常只影响自身功能，
+   不得阻止监听或波及其他接口（终端不可用时 /api/terminal/* 返回 503，其余接口照常）。 */
+startCollectTimers();
+startPrinterTimer(state);
+// ttyd 再延后一个 tick 并包 try/catch：即使 spawn 同步抛错也只记 warn，不影响已开始的监听
+setImmediate(() => {
+  try {
+    terminal.startTerminal();
+  } catch (e) {
+    console.warn('[warn] ttyd 启动异常，终端暂不可用（不影响其他接口）:', (e && e.message) || e);
+  }
+});
+
+/* 进程级兜底：后台路径（采集定时器 / ttyd 子进程 / runner / 代理回调）的未捕获异常
+   不得打翻整个服务——否则一次异步崩溃就会让所有接口一起失联（反代侧呈现为整片 5xx）。
+   策略：打印堆栈并继续服务；短时间内反复崩溃（疑似状态已损坏）才退出，交由 systemd 重启。 */
+const ASYNC_CRASH_WINDOW_MS = 60000; // 崩溃计数窗口
+const ASYNC_CRASH_LIMIT = 10; // 窗口内达到该次数即退出
+let asyncCrashCount = 0;
+let asyncCrashWindowStart = Date.now();
+function onAsyncCrash(origin, err) {
+  const now = Date.now();
+  if (now - asyncCrashWindowStart > ASYNC_CRASH_WINDOW_MS) {
+    asyncCrashWindowStart = now;
+    asyncCrashCount = 0;
+  }
+  asyncCrashCount += 1;
+  console.error(`[fatal] 未捕获异常（${origin}），服务保持运行：`, (err && err.stack) || err);
+  if (asyncCrashCount >= ASYNC_CRASH_LIMIT) {
+    console.error(`[fatal] ${ASYNC_CRASH_WINDOW_MS / 1000}s 内连续崩溃 ${asyncCrashCount} 次，退出并交由 systemd 重启`);
+    process.exit(1);
+  }
+}
+process.on('uncaughtException', (e) => onAsyncCrash('uncaughtException', e));
+process.on('unhandledRejection', (e) => onAsyncCrash('unhandledRejection', e));
 
 /** 退出前清理 ttyd / runner 子进程（systemd stop / Ctrl-C） */
 let shuttingDown = false;

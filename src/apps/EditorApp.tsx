@@ -1,6 +1,7 @@
 // 文本编辑器：CodeMirror 6 + 社区主题（Dracula / GitHub / VSCode）。
 // 保存（Ctrl/Cmd+S）/ 撤销 / 重做 / 查找（Mod-F）/ Markdown 分栏预览；
-// 主题、字号、字体、自动换行、预览开关偏好持久化 localStorage；支持从文件管理器联动打开（editorBridge）。
+// 主题/字号/字体偏好持久化 localStorage；Word Wrap 与 Show Preview 持久化到服务端
+// （~/.watchdog-os/data.json 的 editor 键，跨浏览器/重部署生效）；支持从文件管理器联动打开（editorBridge）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { redo, undo } from '@codemirror/commands';
 import type { EditorView } from '@codemirror/view';
@@ -15,7 +16,8 @@ import {
   useClassicyAboutMenu,
 } from 'classicy';
 import type { ClassicyMenuItem } from 'classicy';
-import { fsRead, fsWrite, logout, Unauthorized } from '../api';
+import { fsRead, fsWrite, logout, prefsGetEditor, prefsSetEditor, Unauthorized } from '../api';
+import type { EditorServerPrefs } from '../api';
 import { CodeEditor, EDITOR_FONTS, EDITOR_THEMES } from '../components/CodeEditor';
 import type { EditorThemeId } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
@@ -27,27 +29,47 @@ const PREFS_KEY = 'srv-editor-prefs';
 const RECENT_KEY = 'srv-editor-recent';
 const FONT_SIZES = [10, 12, 13, 14, 16, 18, 20, 24];
 
+/* 本地偏好：仅存当前浏览器（localStorage） */
 interface EditorPrefs {
   theme: EditorThemeId;
   fontSize: number;
   fontFamily: string;
+}
+
+/* 视图偏好：服务端持久化（data.json 的 editor 键） */
+interface EditorViewPrefs {
   wordWrap: boolean;
   showPreview: boolean;
 }
 
+const VIEW_PREFS_DEF: EditorViewPrefs = { wordWrap: false, showPreview: false };
+
 function loadPrefs(): EditorPrefs {
-  const def: EditorPrefs = { theme: 'dracula', fontSize: 14, fontFamily: EDITOR_FONTS[0].value, wordWrap: false, showPreview: false };
+  const def: EditorPrefs = { theme: 'dracula', fontSize: 14, fontFamily: EDITOR_FONTS[0].value };
   try {
     const j = JSON.parse(localStorage.getItem(PREFS_KEY) || '');
     return {
       theme: EDITOR_THEMES.some((t) => t.id === j.theme) ? j.theme : def.theme,
       fontSize: Math.min(24, Math.max(10, parseInt(j.fontSize, 10) || def.fontSize)),
       fontFamily: typeof j.fontFamily === 'string' ? j.fontFamily : def.fontFamily,
-      wordWrap: typeof j.wordWrap === 'boolean' ? j.wordWrap : def.wordWrap,
-      showPreview: typeof j.showPreview === 'boolean' ? j.showPreview : def.showPreview,
     };
   } catch {
     return def;
+  }
+}
+
+/* 视图偏好初始值：同步读旧 localStorage 的 wordWrap/showPreview（升级迁移的载体——
+   服务端无记录时保持该值，首次变更即自动落盘；从未设置过时为默认值，
+   与服务端空记录聚合后一致，不会产生无谓的首次写入） */
+function loadViewPrefs(): EditorViewPrefs {
+  try {
+    const j = JSON.parse(localStorage.getItem(PREFS_KEY) || '');
+    return {
+      wordWrap: typeof j.wordWrap === 'boolean' ? j.wordWrap : VIEW_PREFS_DEF.wordWrap,
+      showPreview: typeof j.showPreview === 'boolean' ? j.showPreview : VIEW_PREFS_DEF.showPreview,
+    };
+  } catch {
+    return { ...VIEW_PREFS_DEF };
   }
 }
 
@@ -76,6 +98,7 @@ function fmtTime(ms: number): string {
 
 export function EditorApp({ onLogout }: { onLogout: () => void }) {
   const [prefs, setPrefs] = useState<EditorPrefs>(loadPrefs);
+  const [viewPrefs, setViewPrefs] = useState<EditorViewPrefs>(loadViewPrefs);
   const [path, setPath] = useState('');
   const [content, setContent] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -91,6 +114,11 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
 
   const viewRef = useRef<EditorView | null>(null);
   const closeResolveRef = useRef<((ok: boolean) => void) | null>(null);
+  /* 视图偏好同步状态：hydrated=服务端 GET 尝试已结束；pushed=最近一次已知的服务端快照（推送去重）；
+     mutated=本地已发生过变更（如 .md 自动开预览先于 hydration 完成时本地胜出） */
+  const viewHydratedRef = useRef(false);
+  const viewPushedRef = useRef<EditorServerPrefs>({});
+  const viewMutatedRef = useRef(false);
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(EDITOR_APP_ID, EDITOR_APP_NAME, EDITOR_ICON);
 
@@ -102,6 +130,12 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
     }
     onLogout();
   }, [onLogout]);
+
+  /* 视图偏好变更入口：标记本地已变更（hydration 不再覆盖）+ 合并更新 */
+  const updateViewPrefs = useCallback((patch: Partial<EditorViewPrefs>) => {
+    viewMutatedRef.current = true;
+    setViewPrefs((p) => ({ ...p, ...patch }));
+  }, []);
 
   const loadFile = useCallback(
     async (p: string) => {
@@ -124,7 +158,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         setDirty(false);
         setSavedAt(null);
         // Markdown 文件自动开启预览；非 Markdown 保持用户当前选择（记住状态）
-        if (isMdPath(r.path)) setPrefs((p) => (p.showPreview ? p : { ...p, showPreview: true }));
+        if (isMdPath(r.path)) updateViewPrefs({ showPreview: true });
         setOpenDialog(false);
         setRecent((prev) => {
           const next = [r.path, ...prev.filter((x) => x !== r.path)].slice(0, 8);
@@ -187,7 +221,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
     return () => window.removeEventListener(EDITOR_OPEN_EVENT, onOpen);
   }, [loadFile]);
 
-  // 偏好持久化
+  // 偏好持久化（本地三项：主题/字号/字体）
   useEffect(() => {
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
@@ -195,6 +229,51 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
       // localStorage 不可用时忽略
     }
   }, [prefs]);
+
+  // 视图偏好 hydration：挂载即拉取服务端值。本地已变更（.md 自动开预览先完成）时不覆盖，
+  // 由推送 effect 以本地值为准上传——两种完成顺序下用户的即时意图都不丢
+  useEffect(() => {
+    let cancelled = false;
+    prefsGetEditor()
+      .then((r) => {
+        if (cancelled) return;
+        const s = r.editor || {};
+        if (!viewMutatedRef.current) {
+          // 逐字段：服务端有的键以服务端为权威；没有的键保留本地初始值（迁移载体）
+          setViewPrefs((p) => ({
+            wordWrap: typeof s.wordWrap === 'boolean' ? s.wordWrap : p.wordWrap,
+            showPreview: typeof s.showPreview === 'boolean' ? s.showPreview : p.showPreview,
+          }));
+        }
+        viewPushedRef.current = s;
+      })
+      .catch((e) => {
+        // 拉取失败：保持当前值，pushed 留空使下次变更触发重推（PUT 合并语义不会写丢另一字段）
+        if (e instanceof Unauthorized) handleLogout();
+      })
+      .finally(() => {
+        if (!cancelled) viewHydratedRef.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [handleLogout]);
+
+  // 视图偏好推送：变更后写回服务端；与服务端快照相同（缺省键按 false 聚合）则跳过，
+  // 避免每次打开编辑器都重写文件，也不会为从未碰过开关的用户创建数据
+  useEffect(() => {
+    if (!viewHydratedRef.current) return;
+    const pushed = viewPushedRef.current;
+    if ((pushed.wordWrap ?? false) === viewPrefs.wordWrap && (pushed.showPreview ?? false) === viewPrefs.showPreview) return;
+    prefsSetEditor(viewPrefs)
+      .then((r) => {
+        viewPushedRef.current = r.editor || {};
+      })
+      .catch((e) => {
+        // 失败保留旧快照：下次变更会重试；不回滚 UI（偏好丢失优于界面错乱）
+        if (e instanceof Unauthorized) handleLogout();
+      });
+  }, [viewPrefs, handleLogout]);
 
   // 关闭拦截：未保存时弹确认（Promise veto）
   const beforeClose = useCallback(() => {
@@ -261,12 +340,12 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         id: 'ed-view',
         title: 'View',
         menuChildren: [
-          { id: 'ed-m-wrap', title: 'Word Wrap', checked: prefs.wordWrap, onClickFunc: () => setPrefs((p) => ({ ...p, wordWrap: !p.wordWrap })) },
-          { id: 'ed-m-preview', title: 'Show Preview', checked: prefs.showPreview, onClickFunc: () => setPrefs((p) => ({ ...p, showPreview: !p.showPreview })) },
+          { id: 'ed-m-wrap', title: 'Word Wrap', checked: viewPrefs.wordWrap, onClickFunc: () => updateViewPrefs({ wordWrap: !viewPrefs.wordWrap }) },
+          { id: 'ed-m-preview', title: 'Show Preview', checked: viewPrefs.showPreview, onClickFunc: () => updateViewPrefs({ showPreview: !viewPrefs.showPreview }) },
         ],
       },
     ],
-    [aboutMenuItem, path, save, prefs.wordWrap, prefs.showPreview]
+    [aboutMenuItem, path, save, updateViewPrefs, viewPrefs.wordWrap, viewPrefs.showPreview]
   );
 
   const editorNode = (
@@ -280,7 +359,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
       theme={prefs.theme}
       fontSize={prefs.fontSize}
       fontFamily={prefs.fontFamily}
-      wordWrap={prefs.wordWrap}
+      wordWrap={viewPrefs.wordWrap}
       onReady={(v) => (viewRef.current = v)}
       onStats={setStats}
       className="sp-editor-code"
@@ -319,7 +398,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
                 打开文件…
               </ClassicyButton>
             </div>
-          ) : prefs.showPreview ? (
+          ) : viewPrefs.showPreview ? (
             <ClassicySplitView direction="horizontal" defaultSizes={[55, 45]} minPaneSize={200} className="sp-editor-body">
               {editorNode}
               <div className="sp-editor-preview">

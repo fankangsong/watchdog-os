@@ -52,7 +52,13 @@ function startTtyd() {
   ttydProc = proc;
   ttydLastError = '';
   const startedAt = Date.now();
-  proc.stderr.on('data', (c) => process.stderr.write('[ttyd] ' + c));
+  // stderr 透传做双重防御：父进程 stderr 管道异常（EPIPE 等）不得冒成未捕获异常打翻主服务
+  proc.stderr.on('data', (c) => {
+    try {
+      process.stderr.write('[ttyd] ' + c);
+    } catch { /* 父进程 stderr 不可写：丢弃诊断输出，不影响 ttyd 生命周期与主服务 */ }
+  });
+  proc.stderr.on('error', () => { /* stderr 管道错误忽略，避免冒泡为未捕获异常 */ });
   proc.on('error', (e) => {
     if (ttydProc !== proc) return;
     ttydProc = null;
