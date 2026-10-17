@@ -136,6 +136,7 @@ format.ts # 格式化工具
 vite.config.ts # Vite 配置（见下方注意事项）
 dist/ # 构建产物（勿手动修改）
 test/ # 零依赖冒烟测试脚本（自起 server 子进程或连接既有服务）
+pwa/ # PWA 静态资源：manifest + Service Worker 模板 + 像素图标（构建时由 vite 插件拷入 dist/，见下方 PWA 章节）
 docs/ # design/ 交互设计参考图（外部范本）；design-spec.md 全套交互与设计规范；icon-pipeline.md 图标制作标准流程（32×32 规格、tools/pixel-icon.py 生成器、踩坑记录）
 tools/ # 开发辅助工具；pixel-icon.py 图标生成器 + 自检（零依赖 Python，运行后自建 preview/ 预览目录）
 skills/ # 项目级 CodeBuddy 技能；pixelart/ 为像素画技能（入口 SKILL.md，references/ 存 GUIDE 与引擎源码），经 .codebuddy/skills/pixelart 目录联接加载（.codebuddy/ 已入 .gitignore，联接不入库）
@@ -302,6 +303,16 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 
 除菜单外，窗口、控件、布局、列表、反馈、视觉、文案、快捷键、数据交互的全套标准见 **[docs/design-spec.md](docs/design-spec.md)**（设计北极星为 `docs/design/` 参考图）。**设计、改造任何应用前必须通读该规范并逐项通过其「新应用创建清单」**；规范与既有实现冲突时，以规范为准修正实现。
 
+### PWA（离线资源 + Chrome 独立窗口安装）
+
+- 定位：`pwa/` 存放 manifest、Service Worker 模板与像素图标；`vite.config.ts` 的 `pwaPlugin` 在 `closeBundle` 阶段把 `pwa/` 拷入 `dist/` 根、给 `sw.js` 注入预缓存清单（替换 `__PRECACHE__` / `__BUILD_ID__` 占位符）、并给 `dist/index.html` 的 `<!--pwa-->` 占位注入 `<link rel="manifest">` 等标签。图标由 `tools/gen-pwa-icons.py` 生成（零依赖 stdlib PNG 编码，32 档像素「看门狗徽章」，配色沿用 favicon 蓝家族），改设计后重跑该脚本并重新构建
+- **manifest / sw.js 必须位于 basePath 根**（生产为 `https://nas.imcolin.fan:4433/tkp/manifest.webmanifest`）：Service Worker 的 scope 取其脚本所在目录，放进 `assets/`（被加内容 hash）scope 就只覆盖子目录。因此二者固定路径拷贝、不走 Vite assets 管线，且文件内部一律用相对 URL（`./`）——同一份产物在 `/` 与 `/tkp/` 等任意子路径下都无需改动
+- 后端放行：`router.js` 在 BASE 剥离后显式路由 `/manifest.webmanifest`、`/sw.js`、`/icons/*.png`（与 `/assets/` 同级，**零鉴权公开**——SW 注册与 manifest 拉取不过登录态）；`static.js` 的 `servePwaFile` 用白名单 + 正则防目录穿越，并按类型给缓存头：manifest / sw.js `no-cache`（否则浏览器拿旧清单/旧 SW，出现「更新了不生效」），图标 `public, max-age=31536000, immutable`
+- **Chrome 独立窗口安装条件**（缺一不可）：安全上下文（HTTPS / localhost）+ 带 fetch 处理的 SW + manifest（`display: "standalone"`）+ ≥192px 图标（本项目 192/512 + maskable 512）。安装后由 start_url 以独立窗口启动，无浏览器 UI；已安装应用断网可开（见下）
+- 离线策略（`pwa/sw.js`）：install 预缓存外壳（`./` + 全部构建产物 + manifest + 图标，按构建号分缓存目录，skipWaiting）；activate 清理旧构建号缓存并 clients.claim；导航请求网络优先、失败回退缓存外壳（成功则顺手更新外壳）；同源静态资源 stale-while-revalidate；`/api/` 与跨域一律不干预（鉴权数据不缓存，离线时由界面自然报错）
+- 前端 `src/pwa.ts` 仅在生产构建注册（`import.meta.env.PROD`，dev 下避免 SW 干扰 HMR）；用 `document.baseURI` 推导 sw.js 地址，适配 `/tkp/`、`/tkp/login`、`/tkp/index.html` 等入口（服务端会把无斜杠的 `/tkp` 302 到 `/tkp/`）；注册失败只 console.warn，不影响面板使用
+- 排查「装不上 / 不更新」：① DevTools Application 面板看 manifest 解析错误与 SW 状态；② `curl -I https://<域名>/<BASE>/sw.js` 确认 200 + no-cache；③ 换图标/改 manifest 后必须重新 `npm run build`（dist/ 是唯一产物源）；④ 已安装实例更新需重开窗口（新 SW activate 后旧页面仍跑旧资源）
+
 ## 编码风格
 
 - 前端使用 TypeScript + React 函数组件 + Hooks；类型定义尽量内联在文件中。
@@ -316,6 +327,7 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - 前端：`npm run build` 确认无 TS / 构建错误（可用 `npx tsc --noEmit` 做全量类型检查）。
 - 后端：`npm start` 后用密码登录，确认指标接口正常返回（未配 `PASSWORD` / `JWT_SECRET` 时进程应拒绝启动并打印 `[fatal]`）。
 - 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏（含 `~/.watchdog-os/data.json` 落盘位置断言）/越权防护等 30 项）。
+- PWA：`node test/test-pwa.js` 全部 PASS（自起 server，`BASE_PATH=/tkp`，覆盖 manifest 字段/相对 scope/SW 占位符替换/图标尺寸/缓存头/穿越防护；未先 `npm run build` 时 SKIP）
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。
 - 桌面图标：改桌面应用（新增/改名/换图标）或触碰 `Desktop.tsx` 的图标清理逻辑后，用浏览器实测 `document.querySelectorAll('.classicyDesktopIcon')` 的数量与 `id`（`id` 即 appId），确认没有多余图标（如 classicy 示例的 `Finder.app.shortcut`）。

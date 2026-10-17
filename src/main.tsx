@@ -4,6 +4,7 @@ import 'classicy/dist/classicy.css';
 import 'classicy/dist/fonts.css';
 import './styles.css';
 import { App } from './App';
+import { registerPwa } from './pwa';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
@@ -13,3 +14,6 @@ createRoot(root).render(
     <App />
   </StrictMode>
 );
+
+// 注册 Service Worker（仅生产构建生效）：离线资源缓存 + PWA 安装/独立窗口能力
+registerPwa();

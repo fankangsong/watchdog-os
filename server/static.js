@@ -15,6 +15,7 @@ const MIME = {
   '.js': 'application/javascript; charset=utf-8',
   '.mjs': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
@@ -57,4 +58,33 @@ function serveIndex(res) {
   });
 }
 
-module.exports = { MIME, serveFile, serveIndex };
+/**
+ * PWA 静态文件（manifest / Service Worker / 图标）：与 /assets/ 一样零鉴权公开
+ * （SW 注册与 manifest 拉取不经过登录态，否则离线与安装都无从谈起），但路径固定
+ * （无内容 hash），缓存策略按类型区分：
+ * - manifest / sw.js：no-cache。浏览器会缓存 manifest（影响已安装应用的图标与
+ *   start_url），SW 脚本也可能被 HTTP 缓存挡住更新——二者必须每次重新验证，
+ *   否则会出现「构建更新了但客户端拿旧文件」的幽灵现象；
+ * - 图标：内容不变（换图标必改构建），长缓存 immutable。
+ * 路径白名单：仅 /manifest.webmanifest、/sw.js、/icons/<单段文件名>（防目录穿越）。
+ */
+const PWA_FILES = new Set(['manifest.webmanifest', 'sw.js']);
+const PWA_ICON_RE = /^icons\/[A-Za-z0-9._-]+\.png$/;
+
+function servePwaFile(res, relPath) {
+  if (!PWA_FILES.has(relPath) && !PWA_ICON_RE.test(relPath)) {
+    return send(res, 404, { error: 'not found' });
+  }
+  const fp = path.join(PUBLIC_DIR, relPath);
+  if (!fp.startsWith(PUBLIC_DIR + path.sep)) return send(res, 403, { error: 'forbidden' });
+  const immutable = relPath.startsWith('icons/');
+  fs.readFile(fp, (err, data) => {
+    if (err) return send(res, 404, { error: 'not found' });
+    send(res, 200, data, {
+      'Content-Type': MIME[path.extname(fp)] || 'application/octet-stream',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    });
+  });
+}
+
+module.exports = { MIME, serveFile, serveIndex, servePwaFile };
