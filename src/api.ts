@@ -225,6 +225,22 @@ export const fsSetFavorites = (favorites: string[]) =>
     body: JSON.stringify({ favorites }),
   });
 
+/** Editor 视图偏好（服务端持久化到 ~/.watchdog-os/data.json，跨浏览器/重部署生效）。
+ *  PUT 为部分合并语义：仅传需要变更的字段，未传字段保留服务端原值 */
+export interface EditorServerPrefs {
+  wordWrap?: boolean;
+  showPreview?: boolean;
+}
+
+export const prefsGetEditor = () => request<{ editor: EditorServerPrefs }>('./api/prefs/editor');
+
+export const prefsSetEditor = (editor: EditorServerPrefs) =>
+  request<{ ok: true; editor: EditorServerPrefs }>('./api/prefs/editor', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editor }),
+  });
+
 /** 图片内联预览地址；download=1 时走附件下载（HttpOnly Cookie 鉴权天然可用） */
 export const fsRawUrl = (path: string, download = false) =>
   `./api/fs/raw?path=${enc(path)}${download ? '&download=1' : ''}`;

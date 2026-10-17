@@ -122,7 +122,7 @@ index.js # 入口：组装各模块与生命周期（采集定时器、退出时
 config.js # 配置加载（.env，唯一来源）+ basePath 规范化
 router.js # API 路由分发与 WS 升级处理
 static.js # 静态资源服务（只服务 dist/：serveIndex 返回 SPA 入口，dist 缺失时 503 提示构建）
-lib/ # http.js 基础工具 / auth.js JWT 鉴权
+lib/ # http.js 基础工具 / auth.js JWT 鉴权 / userdata.js 用户数据文件（~/.watchdog-os/data.json）读写
 api/ # metrics / printer / terminal / runner / chat / fs
 src/ # React 前端源码
 apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Macintosh HD，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）
@@ -146,6 +146,9 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 ### 终端模块（TerminalApp + ttyd）
 
 - `server/index.js` 启动时按 `terminal` 配置节 spawn ttyd 子进程（仅监听 127.0.0.1），收到 SIGTERM/SIGINT 时先 SIGTERM 清理子进程；ttyd 启动失败（未安装 / 端口被占用等）不会禁用终端，而是透传其 stderr 诊断信息并按 5s→60s 退避自动重试（主服务不受影响）
+- **ttyd 启动与主服务硬解耦**（曾出现「ttyd 起不来，其他接口全 500」的误判）：`server.listen()` 先于一切后台模块，`terminal.startTerminal()` 延后一个 tick 并包 try/catch；另有进程级兜底——`uncaughtException` / `unhandledRejection` 打印堆栈后保持服务（60s 内连续崩溃 ≥10 次才退出交 systemd 重启），`server.on('error')` 对 EADDRINUSE 给出可操作的报错（含清理命令）而非裸堆栈。结论：ttyd 不可用时只有 `/api/terminal/*` 返回 503，其余接口必须照常 200
+- ⚠️ **WSL 模式排障**：`wsl.exe -e bash -lc ...` 退出码 `4294967295`（0xFFFFFFFF）= WSL 侧根本没起来（未安装任何发行版等），并非 ttyd 自身问题；本机可 `wsl -l -v` 确认。修法：安装发行版 + WSL 内装 ttyd，或本地联调改用 mock（`TTYD_WSL=false` + `TTYD_PATH=tools\ttyd.exe`）
+- ⚠️ **dev 模式「接口全 500」的另一常见源**：`vite.config.ts` 的 /api 代理目标跟随 `.env` 的 `PORT`（默认 3000）；后端实际端口与代理不一致时 Vite 会对所有 /api 返回 500，而后端其实健康
 - 配置：`terminal.enabled`（默认 false，可用 `TERMINAL_ENABLED` 环境变量开启）、`ttydPath`、`ttydPort`（默认 7681）、`ttydArgs`、`wsl`（Windows 下经 WSL 运行 Linux 版 ttyd，见上文 Windows 联调章节）。⚠️ 端口不可与其他 ttyd 实例（如发行版自带的 `ttyd.service`）冲突，否则终端不可用
 - `terminal.ttydArgs`：传给 ttyd 的要运行 shell 及参数，默认 `["bash"]`。⚠️ **坑**：ttyd 继承的是 systemd 的最小 PATH 且 `bash` 非登录 shell 不加载用户 profile，导致用户自行安装的命令（如 mise 管理的 `pi`、`~/.local/bin` 等）在 Dashboard 终端里「command not found」。服务器（tkp）上已改为 `TTYD_ARGS=["zsh","-l"]`（在远端 `.env` 配置，同步脚本不上传 `.env`，不会回退），使终端与 ssh 登录环境一致（交互式登录 zsh 会加载 `~/.zshrc`，含 `eval "$(mise activate zsh)"`）
 - 鉴权：`/api/terminal/token`（HTTP 转发 ttyd /token）与 `/api/terminal/ws`（upgrade 裸 TCP 管道转发到 ttyd /ws）均先走 `checkAuth` JWT 校验（只认 Cookie），再判启用状态（401 优先于 503）；WS 升级在鉴权之后额外校验 `Origin`（见「会话鉴权安全约定」）。`503 Terminal disabled` 表示配置未启用，`503 Terminal unavailable` 表示 ttyd 进程未就绪（前端会显示浮层并每 5s 自动重连）
@@ -163,7 +166,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 
 ### Macintosh HD（文件管理器）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`）
 
-- 后端 `server/api/fs.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`copy`（POST `{ path, dir }` 递归复制文件/目录：同名**不覆盖**，按 Finder 惯例自动追加 ` copy` / ` copy 2` 后缀——扩展名前插入；目标目录位于源目录内部（含自身）时 400 防递归；根目录禁止复制；符号链接按链接本身复制，Windows 无权限时回退复制目标内容；失败清理半截副本）、`favorites`（GET/PUT，持久化到用户目录 `~/.watchdog-os/data.json`——与项目目录解耦，同步脚本/重部署不丢收藏；临时文件 + rename 原子写）
+- 后端 `server/api/fs.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`copy`（POST `{ path, dir }` 递归复制文件/目录：同名**不覆盖**，按 Finder 惯例自动追加 ` copy` / ` copy 2` 后缀——扩展名前插入；目标目录位于源目录内部（含自身）时 400 防递归；根目录禁止复制；符号链接按链接本身复制，Windows 无权限时回退复制目标内容；失败清理半截副本）、`favorites`（GET/PUT，持久化到用户目录 `~/.watchdog-os/data.json`——与项目目录解耦，同步脚本/重部署不丢收藏；经 `server/lib/userdata.js` 合并写：保留文件内其它键，临时文件 + rename 原子写）
 - 安全约定：所有路径经 `path.resolve` 规范化并校验在允许根内（`FS_ROOTS` 环境变量可覆盖，默认 Windows 为项目盘符 + C 盘、POSIX 为 `/`）；根目录禁止删除/重命名/复制；文件名清洗只取 basename
 - ⚠️ **Windows ReFS/Dev Drive 坑**：刚写入文件的 `stat.size` 可能是预分配值（元数据延迟），`raw` 接口因此**不设 Content-Length**（chunked 读到 EOF）；`list` 的大小列在 Dev Drive 上刚写入时也可能短暂虚高，生产 Linux 无此问题
 - 前端 `FinderApp`：默认图标视图（大图标 + 下方名称）/ 列表视图（ClassicyTable 多选：名称/大小/修改时间/权限，目录行内联展开），View 菜单切换并持久化。文件操作三路等价——**菜单栏**、**右键菜单**、**快捷键**：
@@ -173,7 +176,8 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
   - 快捷键经 window keydown 真实绑定（classicy 的 `keyboardShortcut` 仅作展示）：焦点在输入框/编辑器时放行，不劫持对话框内打字
   - 上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
   - 收藏夹：`src/favoritesStore.ts` 外部 store（`useSyncExternalStore` 订阅，经 `/api/fs/favorites` 持久化到 `~/.watchdog-os/data.json`，多窗口共享）。添加入口三处：右键文件夹条目（Add / Remove from Favorites）、右键空白处（当前目录）、工具栏 Favorites 按钮；菜单栏 Go 之后有 Favorites 菜单组（Open Favorites + 收藏路径列表 + Add/Remove Current Folder）。浏览主体抽为 `src/apps/FinderBrowser.tsx`（按 `winId` + `initialPath` 多实例）：`FinderApp` 持主窗口（`fm-main`）、收藏夹列表窗口（`fm-favorites`，ClassicyTable，双击/Open 新开文件夹窗口）与收藏目标文件夹窗口注册表（`folderWinId(path)` 按路径生成 id，同路径复用仅聚焦）
-- 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify），主题/字号/字体偏好存 localStorage，未保存关闭有 `onBeforeClose` veto 确认
+- 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify），主题/字号/字体偏好存 localStorage；View 菜单的 Word Wrap / Show Preview 经 `GET/PUT /api/prefs/editor` 持久化到服务端（挂载拉取 + 变更推送；本地已变更时本地胜出；升级时以旧 localStorage 值为初始值自动迁移），未保存关闭有 `onBeforeClose` veto 确认
+- 用户偏好 API（`server/api/prefs.js` 的 `GET/PUT /api/prefs/editor`，统一 `checkAuth` 401 优先）：Editor 视图偏好落盘 `~/.watchdog-os/data.json` 的 `editor` 键（经 `lib/userdata.js` 合并写，与 favorites 键互不覆盖）。GET 仅返回白名单布尔键（`wordWrap`/`showPreview`，未设置的键不出现）；PUT 为**部分合并**语义（区别于 favorites 的全量替换）：请求体 `{ editor: { … } }` 经布尔白名单清洗后与磁盘现有值合并，未传字段不丢；非法/超大 body（>64KB）400，未知路径/方法 404
 - 跨应用联动：`src/editorBridge.ts` 的 `openInEditor(path)` —— 记录 pendingPath + dispatch `ClassicyAppOpen`/`ClassicyWindowOpen` + DOM 事件双通道（挂载消费 pending、已挂载走事件），避免竞态
 
 ### Chat（ChatApp + `/api/chat/*`：聊天代理 + hermes Sessions 转发）
@@ -317,6 +321,7 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - 后端：`npm start` 后用密码登录，确认指标接口正常返回（未配 `PASSWORD` / `JWT_SECRET` 时进程应拒绝启动并打印 `[fatal]`）。
 - 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏（含 `~/.watchdog-os/data.json` 落盘位置断言）/越权防护等 30 项）。
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
+- 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（401/默认读取/单字段 PUT/合并语义/布尔白名单/400/落盘 `~/.watchdog-os/data.json`/与 favorites 键互不破坏等 17 项；测试前后快照恢复真实 data.json，零残留）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。
 - 桌面图标：改桌面应用（新增/改名/换图标）或触碰 `Desktop.tsx` 的图标清理逻辑后，用浏览器实测 `document.querySelectorAll('.classicyDesktopIcon')` 的数量与 `id`（`id` 即 appId），确认没有多余图标（如 classicy 示例的 `Finder.app.shortcut`）。
 - HEIC 转换器（Converter）：heic-to 的 WASM 解码依赖 blob Worker，**Node 冒烟测不了，必须真实浏览器**。一次性验证法（Playwright，用完 `npm uninstall -D playwright`，勿入库）：`npm i -D playwright && npx playwright install chromium`，起服务（`PASSWORD/JWT_SECRET/PORT/FS_ROOTS=<样本目录>`，注意项目 `.env` 的 `BASE_PATH` 会生效，基址要带子路径），无头 Chromium 走「登录 → 双击桌面图标开 Converter → 双击根目录行进样本目录 → Shift 连选 HEIC 行 → Convert… → 等状态栏 Converted N」，然后断言磁盘产物（解析 JPEG SOF 帧宽高；含 EXIF 方向用例）。样本可用 pillow-heif 生成（`venv + pip install pillow-heif`，`register_heif_opener()` 后才能 `save('.heic')`）。

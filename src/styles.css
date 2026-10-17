@@ -452,8 +452,11 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-editor-status { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 10px; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: #444; }
 .sp-editor-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* CodeMirror 容器 */
-.sp-code-editor { height: 100%; min-height: 0; overflow: hidden; border: 1px solid rgba(0, 0, 0, 0.35); }
+/* CodeMirror 容器。box-sizing 必须为 border-box：宿主默认 content-box 下 height:100%
+   加上下各 1px border 会溢出 2px，令可滚动祖先（如 ClassicySplitView 的 pane，overflow:auto）
+   出现第二条纵向滚动条；border 计入高度后，滚动只归 CodeMirror 的 .cm-scroller，
+   保证窗口内始终只有一条滚动条（Finder 预览侧的同类修复见上方 .sp-fm-code） */
+.sp-code-editor { height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; border: 1px solid rgba(0, 0, 0, 0.35); }
 .sp-code-editor .cm-editor { height: 100%; }
 .sp-code-editor .cm-editor.cm-focused { outline: none; }
 
