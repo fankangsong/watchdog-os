@@ -44,7 +44,14 @@ import {
 import type { FsEntry } from '../api';
 import { addFavorites, isFavorite, removeFavorites, useFavorites } from '../favoritesStore';
 import { fmtBytes } from '../format';
+import { copyText } from '../clipboard';
 import { openInEditor } from '../editorBridge';
+import {
+  cancelConverterPick,
+  confirmConverterPick,
+  isConverterPicking,
+  onConverterPickingChange,
+} from '../converterBridge';
 import { quitMenuItem } from '../quitMenuItem';
 import { CodeEditor } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
@@ -305,6 +312,12 @@ export function FinderBrowser({
   const [alert, setAlert] = useState<FmAlert | null>(null);
   // Get Info 属性窗口：显示选中条目（或当前目录）的名称/路径/大小等
   const [infoEntry, setInfoEntry] = useState<FsEntry | null>(null);
+  // Get Info 路径行点击复制反馈（短暂显示 Copied ✓）
+  const [infoCopied, setInfoCopied] = useState(false);
+  // 地址栏：显示当前目录路径，回车快速跳转（Windows/Linux 路径原样交给后端 resolve 校验）
+  const [addrValue, setAddrValue] = useState('');
+  // 选文件模式（Converter 经 converterBridge 调起）：双击文件=确认选择，Esc/关窗=取消
+  const [picking, setPicking] = useState(isConverterPicking);
   // 视图模式：默认图标视图（对齐参考图 Workspace），View 菜单切换并持久化
   const [viewMode, setViewModeState] = useState<ViewMode>(loadViewMode);
   // 非主窗口的级联偏移（挂载时取一次，重开同 id 窗口时由 store 记录保留原位）
@@ -358,6 +371,7 @@ export function FinderBrowser({
         setEntries(r.entries);
         setSelected([]);
         setCurrent(r.path);
+        setAddrValue(r.path);
         iconAnchor.current = -1;
         if (r.path) {
           childrenCache.current.set(r.path, r.entries);
@@ -407,6 +421,8 @@ export function FinderBrowser({
 
   const openEntry = useCallback(
     (entry: FsEntry) => {
+      // 选文件模式：双击/回车文件即确认选择（目录仍正常进入浏览）
+      if (picking && entry.type === 'file') return confirmConverterPick(entry);
       if (entry.type === 'dir') return navigate(entry.path);
       if (entry.previewable === 'none') {
         setAlert({
@@ -442,8 +458,25 @@ export function FinderBrowser({
         window: { id: winId },
       });
     },
-    [navigate]
+    [navigate, picking]
   );
+
+  // 订选文件模式开关（Converter 侧 startConverterPick/cancel 时同步各浏览窗口）
+  useEffect(() => onConverterPickingChange(setPicking), []);
+
+  // 选文件模式下 Esc 取消回到 Converter（输入框聚焦时放行，避免打断打字）
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      e.preventDefault();
+      cancelConverterPick();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [picking]);
 
   const downloadEntries = useCallback((list: FsEntry[]) => {
     for (const e of list) {
@@ -1170,13 +1203,28 @@ export function FinderBrowser({
     ]
   );
 
+  // Get Info 路径行点击复制：写入剪贴板后短暂显示 Copied ✓（1.5s 自动复原）
+  const infoCopiedTimer = useRef<number | null>(null);
+  const copyInfoPath = useCallback(() => {
+    if (!infoEntry) return;
+    void copyText(infoEntry.path).then((ok) => {
+      if (!ok) {
+        stopAlert('Copy Failed', 'The path could not be copied to the clipboard.');
+        return;
+      }
+      setInfoCopied(true);
+      if (infoCopiedTimer.current) window.clearTimeout(infoCopiedTimer.current);
+      infoCopiedTimer.current = window.setTimeout(() => setInfoCopied(false), 1500);
+    });
+  }, [infoEntry, stopAlert]);
+
   const isMain = winId === MAIN_WIN_ID;
 
   return (
     <>
       <ClassicyWindow
         id={winId}
-        title={`${APP_NAME}${current ? ' · ' + (baseName(current) || current) : ''}`}
+        title={`${picking ? 'Choose File · ' : ''}${APP_NAME}${current ? ' · ' + (baseName(current) || current) : ''}`}
         icon={ICON}
         appId={APP_ID}
         scrollable={false}
@@ -1188,7 +1236,12 @@ export function FinderBrowser({
         initialPosition={isMain ? ['center', 'center'] : [140 + cascade, 90 + cascade]}
         minimumSize={[680, 480]}
         appMenu={appMenu}
-        onCloseFunc={onCloseWindow}
+        // 关窗即取消选文件模式（Converter 收到 null 回到空闲态）；cancel 幂等，
+        // 经确认/取消路径触发的关窗不会重复广播
+        onCloseFunc={() => {
+          if (picking) cancelConverterPick();
+          onCloseWindow?.();
+        }}
       >
       <ClassicyContextualMenuTarget menuItems={menuItems} className="sp-fm-ctx">
         <div className="sp-fm-main">
@@ -1205,11 +1258,28 @@ export function FinderBrowser({
               <img className="sp-tb-icon" src={fmUpIcon} alt="" />
               Up
             </ClassicyButton>
-            <ClassicyButton onClickFunc={openFavoritesWindow}>
+            {/* 选文件模式禁用收藏夹入口，避免把选择流程分散到多个窗口 */}
+            <ClassicyButton disabled={picking} onClickFunc={openFavoritesWindow}>
               <img className="sp-tb-icon" src={fmFavIcon} alt="" />
               Favorites
             </ClassicyButton>
+            {/* 地址栏（靠右弹性占满）：显示当前目录路径，回车跳转；
+                Windows（C:\…）与 Linux（/…）路径原样提交，由后端 resolve + FS_ROOTS 校验 */}
+            <div className="sp-fm-addr">
+              <ClassicyInput
+                id={`fm-addr-${winId}`}
+                placeholder="Enter a path…"
+                prefillValue={addrValue}
+                onChangeFunc={(e) => setAddrValue(e.target.value)}
+                onEnterFunc={() => void navigate(addrValue.trim())}
+              />
+            </div>
           </div>
+          {picking && (
+            <div className="sp-fm-picker-hint">
+              Double-click a file to choose it. Press Esc to cancel.
+            </div>
+          )}
           {loading && entries.length === 0 ? (
             <div className="sp-fm-empty sp-fm-empty-dir">Loading…</div>
           ) : visibleEntries.length === 0 ? (
@@ -1419,8 +1489,21 @@ export function FinderBrowser({
               <span className="sp-fm-info-value">{infoEntry.mode || '—'}</span>
             </div>
             <div className="sp-fm-info-row">
-              <span className="sp-fm-info-label">Path</span>
-              <span className="sp-fm-info-value sp-fm-info-path" title={infoEntry.path}>
+              <span className="sp-fm-info-label">{infoCopied ? 'Copied ✓' : 'Path'}</span>
+              {/* 点击复制路径：label 短暂切换为 Copied ✓ 作反馈；键盘 Enter/空格等价 */}
+              <span
+                className={`sp-fm-info-value sp-fm-info-path sp-fm-info-path-click${infoCopied ? ' sp-fm-info-copied' : ''}`}
+                title={infoCopied ? 'Copied to clipboard' : 'Click to copy path'}
+                role="button"
+                tabIndex={0}
+                onClick={copyInfoPath}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    copyInfoPath();
+                  }
+                }}
+              >
                 {infoEntry.path}
               </span>
             </div>

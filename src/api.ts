@@ -360,6 +360,33 @@ export interface PrinterState {
 
 export const fetchPrinter = () => request<PrinterState>('./api/printer');
 
+/** POST /api/printer/test-page 成功响应（jobId 为 CUPS 作业号字符串） */
+export interface PrinterTestPageResult {
+  ok: true;
+  printer: string;
+  jobId: string;
+  requestId: string;
+  title: string;
+}
+
+/** 提交打印测试页：非 2xx 时把服务端 error/detail 合并进异常消息（lp 的失败原因在 detail 里） */
+export async function printTestPage(printer: string): Promise<PrinterTestPageResult> {
+  const r = await fetch('./api/printer/test-page', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ printer }),
+  });
+  if (r.status === 401) throw new Unauthorized();
+  const data = (await r.json().catch(() => null)) as
+    | (PrinterTestPageResult & { error?: string; detail?: string })
+    | null;
+  if (!r.ok) {
+    const msg = [data?.error, data?.detail].filter(Boolean).join('：') || `HTTP ${r.status}`;
+    throw new Error(msg);
+  }
+  return data as PrinterTestPageResult;
+}
+
 /* ---------- Chat（Hermes 聊天代理，/api/chat/*）---------- */
 
 export interface ChatStatus {

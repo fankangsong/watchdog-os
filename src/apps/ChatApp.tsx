@@ -226,6 +226,35 @@ function ToolTimeline({ steps, live }: { steps: ToolStep[]; live: boolean }) {
 }
 
 /**
+ * 会话列表窗口的初始位置：主窗口居中，列表窗优先摆其左侧（构成「列表 + 对话」布局）。
+ * 视口放不下时逐级降级，任何落点都保证列表窗至少有约 200px 宽度露在主窗口之外——
+ * 否则列表窗（440×320）会被更大的主窗口（620×520）完全盖住，看起来就像「没有打开」。
+ */
+function sessionsWindowPosition(): [number, number] {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const mainW = 620;
+  const mainH = 520;
+  const sessW = 440;
+  const sessH = 320;
+  const EDGE = 8; // 贴视口边缘留白
+  const GAP = 16; // 与主窗口的间距
+  const MIN_VISIBLE = 200; // 部分重叠时至少露出的宽度
+  const mainX = Math.max(0, (vw - mainW) / 2);
+  const mainY = Math.max(30, (vh - mainH) / 2);
+  // 1) 主窗口左侧完整放下（宽屏首选）
+  if (mainX - sessW - GAP >= EDGE) return [Math.round(mainX - sessW - GAP), Math.round(mainY)];
+  // 2) 主窗口右侧完整放下
+  if (mainX + mainW + GAP + sessW <= vw - EDGE) return [Math.round(mainX + mainW + GAP), Math.round(mainY)];
+  // 3) 贴视口左缘、与主窗口顶对齐（左半区可见宽度足够）
+  if (mainX - EDGE >= MIN_VISIBLE) return [EDGE, Math.round(mainY)];
+  // 4) 贴视口右缘同理
+  if (vw - EDGE - (mainX + mainW) >= MIN_VISIBLE) return [Math.round(vw - EDGE - sessW), Math.round(mainY)];
+  // 5) 兜底（极窄视口）：主窗口左下层叠，标题栏错开保证两窗都能被看到
+  return [EDGE, Math.round(Math.min(mainY + 64, Math.max(30, vh - sessH - EDGE)))];
+}
+
+/**
  * 聊天应用：经后端 /api/chat/* 代理调用 Hermes。
  * 发送走 OpenAI 兼容 /api/chat/completions（无状态协议，前端全量重传 messages）；
  * 会话列表/历史以 hermes 服务端 Sessions API 为准（/api/chat/sessions* 代理），
@@ -259,6 +288,8 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
   // 消息输入为标准 textarea，编辑命令由 classicy 作用于最后聚焦的文本框
   const editMenuItem = useClassicyEditMenu('chat');
+  // 会话列表窗口初始位置（挂载时算一次；窗口注册后位置由用户拖动接管）
+  const sessionsPos = useMemo(sessionsWindowPosition, []);
 
   // 自动滚动：用户上滚（离底超过阈值）时暂停拉底，回到底部附近自动恢复
   const listRef = useRef<HTMLDivElement>(null);
@@ -543,7 +574,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     dispatch({
       type: 'ClassicyWindowOpen',
       app: { id: APP_ID },
-      window: { id: 'chat-sessions', minimumSize: [320, 220], size: [440, 320], position: ['center', 'center'] },
+      window: { id: 'chat-sessions', minimumSize: [320, 220], size: [440, 320], position: sessionsPos },
     });
     dispatch({
       type: 'ClassicyWindowFocus',
@@ -551,7 +582,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
       window: { id: 'chat-sessions' },
     });
     void loadSessions();
-  }, [loadSessions]);
+  }, [loadSessions, sessionsPos]);
 
   /** 确认后删除服务端会话；删除当前会话时中断流并回到空会话 */
   const doDelete = useCallback(
@@ -675,6 +706,56 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
 
   return (
     <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="chat-main">
+      {/* 会话列表窗口：常驻渲染树（内容由 serverSessions/currentId 驱动），Open/Focus 控制显隐；
+          复用主 appMenu，聚焦列表窗口时菜单栏同样可用（Refresh Sessions 等）。
+          ⚠️ 必须放在主窗口之前：classicy 按挂载顺序注册窗口且「后注册者获得焦点」，
+          主窗口最后注册即持有启动焦点（与 defaultWindow 一致），列表窗不会抢焦点。 */}
+      <ClassicyWindow
+        id="chat-sessions"
+        title="Sessions"
+        icon={ICON}
+        appId={APP_ID}
+        resizable
+        closable
+        initialSize={[440, 320]}
+        initialPosition={sessionsPos}
+        minimumSize={[320, 220]}
+        appMenu={appMenu}
+      >
+        {sessionsLoading ? (
+          <div className="sp-chat-sessions-empty">Loading sessions…</div>
+        ) : sessionsError ? (
+          <div className="sp-chat-sessions-empty">
+            <div>
+              {sessionsError}
+              <br />
+              <ClassicyButton buttonSize="small" onClickFunc={() => void loadSessions()}>
+                Retry
+              </ClassicyButton>
+            </div>
+          </div>
+        ) : serverSessions.length === 0 ? (
+          <div className="sp-chat-sessions-empty">No sessions on the server yet.</div>
+        ) : (
+          <div className="sp-chat-sessions">
+            <ClassicyTable
+              columns={sessionColumns}
+              rows={serverSessions}
+              getRowId={(s) => s.id}
+              selectionMode="single"
+              selected={currentId ? [currentId] : []}
+              onSelectionChange={(ids) => {
+                if (ids[0]) void switchSession(ids[0]);
+              }}
+              onActivateRow={(id) => {
+                void switchSession(id);
+                dispatch({ type: 'ClassicyWindowClose', app: { id: APP_ID }, window: { id: 'chat-sessions' } });
+              }}
+              defaultSort={{ columnId: 'updated', desc: true }}
+            />
+          </div>
+        )}
+      </ClassicyWindow>
       <ClassicyWindow
         id="chat-main"
         title={APP_NAME}
@@ -768,54 +849,6 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
                 </ClassicyButton>
               )}
             </div>
-          </div>
-        )}
-      </ClassicyWindow>
-      {/* 会话列表窗口：常驻渲染树（内容由 serverSessions/currentId 驱动），Open/Focus 控制显隐；
-          复用主 appMenu，聚焦列表窗口时菜单栏同样可用（Refresh Sessions 等） */}
-      <ClassicyWindow
-        id="chat-sessions"
-        title="Sessions"
-        icon={ICON}
-        appId={APP_ID}
-        resizable
-        closable
-        initialSize={[440, 320]}
-        initialPosition={['center', 'center']}
-        minimumSize={[320, 220]}
-        appMenu={appMenu}
-      >
-        {sessionsLoading ? (
-          <div className="sp-chat-sessions-empty">Loading sessions…</div>
-        ) : sessionsError ? (
-          <div className="sp-chat-sessions-empty">
-            <div>
-              {sessionsError}
-              <br />
-              <ClassicyButton buttonSize="small" onClickFunc={() => void loadSessions()}>
-                Retry
-              </ClassicyButton>
-            </div>
-          </div>
-        ) : serverSessions.length === 0 ? (
-          <div className="sp-chat-sessions-empty">No sessions on the server yet.</div>
-        ) : (
-          <div className="sp-chat-sessions">
-            <ClassicyTable
-              columns={sessionColumns}
-              rows={serverSessions}
-              getRowId={(s) => s.id}
-              selectionMode="single"
-              selected={currentId ? [currentId] : []}
-              onSelectionChange={(ids) => {
-                if (ids[0]) void switchSession(ids[0]);
-              }}
-              onActivateRow={(id) => {
-                void switchSession(id);
-                dispatch({ type: 'ClassicyWindowClose', app: { id: APP_ID }, window: { id: 'chat-sessions' } });
-              }}
-              defaultSort={{ columnId: 'updated', desc: true }}
-            />
           </div>
         )}
       </ClassicyWindow>
