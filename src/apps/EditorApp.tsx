@@ -9,13 +9,16 @@ import {
   ClassicyAlert,
   ClassicyApp,
   ClassicyButton,
+  ClassicyFileSystemEntryFileType,
   ClassicyInput,
   ClassicyPopUpMenu,
   ClassicySplitView,
   ClassicyWindow,
+  useAppManager,
   useClassicyAboutMenu,
 } from 'classicy';
 import type { ClassicyMenuItem } from 'classicy';
+import { classicyToHost } from '../hostFsAdapter';
 import { fsRead, fsWrite, logout, prefsGetEditor, prefsSetEditor, Unauthorized } from '../api';
 import type { EditorServerPrefs } from '../api';
 import { CodeEditor, EDITOR_FONTS, EDITOR_THEMES } from '../components/CodeEditor';
@@ -221,6 +224,27 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
     return () => window.removeEventListener(EDITOR_OPEN_EVENT, onOpen);
   }, [loadFile]);
 
+  // 内置 Finder（Macintosh HD）双击联动：本应用注册了 text_file/markdown 处理器后，
+  // classicy 的通用兜底会把路径（classicy 冒号路径）写入本应用 data.openFiles 并打开窗口；
+  // 这里监视新增项，还原宿主机路径后加载。首次快照只记为已处理（可能是上个会话残留），
+  // 只响应本会话内的新增双击，避免启动即自动打开旧文件。
+  const openFiles = useAppManager(
+    (s) => s.System.Manager.Applications.apps[EDITOR_APP_ID]?.data?.openFiles
+  ) as string[] | undefined;
+  const seenOpenFilesRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!Array.isArray(openFiles)) return;
+    if (seenOpenFilesRef.current === null) {
+      seenOpenFilesRef.current = new Set(openFiles);
+      return;
+    }
+    for (const p of openFiles) {
+      if (seenOpenFilesRef.current.has(p)) continue;
+      seenOpenFilesRef.current.add(p);
+      void loadFile(classicyToHost(p) ?? p);
+    }
+  }, [openFiles, loadFile]);
+
   // 偏好持久化（本地三项：主题/字号/字体）
   useEffect(() => {
     try {
@@ -367,7 +391,14 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
   );
 
   return (
-    <ClassicyApp id={EDITOR_APP_ID} name={EDITOR_APP_NAME} icon={EDITOR_ICON} defaultWindow={EDITOR_WIN_ID}>
+    <ClassicyApp
+      id={EDITOR_APP_ID}
+      name={EDITOR_APP_NAME}
+      icon={EDITOR_ICON}
+      defaultWindow={EDITOR_WIN_ID}
+      // 注册为文本类文件的处理器：内置 Finder（Macintosh HD）双击文本/markdown 时路由到本应用
+      handlesFileTypes={[ClassicyFileSystemEntryFileType.TextFile, ClassicyFileSystemEntryFileType.Markdown]}
+    >
       <ClassicyWindow
         id={EDITOR_WIN_ID}
         title={`${dirty ? '● ' : ''}${path ? baseName(path) + ' — ' : ''}${EDITOR_APP_NAME}`}

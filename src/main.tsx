@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import 'classicy/dist/classicy.css';
 import 'classicy/dist/fonts.css';
 import './styles.css';
+// classicy 内置 Finder（Macintosh HD）接入宿主机文件系统的 FS Adapter（模块级自动注册，
+// 必须在桌面渲染前生效——启动时 reconcile 会用宿主机目录整树替换内存假数据）
+import './hostFsAdapter';
 import { App } from './App';
 import { registerPwa } from './pwa';
 

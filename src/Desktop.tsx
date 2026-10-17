@@ -3,11 +3,11 @@ import {
   ClassicyAppManagerProvider,
   ClassicyDesktop,
   ClassicyIcons,
-  dispatch,
   useAppManager,
 } from 'classicy';
 import type { ClassicyStore } from 'classicy';
 import { logout } from './api';
+import { HostFsLazyLoader } from './hostFsAdapter';
 import { MonitorApp } from './apps/MonitorApp';
 import { DockerApp } from './apps/DockerApp';
 import { ImcolinApp } from './apps/ImcolinApp';
@@ -22,28 +22,11 @@ import { ConverterApp } from './apps/ConverterApp';
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 
 /**
- * classicy 内置示例应用（Finder.app）的 id。
- *
- * 本项目不渲染它，但 classicy 启动时会自行往桌面塞一个虚拟磁盘图标：
- * `appId: 'Finder.app' / appName: 'Macintosh HD' / kind: 'drive'`
- * （DOM 上是 `#Finder.app.shortcut`），与本项目的文件管理器图标同名并排出现。
- * 注意它**不是**持久化脏数据——当前版本根本不写 localStorage，清缓存后依旧复现，
- * 所以只能在运行时移除，且要订阅 store：子组件的 effect 先于父组件执行，
- * 固定延时的做法会与 classicy 内部的添加时机竞态。
+ * 关于 classicy 内置示例应用 Finder.app（桌面图标「Macintosh HD」，DOM 上是
+ * `#Finder.app.shortcut`）：曾计划运行时移除该图标（见 git 历史 RemoveClassicySampleFinderIcon），
+ * 但接入 hostFsAdapter 后内置 Finder 已由宿主机真实目录驱动（双击文本文件还会
+ * 路由到 EditorApp），与自研 srv-finder.app 并存、各有分工，故图标保留不再清理。
  */
-const CLASSICY_SAMPLE_FINDER_ID = 'Finder.app';
-
-/** 移除 classicy 示例 Finder 的桌面图标（订阅式：无论何时被添加都会清掉） */
-function RemoveClassicySampleFinderIcon() {
-  const hasSampleIcon = useAppManager((s) =>
-    s.System.Manager.Desktop.icons.some((i) => i.appId === CLASSICY_SAMPLE_FINDER_ID)
-  );
-  useEffect(() => {
-    if (!hasSampleIcon) return;
-    dispatch({ type: 'ClassicyDesktopIconRemove', app: { id: CLASSICY_SAMPLE_FINDER_ID } });
-  }, [hasSampleIcon]);
-  return null;
-}
 
 // Zustand v5 将 setState 等 API 挂在 create 返回的 hook 函数对象上，
 // 而 useAppManager() 调用得到的是状态本身；这里显式收敛成所需的写入接口。
@@ -104,8 +87,8 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
       // defaultMuted
     >
       <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg}>
+        <HostFsLazyLoader />
         <FinderApp onLogout={onLogout} />
-        {/* <RemoveClassicySampleFinderIcon /> */}
         <MonitorApp onLogout={onLogout} />
         <DockerApp onLogout={onLogout} />
         <ImcolinApp />

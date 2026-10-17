@@ -130,6 +130,7 @@ components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（C
 hooks/ # usePolling —— 数据轮询 Hook
 api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理）
 editorBridge.ts # Finder → 文本编辑器 跨应用打开文件的联动桥
+hostFsAdapter.ts # classicy FS Adapter：内置 Finder（Finder.app / Macintosh HD）接入宿主机文件系统（见下节）
 Desktop.tsx # 桌面布局
 LoginApp.tsx # 登录（标题固定 WatchDog OS：未登录不展示主机名；登录后由 MonitorApp 把文档标题同步为「WatchDog OS · 主机名」）
 format.ts # 格式化工具
@@ -143,6 +144,16 @@ skills/ # 项目级 CodeBuddy 技能；pixelart/ 为像素画技能（入口 SKI
 run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ 内）
 
 ```
+
+### 内置 Finder 接入宿主机文件系统（src/hostFsAdapter.ts）
+
+- classicy 内置 Finder（Finder.app，桌面图标 Macintosh HD）的数据源是**前端内存虚拟 FS**（种子为包内写死的假目录树，持久化到 `localStorage.classicyStorage`）。`hostFsAdapter.ts` 通过 classicy 官方插口 `registerClassicyFileSystemAdapter` 把它桥接到后端 `/api/fs/*`：`main.tsx` 模块级 import 即自动注册（幂等），须在桌面渲染前生效
+- **reconcile（启动时）**：`fsList('')` 拉 FS_ROOTS 根列表 → 递归翻译为 classicy FS 树（`_type: drive/directory/text_file/...`）→ `{ action:'replace' }` 整树替换。**深度 `SEED_DEPTH=2`**（整树会持久化进 localStorage，勿调大）；单个目录读取失败（无权限的受保护目录如 System Volume Information、$RECYCLE.BIN）降级为空壳不拖垮整树，根列表拉取失败才整体回退 `useLocal`
+- **路径映射**：classicy 路径冒号分段（`Macintosh HD:D:code:a.ts` 之类），顶层段是 FS_ROOTS 根的「安全名」（盘符 `D:\` 清洗为 `D`），经模块内 `rootMap` 还原宿主机绝对路径；`classicyToHost()` 导出供外部把 classicy 路径转回宿主机路径（非本卷路径返回 null）
+- **onChange（操作回放）**：Finder 里 mkdir/write/rmdir 回放为 `/api/fs/mkdir|write|delete` 落盘（write 为覆盖写）；meta（重命名/移动）与 load 不回放——重启后 reconcile 以磁盘为准。回放失败仅 console 告警
+- **双击联动**：文本类文件标 `_type: text_file/markdown`，EditorApp 经 `handlesFileTypes` prop 注册处理器，classicy 通用兜底把路径写入 `app.data.openFiles` 并打开窗口，EditorApp 监视新增项经 `classicyToHost` 还原后加载（首次快照只记为已处理，避免启动即打开旧文件）
+- **与自研 FinderApp（srv-finder.app）的分工**：内置 Finder 是轻量「系统盘门面」（惰性树 + 深度受限），完整文件操作（上传/复制/收藏/深层浏览）仍走 srv-finder.app；两者桌面图标同名并存是预期行为
+- 验证探针：`node tools/cdp-fs-adapter-probe.mjs`（零依赖 CDP，验证树替换 / 图标 / 窗口导航，截图落 `.probe/fs-adapter.png`）
 
 ### 终端模块（TerminalApp + ttyd）
 
