@@ -422,6 +422,30 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-fm-info-label { color: var(--color-system-04, #666); text-align: right; }
 .sp-fm-info-value { word-break: break-all; }
 .sp-fm-info-path { font-family: Consolas, Menlo, monospace; }
+/* Get Info 路径行点击复制：虚线下划线提示可点，复制成功短暂变绿（Copied ✓） */
+.sp-fm-info-path-click { cursor: pointer; text-decoration: underline dotted rgba(0, 0, 0, 0.35); text-underline-offset: 2px; }
+.sp-fm-info-path-click:hover { text-decoration-style: solid; }
+.sp-fm-info-path-click:focus-visible { outline: 1px dotted var(--color-black); outline-offset: 1px; }
+.sp-fm-info-copied { color: var(--color-ok, #1a7a2e); }
+
+/* Finder 地址栏（工具栏右侧弹性占满）：等宽字体贴近路径语义，回车跳转 */
+.sp-fm-addr { flex: 1 1 auto; min-width: 120px; margin-left: auto; display: flex; align-items: center; }
+.sp-toolbar .sp-fm-addr .classicyInputHolder { width: auto; align-self: stretch; }
+.sp-toolbar .sp-fm-addr .classicyInput {
+  height: var(--hig-button-height);
+  font-size: 12px;
+  font-family: Consolas, Menlo, monospace;
+  padding: 0 6px;
+}
+
+/* 选文件模式（Converter 调起）提示条：钉在工具栏下方，浅黄警示底 */
+.sp-fm-picker-hint {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #fdf3d0;
+  border-bottom: var(--window-border-size) solid var(--color-system-05);
+}
 
 /* 对话框遮罩（重命名/新建/打开文件） */
 .sp-dialog-mask { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.25); }
@@ -567,11 +591,26 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-conv-table .sp-conv-row-selected .sp-conv-name img { filter: contrast(0.75) brightness(0.5); }
 /* 空目录/加载占位：区域内居中（规范 §4.3 空态一句陈述） */
 .sp-conv-empty { display: flex; align-items: center; justify-content: center; flex: 1 1 auto; padding: 0; color: var(--color-system-05); font-size: 12px; }
+/* 启动落地页：仅 Choose File 按钮（点击经 converterBridge 调起 Macintosh HD 选文件） */
+.sp-conv-landing { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; text-align: center; }
+.sp-conv-landing-icon { width: 48px; height: 48px; image-rendering: pixelated; }
+.sp-conv-landing-title { font-weight: 700; font-size: 14px; }
+.sp-conv-landing-text { font-size: 12px; color: var(--color-system-04, #666); line-height: 1.6; }
+/* 已选文件卡：图标 + 元信息 + 换选/转换操作，横向排布占满剩余空间顶部 */
+.sp-conv-file { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; margin: 10px; padding: 10px 12px; background: var(--color-white); border: 1px solid var(--color-system-05); }
+.sp-conv-file-icon { width: 32px; height: 32px; image-rendering: pixelated; flex: 0 0 auto; }
+.sp-conv-file-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.sp-conv-file-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-conv-file-path { font-family: Consolas, Menlo, monospace; font-size: 11px; color: var(--color-system-04, #666); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-conv-file-sub { font-size: 11px; color: var(--color-system-04, #666); }
+.sp-conv-file-actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+.sp-conv-file-actions .classicyButton { margin: 0; font-size: 12px; }
+/* 非 HEIC 文件提示条 */
+.sp-conv-warn { flex: 0 0 auto; margin: 0 10px 6px; padding: 4px 8px; font-size: 12px; color: #8a5a00; background: #fdf3d0; border: 1px solid #e6d089; }
+.sp-conv-progress-label { flex: 1 1 auto; color: var(--color-system-04, #666); }
 /* 转换进度区（任务进行中）：贴在状态栏上方，与 Macintosh HD 上传进度行同模式 */
 .sp-conv-progress { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; }
 .sp-conv-progress-name { width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }
-.sp-conv-progress-bar { flex: 1 1 auto; }
-.sp-conv-progress-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 .sp-conv-progress .classicyButton { min-width: 0; padding: 0 6px; line-height: 1.4; }
 /* 状态栏：左上下文（错误红字 var(--color-error)）+ 右全局（质量档位） */
 .sp-conv-status { flex: 0 0 auto; display: flex; justify-content: space-between; gap: 10px; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: #444; }

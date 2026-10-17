@@ -16,6 +16,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFile } = require('child_process');
 const { cfg } = require('../config');
 const { runCmd } = require('../lib/http');
 
@@ -179,4 +180,108 @@ function startPrinterTimer(state) {
   setInterval(async () => (state.printer = await readPrinter()), Math.max(5000, cfg.printer.interval));
 }
 
-module.exports = { readPrinter, startPrinterTimer };
+/* ================= 打印测试页（POST /api/printer/test-page） ================= */
+
+/** CUPS 打印机名约束：字母/数字开头，仅允许 字母 数字 空格 . _ -（拒绝路径分隔符与控制字符，
+ *  防止构造 device-uri / 文件路径类混淆；execFile 无 shell，注入风险本身有限，这里防御纵深） */
+const PRINTER_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$/;
+
+/**
+ * 独立的命令执行封装（与 lib/http.js 的 runCmd 不同）：捕获 stderr 与退出码，
+ * 供测试页流程给出第一手失败原因（如 "printer is not accepting jobs"）。
+ * extraEnv 注入额外环境变量（本模块用于 LC_ALL=C 固定 lp/lpstat 输出语言，便于解析）。
+ */
+function run(cmd, args, timeout, extraEnv) {
+  return new Promise((resolve) => {
+    execFile(
+      cmd,
+      args,
+      { timeout, windowsHide: true, env: extraEnv ? { ...process.env, ...extraEnv } : undefined },
+      (err, stdout, stderr) =>
+        resolve({
+          ok: !err,
+          code: err ? (err.code ?? err.errno ?? 1) : 0,
+          out: String(stdout || ''),
+          errText: String(stderr || (err && err.message) || ''),
+        })
+    );
+  });
+}
+
+/** PostScript 字符串转义：反斜杠与圆括号（PS 字面量定界符）；仅保留 ASCII 可打印字符 */
+function psStr(s) {
+  return String(s)
+    .replace(/[^\x20-\x7e]/g, '?')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
+}
+
+/** 生成测试页 PostScript：边框 + 打印机/主机/时间（ISO，Courier 无中文字形）+ 可读性确认行 */
+function buildTestPagePs(printerName) {
+  const L = [
+    'watchdog-os Test Page',
+    '',
+    `Printer: ${printerName}`,
+    `Host:    ${os.hostname()}`,
+    `Date:    ${new Date().toISOString()}`,
+    '',
+    'If you can read this line, printing works.',
+  ];
+  return (
+    '%!PS-Adobe-3.0\n' +
+    '/Courier findfont 12 scalefont setfont\n' +
+    '2 setlinewidth\n' +
+    '36 36 540 720 rectstroke\n' +
+    L.map((t, i) => `72 ${708 - i * 24} moveto (${psStr(t)}) show\n`).join('') +
+    'showpage\n'
+  );
+}
+
+/**
+ * 向指定打印机提交一张测试页。返回 { ok, printer, jobId, requestId, title } 或 { error, detail? }，
+ * error 约定（由路由映射状态码）：'Bad printer name'→400、'Printer not found'→404、
+ * 'CUPS unavailable'→503、其余（'Print failed' 等）→500。
+ */
+async function printTestPage(printerName) {
+  const name = String(printerName || '').trim();
+  if (!PRINTER_NAME_RE.test(name)) return { error: 'Bad printer name' };
+
+  /* 1. 打印机存在性探测：lpstat -p <name>（存在则输出 "printer <name> ..."，否则非零退出） */
+  const st = await run('lpstat', ['-p', name], 8000, { LC_ALL: 'C' });
+  if (!st.ok && st.code === 'ENOENT') {
+    return { error: 'CUPS unavailable', detail: 'lpstat 不存在（未安装 CUPS）' };
+  }
+  if (!st.ok && /unable to|cannot|connection refused|no such file|cupsd/i.test(st.errText)) {
+    return { error: 'CUPS unavailable', detail: st.errText.trim().slice(0, 300) };
+  }
+  if (!st.ok || !st.out.includes(`printer ${name}`)) {
+    return { error: 'Printer not found', detail: st.errText.trim().slice(0, 300) };
+  }
+
+  /* 2. 生成测试页文件（文件名含时间戳避免并发覆盖，提交完成后清理） */
+  const file = path.join(os.tmpdir(), `watchdog-testpage-${name}-${Date.now()}.ps`);
+  try {
+    fs.writeFileSync(file, buildTestPagePs(name), 'utf8');
+  } catch (e) {
+    return { error: 'Print failed', detail: `测试页文件写入失败：${e.message}` };
+  }
+  try {
+    /* 3. lp 提交：-t 设置任务名（会体现在 Printer 面板的任务列表/历史里） */
+    const title = `watchdog-os Test Page - ${new Date().toISOString()}`;
+    const lp = await run('lp', ['-d', name, '-t', title, file], 15000, { LC_ALL: 'C' });
+    if (!lp.ok && lp.code === 'ENOENT') {
+      return { error: 'CUPS unavailable', detail: 'lp 不存在（未安装 CUPS）' };
+    }
+    if (!lp.ok) {
+      return { error: 'Print failed', detail: (lp.errText || lp.out).trim().slice(0, 300) };
+    }
+    // 成功输出形如 "request id is L130-42 (1 file(s))"，作业号可关联到面板队列
+    const m = lp.out.match(/request id is (\S+)-(\d+)/);
+    return { ok: true, printer: name, jobId: m ? m[2] : '', requestId: m ? m[1] : '', title };
+  } finally {
+    try { fs.unlinkSync(file); } catch { /* 清理失败不影响提交结果 */ }
+  }
+}
+
+module.exports = { readPrinter, startPrinterTimer, printTestPage };

@@ -1,8 +1,10 @@
-// HEIC 转换器（Converter）：在面板内浏览文件系统，把 .heic/.heif 图片转换为 JPEG，
-// 并保存到原文件所在目录（与 Finder 一致的 /api/fs/* 数据源与鉴权）。
-// 解码在浏览器端完成：heic-to（libheif WASM，动态 import 按需加载 ~2MB chunk），
-// EXIF orientation 经 exifr 读取后手动应用到 canvas——heic-to 不应用 EXIF 方向，
-// 竖拍 iPhone 照片（存储横向 + Orientation=6）会整体旋转 90°，必须补偿。
+// HEIC 转换器（Converter）：启动仅提供 Choose File 按钮，点击后经 converterBridge
+// 调起 Macintosh HD（Finder）选文件模式——用户在 Finder 中双击 .heic/.heif 文件确认，
+// Finder 窗口自动关闭回到本窗口，转换结果 JPEG 保存到原文件所在目录。
+// 数据源与 Finder 一致（/api/fs/*，Cookie 鉴权）；解码在浏览器端完成：
+// heic-to（libheif WASM，动态 import 按需加载 ~2MB chunk），EXIF orientation 经
+// exifr 读取后手动应用到 canvas——heic-to 不应用 EXIF 方向，竖拍 iPhone 照片
+// （存储横向 + Orientation=6）会整体旋转 90°，必须补偿。
 // 零后端改动：读经 /api/fs/raw，写经 /api/fs/upload（既有 50MB 上限与越权防护）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -13,18 +15,20 @@ import {
   ClassicyIcons,
   ClassicyKbd,
   ClassicyPopUpMenu,
-  ClassicyProgressBar,
-  ClassicyTable,
   ClassicyWindow,
   dispatch,
   useClassicyAboutMenu,
   useClassicyHelpMenu,
 } from 'classicy';
-import type { ClassicyMenuItem, ClassicyTableColumn } from 'classicy';
-import { fsList, fsRawUrl, fsUpload, logout, Unauthorized } from '../api';
+import type { ClassicyMenuItem } from 'classicy';
+import { fsRawUrl, fsUpload, logout, Unauthorized } from '../api';
 import type { FsEntry } from '../api';
 import { fmtBytes } from '../format';
 import { quitMenuItem } from '../quitMenuItem';
+import {
+  CONVERTER_PICK_EVENT,
+  startConverterPick,
+} from '../converterBridge';
 // ⚠️ 必须带 ?no-inline（仅 ?url 不够，它不绕过 assetsInlineLimit），
 // 否则 classicy 桌面图标遮罩会静默失效（见 docs/icon-pipeline.md §6.2）
 import converterIcon from '../assets/icons/converter.svg?no-inline';
@@ -42,9 +46,6 @@ const PREFS_KEY = 'srv-converter-prefs';
 
 /** 可转换的图片扩展名（iPhone 默认为 .heic，部分相机/工具产出 .heif） */
 const HEIC_EXT = ['.heic', '.heif'];
-/** 「只显示图片」过滤覆盖的扩展名：源格式（heic/heif）+ 输出（jpg）及其它常见图片，
- *  保证转换结果立即可见（不再被过滤挡掉） */
-const IMAGE_EXT = ['.heic', '.heif', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif'];
 
 /** JPEG 质量档位（value 同时作为持久化标识） */
 const QUALITY_LEVELS = [
@@ -63,35 +64,24 @@ interface ConvAlert {
 }
 
 interface Prefs {
-  /** 只显示图片文件（目录始终显示，保证可导航）——含 HEIC 源与转换出的 JPG，结果立即可见 */
-  onlyPics: boolean;
-  showHidden: boolean;
   /** 质量档位 value */
   quality: string;
 }
 
 function loadPrefs(): Prefs {
-  const fallback: Prefs = { onlyPics: true, showHidden: false, quality: 'high' };
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') as Partial<Prefs>;
     return {
-      onlyPics: raw.onlyPics !== false,
-      showHidden: raw.showHidden === true,
       quality: QUALITY_LEVELS.some((q) => q.value === raw.quality) ? (raw.quality as string) : 'high',
     };
   } catch {
-    return fallback;
+    return { quality: 'high' };
   }
 }
 
 function isHeicName(name: string): boolean {
   const i = name.lastIndexOf('.');
   return i > 0 && HEIC_EXT.includes(name.slice(i).toLowerCase());
-}
-
-function isImageName(name: string): boolean {
-  const i = name.lastIndexOf('.');
-  return i > 0 && IMAGE_EXT.includes(name.slice(i).toLowerCase());
 }
 
 /** 同目录输出名：IMG_0001.HEIC → IMG_0001.jpg */
@@ -114,23 +104,6 @@ function joinPath(dir: string, name: string): string {
   return dir.replace(/[\\/]+$/, '') + sep + name;
 }
 
-/** 上一级目录；根目录返回 ''（根列表视图），与 Finder 行为一致 */
-function parentPath(p: string): string {
-  const norm = p.replace(/[\\/]+$/, '');
-  if (!norm) return '';
-  const i = Math.max(norm.lastIndexOf('\\'), norm.lastIndexOf('/'));
-  if (i < 0) return '';
-  if (i === 0) return norm[0] === '/' ? '/' : '';
-  if (i === 2 && /^[a-zA-Z]:$/.test(norm.slice(0, 2))) return norm.slice(0, 3);
-  return norm.slice(0, i);
-}
-
-function baseName(p: string): string {
-  const norm = p.replace(/[\\/]+$/, '');
-  const i = Math.max(norm.lastIndexOf('\\'), norm.lastIndexOf('/'));
-  return i >= 0 ? norm.slice(i + 1) : norm;
-}
-
 /** 英文日期（规范 §8 界面文案一律英文）：今天「Today HH:mm」、今年「Oct 3, 14:30」、往年「2024-10-03」 */
 function fmtDate(ms: number): string {
   const d = new Date(ms);
@@ -146,15 +119,9 @@ function fmtDate(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-function kindLabel(e: FsEntry): string {
-  if (e.type === 'dir') return 'Folder';
-  if (isHeicName(e.name)) return 'HEIC Picture';
-  return isImageName(e.name) ? 'Picture' : 'File';
-}
-
 function iconFor(e: FsEntry): string {
   if (e.type === 'dir') return ClassicyIcons.system.folders.directory;
-  return isImageName(e.name) ? ClassicyIcons.system.files.photo : ClassicyIcons.system.files.file;
+  return isHeicName(e.name) ? ClassicyIcons.system.files.photo : ClassicyIcons.system.files.file;
 }
 
 /** heic-to 为命名导出（1.6.x 起无 default），动态 import 让 WASM 单独成 chunk、按需加载 */
@@ -219,16 +186,13 @@ async function convertOne(entry: FsEntry, quality: number, signal?: AbortSignal)
   return await applyExifOrientation(out, orientation, quality);
 }
 
-/** 应用：HEIC 图片转 JPEG，结果保存到原文件所在目录 */
+/** 应用：启动仅 Choose File 按钮；选中文件后显示文件卡 + Convert（HEIC → JPEG） */
 export function ConverterApp({ onLogout }: { onLogout: () => void }) {
-  const [current, setCurrent] = useState('');
-  const [entries, setEntries] = useState<FsEntry[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [backStack, setBackStack] = useState<string[]>([]);
+  /** 经 Macintosh HD 选定的待转换文件（null 为空闲/取消） */
+  const [picked, setPicked] = useState<FsEntry | null>(null);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
-  /** 转换任务进行中的进度（null 表示空闲） */
-  const [job, setJob] = useState<{ total: number; done: number; name: string } | null>(null);
+  /** 转换进行中的文件名（null 表示空闲） */
+  const [job, setJob] = useState<string | null>(null);
   /** 上次转换结果摘要（状态栏左区） */
   const [summary, setSummary] = useState<{ text: string; error: boolean } | null>(null);
   const [alert, setAlert] = useState<ConvAlert | null>(null);
@@ -237,9 +201,10 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
   const [helpOpen, setHelpOpen] = useState(false);
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
-  /** 取消标志与在途请求（Cancel 按钮用） */
+  /** 取消标志与在途请求中止句柄（Cancel 按钮用） */
   const cancelRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const uploadAbortRef = useRef<(() => void) | null>(null);
 
   const setPref = useCallback(<K extends keyof Prefs>(key: K, value: Prefs[K]) => {
     setPrefs((prev) => {
@@ -266,81 +231,86 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
     setAlert({ alertType: 'stop', label, message, buttons: [{ id: 'ok', label: 'OK', role: 'default' }] });
   }, []);
 
-  const fetchDir = useCallback(
-    async (p: string): Promise<FsEntry[] | null> => {
-      setLoading(true);
-      try {
-        const r = await fsList(p);
-        setEntries(r.entries);
-        setSelected([]);
-        setCurrent(r.path);
-        return r.entries;
-      } catch (e) {
-        if (e instanceof Unauthorized) return handleLogout(), null;
-        // 目录加载均为用户主动动作，失败弹 alert 说明原因；已有列表保留
-        stopAlert('Cannot Read Folder', (e as Error).message);
-        return null;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [handleLogout, stopAlert]
-  );
-
-  const navigate = useCallback(
-    (p: string, pushHistory = true) => {
-      if (pushHistory) {
-        setBackStack((s) => (current && current !== p ? [...s.slice(-30), current] : s));
-      }
-      void fetchDir(p);
-    },
-    [fetchDir, current]
-  );
-
-  // 挂载即加载根列表（与 Finder 一致：空路径为允许根视图）
+  // 消费 Macintosh HD 的选择结果：entry=确认选择；null=取消（含关窗/Esc）
   useEffect(() => {
-    void fetchDir('');
-  }, [fetchDir]);
+    const onPick = (e: Event) => {
+      const entry = (e as CustomEvent<{ entry: FsEntry | null }>).detail?.entry ?? null;
+      setPicked(entry);
+      setSummary(null);
+    };
+    window.addEventListener(CONVERTER_PICK_EVENT, onPick);
+    return () => window.removeEventListener(CONVERTER_PICK_EVENT, onPick);
+  }, []);
 
-  const visibleEntries = useMemo(
-    () =>
-      entries.filter((e) => {
-        if (!prefs.showHidden && e.name.startsWith('.')) return false;
-        // 目录始终显示（保证可导航）；文件按 onlyPics 过滤（图片含 HEIC 源与 JPG 结果）
-        if (prefs.onlyPics && e.type === 'file' && !isImageName(e.name)) return false;
-        return true;
-      }),
-    [entries, prefs.showHidden, prefs.onlyPics]
-  );
+  /** 调起 Macintosh HD 选文件（空闲与已选状态均可再次发起，换选文件） */
+  const startPick = useCallback(() => {
+    startConverterPick();
+  }, []);
 
-  const entryIndex = useMemo(() => new Map(entries.map((e) => [e.path, e])), [entries]);
-  const selectedEntries = useMemo(
-    () => selected.map((id) => entryIndex.get(id)).filter((e): e is FsEntry => !!e),
-    [selected, entryIndex]
-  );
-  /** 选中项中可转换的 HEIC 文件 */
-  const heicSelected = useMemo(
-    () => selectedEntries.filter((e) => e.type === 'file' && isHeicName(e.name)),
-    [selectedEntries]
-  );
-  const heicCount = useMemo(
-    () => visibleEntries.filter((e) => e.type === 'file' && isHeicName(e.name)).length,
-    [visibleEntries]
-  );
   const qualityLevel = QUALITY_LEVELS.find((q) => q.value === prefs.quality) ?? QUALITY_LEVELS[0];
 
-  const goBack = useCallback(() => {
-    setBackStack((s) => {
-      if (!s.length) return s;
-      const prev = s[s.length - 1];
-      void fetchDir(prev);
-      return s.slice(0, -1);
-    });
-  }, [fetchDir]);
+  /** 单文件转换 + 保存（overwrite=false 遇同名 409，由 runConvert 转 caution 确认） */
+  const runConvert = useCallback(
+    async (overwrite: boolean) => {
+      if (!picked || job) return;
+      cancelRef.current = false;
+      setSummary(null);
+      setJob(picked.name);
+      const outName = jpgNameFor(picked.name);
+      try {
+        const controller = new AbortController();
+        fetchAbortRef.current = controller;
+        const blob = await convertOne(picked, qualityLevel.quality, controller.signal);
+        const file = new File([blob], outName, { type: 'image/jpeg' });
+        // 保存到原文件所在目录（覆盖策略由调用方经 alert 确认后决定）
+        const up = fsUpload(parentOf(picked.path), file, overwrite);
+        uploadAbortRef.current = up.abort;
+        await up.promise;
+        setSummary({ text: `Saved ${joinPath(parentOf(picked.path), outName)}`, error: false });
+      } catch (e) {
+        if (e instanceof Unauthorized) {
+          void handleLogout();
+          return;
+        }
+        const msg = (e as Error).message || String(e);
+        if (msg === 'File already exists') {
+          setAlert({
+            alertType: 'caution',
+            label: 'File Exists',
+            message: `“${outName}” already exists in the original folder. Overwrite it?`,
+            defaultButtonId: 'cancel',
+            buttons: [
+              { id: 'cancel', label: 'Cancel', role: 'cancel' },
+              { id: 'ok', label: 'Overwrite', role: 'normal', onClick: () => void runConvertRef.current?.(true) },
+            ],
+          });
+          return;
+        }
+        if (cancelRef.current || msg === 'Upload canceled') {
+          setSummary({ text: 'Conversion canceled', error: false });
+          return;
+        }
+        stopAlert('Conversion Failed', msg);
+      } finally {
+        fetchAbortRef.current = null;
+        uploadAbortRef.current = null;
+        setJob(null);
+      }
+    },
+    [picked, job, qualityLevel.quality, handleLogout, stopAlert]
+  );
 
-  const goUp = useCallback(() => {
-    navigate(parentPath(current), false);
-  }, [navigate, current]);
+  // 覆盖确认按钮需要重新触发 runConvert（回调内自引用不便），经 ref 转发最新实例
+  const runConvertRef = useRef<(overwrite: boolean) => void>(null);
+  useEffect(() => {
+    runConvertRef.current = (o) => void runConvert(o);
+  }, [runConvert]);
+
+  const cancelJob = useCallback(() => {
+    cancelRef.current = true;
+    fetchAbortRef.current?.abort();
+    uploadAbortRef.current?.();
+  }, []);
 
   const closeWindow = useCallback(() => {
     dispatch({ type: 'ClassicyWindowClose', app: { id: APP_ID }, window: { id: MAIN_WIN_ID } });
@@ -350,132 +320,27 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
     setHelpOpen(true);
   }, []);
 
-  /** 执行批量转换（顺序执行：WASM 解码内存峰值高，并发易 OOM） */
-  const doConvert = useCallback(
-    async (list: FsEntry[], overwrite: boolean) => {
-      cancelRef.current = false;
-      setSummary(null);
-      setJob({ total: list.length, done: 0, name: list[0].name });
-      const okPaths: string[] = []; // 成功产出的 JPG 路径（用于刷新后选中）
-      const failed: Array<{ name: string; error: string }> = [];
-      let canceled = false;
-      for (let i = 0; i < list.length; i++) {
-        if (cancelRef.current) {
-          canceled = true;
-          break;
-        }
-        const entry = list[i];
-        setJob({ total: list.length, done: i, name: entry.name });
-        try {
-          const controller = new AbortController();
-          abortRef.current = controller;
-          const blob = await convertOne(entry, qualityLevel.quality, controller.signal);
-          const file = new File([blob], jpgNameFor(entry.name), { type: 'image/jpeg' });
-          // 保存到原文件所在目录（覆盖策略由调用方经 alert 确认后决定）
-          await fsUpload(parentOf(entry.path), file, overwrite);
-          okPaths.push(joinPath(parentOf(entry.path), jpgNameFor(entry.name)));
-        } catch (e) {
-          if (e instanceof Unauthorized) {
-            abortRef.current = null;
-            setJob(null);
-            void handleLogout();
-            return;
-          }
-          failed.push({ name: entry.name, error: (e as Error).message || String(e) });
-        } finally {
-          abortRef.current = null;
-        }
-      }
-      setJob(null);
-      const refreshed = await fetchDir(current);
-      if (canceled) {
-        setSummary({ text: `Canceled after ${okPaths.length} of ${list.length}`, error: false });
-        return;
-      }
-      const parts: string[] = [];
-      if (okPaths.length) parts.push(`Converted ${okPaths.length}`);
-      if (failed.length) parts.push(`${failed.length} failed`);
-      setSummary({ text: parts.join(' · ') || 'Nothing converted', error: failed.length > 0 });
-      // 转换结果立即可见且选中（对齐 Finder 粘贴后选中新建项）：只选刷新后仍存在的条目
-      if (refreshed && okPaths.length) {
-        const created = new Set(okPaths);
-        const createdPaths = refreshed.filter((e) => created.has(e.path)).map((e) => e.path);
-        if (createdPaths.length) setSelected(createdPaths);
-      }
-      if (failed.length) {
-        setAlert({
-          alertType: 'stop',
-          label: failed.length === 1 ? 'Conversion Failed' : `${failed.length} Conversions Failed`,
-          message: failed.map((f) => `${f.name}: ${f.error}`).join('\n'),
-          buttons: [{ id: 'ok', label: 'OK', role: 'default' }],
-        });
-      }
-    },
-    [qualityLevel.quality, current, fetchDir, handleLogout]
-  );
-
-  /** 转换入口：目标已存在时先 caution 确认（覆盖有数据丢失风险，默认按钮为 Cancel） */
-  const requestConvert = useCallback(
-    (list: FsEntry[]) => {
-      if (!list.length || job) return;
-      const existingNames = new Set(
-        entries.filter((e) => e.type === 'file').map((e) => e.name.toLowerCase())
-      );
-      const existing = list.filter((e) => existingNames.has(jpgNameFor(e.name).toLowerCase()));
-      if (existing.length > 0) {
-        setAlert({
-          alertType: 'caution',
-          label: existing.length === 1 ? 'File Exists' : `${existing.length} Files Exist`,
-          message:
-            existing.length === 1
-              ? `“${jpgNameFor(existing[0].name)}” already exists in this folder. Overwrite it?`
-              : `${existing.length} JPEG files with the same names already exist in this folder. Overwrite them?`,
-          defaultButtonId: 'cancel',
-          buttons: [
-            { id: 'cancel', label: 'Cancel', role: 'cancel' },
-            { id: 'ok', label: 'Overwrite', role: 'normal', onClick: () => void doConvert(list, true) },
-          ],
-        });
-        return;
-      }
-      void doConvert(list, false);
-    },
-    [entries, job, doConvert]
-  );
-
-  /** 双击/回车激活：目录进入、HEIC 转换、其它文件无操作 */
-  const onActivate = useCallback(
-    (id: string) => {
-      const entry = entryIndex.get(id);
-      if (!entry) return;
-      if (entry.type === 'dir') return navigate(entry.path);
-      if (isHeicName(entry.name)) requestConvert([entry]);
-    },
-    [entryIndex, navigate, requestConvert]
-  );
+  const canConvert = !!picked && picked.type === 'file' && isHeicName(picked.name);
 
   // 快捷键真实绑定：classicy 的 keyboardShortcut 仅作展示、不自动生效。
-  // ⌘E 转换 / ⌘[ 后退 / ⌘↑ 上一级；焦点在输入框时放行，不劫持打字。
+  // ⌘O 选文件 / ⌘E 转换；焦点在输入框时放行，不劫持打字。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       const mod = e.metaKey || e.ctrlKey;
       if (!mod || e.altKey) return;
-      if (e.key === '[') {
+      if (e.key === 'o' || e.key === 'O') {
         e.preventDefault();
-        goBack();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        goUp();
+        startPick();
       } else if (e.key === 'e' || e.key === 'E') {
         e.preventDefault();
-        requestConvert(heicSelected);
+        if (canConvert && !job) runConvertRef.current?.(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goBack, goUp, requestConvert, heicSelected]);
+  }, [startPick, canConvert, job]);
 
   // Help 菜单由系统渲染，这里只注册帮助项（items 需保持引用稳定）
   const helpItems = useMemo<ClassicyMenuItem[]>(
@@ -496,129 +361,41 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
         title: 'File',
         menuChildren: [
           {
+            id: 'cv-m-choose',
+            title: 'Choose File…',
+            keyboardShortcut: '⌘O',
+            disabled: !!job,
+            onClickFunc: startPick,
+          },
+          {
             id: 'cv-m-convert',
             title: 'Convert…',
             keyboardShortcut: '⌘E',
-            disabled: heicSelected.length === 0 || !!job,
-            onClickFunc: () => requestConvert(heicSelected),
+            disabled: !canConvert || !!job,
+            onClickFunc: () => runConvertRef.current?.(false),
           },
           { id: 'spacer' },
           { id: 'cv-m-close', title: 'Close Window', onClickFunc: closeWindow },
         ],
       },
-      {
-        id: 'cv-view',
-        title: 'View',
-        menuChildren: [
-          {
-            id: 'cv-m-onlyheic',
-            title: 'Show Only Pictures',
-            checked: prefs.onlyPics,
-            onClickFunc: () => setPref('onlyPics', !prefs.onlyPics),
-          },
-          {
-            id: 'cv-m-hidden',
-            title: 'Show Hidden Files',
-            checked: prefs.showHidden,
-            onClickFunc: () => setPref('showHidden', !prefs.showHidden),
-          },
-          { id: 'spacer' },
-          // checked 一致性：本菜单含 checked 项，非切换项也必须显式声明（规范 §2）
-          { id: 'cv-m-refresh', title: 'Refresh', checked: false, onClickFunc: () => void fetchDir(current) },
-        ],
-      },
-      {
-        id: 'cv-go',
-        title: 'Go',
-        menuChildren: [
-          {
-            id: 'cv-m-back',
-            title: 'Back',
-            keyboardShortcut: '⌘[',
-            disabled: backStack.length === 0,
-            onClickFunc: goBack,
-          },
-          {
-            id: 'cv-m-parent',
-            title: 'Open Parent Folder',
-            keyboardShortcut: '⌘↑',
-            disabled: !current,
-            onClickFunc: goUp,
-          },
-        ],
-      },
     ],
-    [
-      aboutMenuItem,
-      heicSelected.length,
-      job,
-      requestConvert,
-      closeWindow,
-      prefs.onlyPics,
-      prefs.showHidden,
-      setPref,
-      fetchDir,
-      current,
-      backStack.length,
-      goBack,
-      goUp,
-    ]
+    [aboutMenuItem, job, startPick, canConvert, closeWindow]
   );
 
-  const columns = useMemo<Array<ClassicyTableColumn<FsEntry>>>(
-    () => [
-      {
-        id: 'name',
-        title: 'Name',
-        accessor: (r) => r.name,
-        width: 400,
-        render: (r) => (
-          <span className="sp-conv-name">
-            <img src={iconFor(r)} alt="" />
-            {r.name}
-          </span>
-        ),
-      },
-      {
-        id: 'size',
-        title: 'Size',
-        accessor: (r) => (r.type === 'dir' ? -1 : r.size),
-        align: 'right',
-        width: 90,
-        render: (r) => (r.type === 'dir' ? '—' : fmtBytes(r.size)),
-      },
-      {
-        id: 'mtime',
-        title: 'Modified',
-        accessor: (r) => r.mtime,
-        width: 150,
-        render: (r) => (r.mtime ? fmtDate(r.mtime) : '—'),
-      },
-      {
-        id: 'kind',
-        title: 'Kind',
-        accessor: (r) => kindLabel(r),
-        width: 120,
-        render: (r) => <span title={`Permissions: ${r.mode}`}>{kindLabel(r)}</span>,
-      },
-    ],
-    []
-  );
-
-  // 状态栏左区：转换中 > 上次结果 > 常规计数（规范 §6.1）
+  // 状态栏左区：转换中 > 上次结果 > 常规提示（规范 §6.1）
   const statusLeft = job
-    ? `Converting ${job.done + 1} of ${job.total}…`
+    ? `Converting ${job}…`
     : summary
       ? summary.text
-      : loading
-        ? 'Loading…'
-        : `${visibleEntries.length} items · ${heicCount} HEIC`;
+      : picked
+        ? 'Ready'
+        : 'No file selected';
 
   return (
     <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow={MAIN_WIN_ID}>
       <ClassicyWindow
         id={MAIN_WIN_ID}
-        title={`${APP_NAME}${current ? ' · ' + (baseName(current) || current) : ''}`}
+        title={`${APP_NAME}${picked ? ' · ' + picked.name : ''}`}
         icon={ICON}
         appId={APP_ID}
         scrollable={false}
@@ -626,79 +403,92 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
         zoomable
         collapsable
         closable
-        initialSize={['70%', '68%']}
+        initialSize={['52%', '52%']}
         initialPosition={['center', 'center']}
-        minimumSize={[620, 420]}
+        minimumSize={[520, 360]}
         appMenu={appMenu}
       >
-        {/* 窗口操作按钮带（规范 §3.2）：浅色容器带钉在顶部，按钮不随内容滚动。
-            Convert 虽为明确主操作，但不设 isDefault 双线环：Return 需留给表格的「回车激活行」
-            （双击/回车目录进入、HEIC 转换），避免默认按钮抢走回车 */}
-        <div className="sp-toolbar">
-          <ClassicyButton disabled={backStack.length === 0} onClickFunc={goBack}>
-            Back
-          </ClassicyButton>
-          <ClassicyButton disabled={!current} onClickFunc={goUp}>
-            Up
-          </ClassicyButton>
-          <ClassicyButton disabled={heicSelected.length === 0 || !!job} onClickFunc={() => requestConvert(heicSelected)}>
-            Convert…
-          </ClassicyButton>
-          <ClassicyPopUpMenu
-            id="cv-quality"
-            label="Quality"
-            labelPosition="left"
-            size="small"
-            options={QUALITY_LEVELS.map((q) => ({ value: q.value, label: q.label }))}
-            selected={prefs.quality}
-            onChangeFunc={(e) => setPref('quality', e.target.value)}
-          />
-        </div>
-
-        {loading && entries.length === 0 ? (
-          <div className="sp-conv-empty">Loading…</div>
-        ) : visibleEntries.length === 0 ? (
-          <div className="sp-conv-empty">
-            {prefs.onlyPics ? 'No pictures in this folder.' : 'This folder is empty.'}
-          </div>
-        ) : (
-          <div className="sp-conv-table">
-            <ClassicyTable
-              columns={columns}
-              rows={visibleEntries}
-              getRowId={(r) => r.path}
-              selectionMode="multi"
-              selected={selected}
-              onSelectionChange={setSelected}
-              onActivateRow={onActivate}
-              defaultSort={{ columnId: 'name' }}
-              // 选中态对齐 OS8 经典列表视图：只高亮名称标签（同 Macintosh HD 规则）
-              rowClassName={(_r, sel) => (sel ? 'sp-conv-row-selected' : undefined)}
+        {/* 工具栏仅在已选文件后出现（启动态只有内容区 Choose File 按钮，见 landing） */}
+        {picked && (
+          <div className="sp-toolbar">
+            <ClassicyPopUpMenu
+              id="cv-quality"
+              label="Quality"
+              labelPosition="left"
+              size="small"
+              options={QUALITY_LEVELS.map((q) => ({ value: q.value, label: q.label }))}
+              selected={prefs.quality}
+              onChangeFunc={(e) => setPref('quality', e.target.value)}
             />
           </div>
         )}
 
-        {/* 转换进度区（任务进行中显示）：总进度 + 当前文件名 + 取消 */}
+        {!picked ? (
+          /* 启动落地页：仅一个 Choose File 按钮（点击调起 Macintosh HD 选文件） */
+          <div className="sp-conv-landing">
+            <img className="sp-conv-landing-icon" src={ICON} alt="" draggable={false} />
+            <div className="sp-conv-landing-title">Convert HEIC Pictures to JPEG</div>
+            <div className="sp-conv-landing-text">
+              Pick a .heic / .heif picture in Macintosh HD.
+              <br />
+              Each JPEG is saved next to its original file.
+            </div>
+            <ClassicyButton isDefault onClickFunc={startPick}>
+              Choose File…
+            </ClassicyButton>
+          </div>
+        ) : (
+          <>
+            {/* 已选文件卡：图标 + 名称/路径/大小/修改时间 + 换选/转换操作 */}
+            <div className="sp-conv-file">
+              <img className="sp-conv-file-icon" src={iconFor(picked)} alt="" draggable={false} />
+              <div className="sp-conv-file-meta">
+                <span className="sp-conv-file-name" title={picked.name}>
+                  {picked.name}
+                </span>
+                <span className="sp-conv-file-path" title={picked.path}>
+                  {picked.path}
+                </span>
+                <span className="sp-conv-file-sub">
+                  {picked.type === 'dir'
+                    ? 'Folder'
+                    : `${fmtBytes(picked.size)} · Modified ${picked.mtime ? fmtDate(picked.mtime) : '—'}`}
+                </span>
+              </div>
+              <div className="sp-conv-file-actions">
+                <ClassicyButton disabled={!!job} onClickFunc={startPick}>
+                  Choose Another…
+                </ClassicyButton>
+                <ClassicyButton
+                  isDefault
+                  disabled={!canConvert || !!job}
+                  onClickFunc={() => runConvertRef.current?.(false)}
+                >
+                  Convert…
+                </ClassicyButton>
+              </div>
+            </div>
+            {!canConvert && !job && (
+              <div className="sp-conv-warn">
+                Converter supports .heic / .heif pictures — choose another file.
+              </div>
+            )}
+          </>
+        )}
+
+        {/* 转换进度区（任务进行中显示）：当前文件名 + 取消 */}
         {job && (
           <div className="sp-conv-progress">
-            <span className="sp-conv-progress-name" title={job.name}>
-              {job.name}
+            <span className="sp-conv-progress-name" title={job}>
+              {job}
             </span>
-            <span className="sp-conv-progress-bar">
-              <ClassicyProgressBar value={job.done} max={job.total || 1} />
-            </span>
-            <span className="sp-conv-progress-count">
-              {job.done}/{job.total}
-            </span>
+            <span className="sp-conv-progress-label">Converting…</span>
             <ClassicyBalloonHelp content="Cancel conversion">
               <ClassicyButton
                 buttonSize="small"
                 padding="sm"
                 margin="sm"
-                onClickFunc={() => {
-                  cancelRef.current = true;
-                  abortRef.current?.abort();
-                }}
+                onClickFunc={cancelJob}
               >
                 ×
               </ClassicyButton>
@@ -732,34 +522,37 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
         <div className="sp-conv-help">
           <div className="sp-conv-help-title">How to Convert</div>
           <ol className="sp-conv-help-steps">
-            <li>Browse to a folder containing HEIC pictures.</li>
             <li>
-              Select one or more <b>.heic</b> / <b>.heif</b> files (click, or ⌘-click / Shift-click for multiple).
+              Click <b>Choose File…</b> — the Macintosh HD window opens.
             </li>
             <li>
-              Choose <b>Convert…</b>. Each JPEG is saved next to its original file.
+              Browse to a folder and double-click a <b>.heic</b> / <b>.heif</b> file to choose it
+              (the window closes and returns here).
+            </li>
+            <li>
+              Click <b>Convert…</b>. The JPEG is saved next to the original file.
             </li>
           </ol>
           <div className="sp-conv-help-title">Notes</div>
           <ul className="sp-conv-help-notes">
-            <li>Only the primary image of each file is converted.</li>
+            <li>Only the primary image of the file is converted.</li>
             <li>EXIF orientation is applied automatically — portrait iPhone photos stay upright.</li>
-            <li>Existing JPEGs with the same name are never overwritten without confirmation.</li>
+            <li>An existing JPEG with the same name is never overwritten without confirmation.</li>
             <li>Conversion runs entirely in your browser; files never leave this server.</li>
           </ul>
           <div className="sp-conv-help-title">Keyboard Shortcuts</div>
           <div className="sp-conv-help-kbd">
             <span>
+              <ClassicyKbd variant="keycaps" shortcut="⌘O" /> Choose File
+            </span>
+            <span>
               <ClassicyKbd variant="keycaps" shortcut="⌘E" /> Convert
             </span>
             <span>
-              <ClassicyKbd variant="keycaps" shortcut="⌘[" /> Back
+              <ClassicyKbd variant="keycaps" shortcut="↩" /> Confirm file in Macintosh HD
             </span>
             <span>
-              <ClassicyKbd variant="keycaps" shortcut="⌘↑" /> Open Parent Folder
-            </span>
-            <span>
-              <ClassicyKbd variant="keycaps" shortcut="↩" /> Open folder / Convert file
+              <ClassicyKbd variant="keycaps" shortcut="Esc" /> Cancel choosing (in Macintosh HD)
             </span>
           </div>
         </div>

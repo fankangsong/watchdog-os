@@ -12,6 +12,7 @@ const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, COOKIE_SECURE_MODE, ORIGIN_ALLOW_LI
 const { send, redirect, safeEqual, readBody } = require('./lib/http');
 const { signJwt, checkAuth } = require('./lib/auth');
 const { state } = require('./api/metrics');
+const { printTestPage } = require('./api/printer');
 const { serveFile, serveIndex } = require('./static');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
@@ -97,8 +98,35 @@ async function route(req, res, url) {
     return send(res, 200, { ok: true, expiresIn: JWT_EXPIRES }, { 'Set-Cookie': cookie });
   }
 
+  /* ---- Printer API（GET 状态 / POST 测试页，统一 JWT 鉴权）---- */
+  if (p === '/api/printer' || p === '/api/printer/test-page') {
+    if (!checkAuth(req)) {
+      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+    }
+    // 未启用时 503；已启用但 CUPS 不可用时仍返回 200 + available=false（与 docker 一致）
+    if (p === '/api/printer') {
+      if (!cfg.printer.enabled) return send(res, 503, { error: 'Printer disabled' });
+      return send(res, 200, state.printer);
+    }
+    // POST /api/printer/test-page：body { printer: "<名称>" }，提交 CUPS 测试页打印任务
+    if (req.method !== 'POST') return send(res, 404, { error: 'not found' });
+    if (!cfg.printer.enabled) return send(res, 503, { error: 'Printer disabled' });
+    let body;
+    try {
+      body = JSON.parse((await readBody(req)) || '{}');
+    } catch {
+      return send(res, 400, { error: 'Invalid request body' });
+    }
+    const r = await printTestPage(body.printer);
+    if (r.error === 'Bad printer name') return send(res, 400, { error: r.error });
+    if (r.error === 'Printer not found') return send(res, 404, { error: r.error, detail: r.detail || '' });
+    if (r.error === 'CUPS unavailable') return send(res, 503, { error: r.error, detail: r.detail || '' });
+    if (r.error) return send(res, 500, { error: r.error, detail: r.detail || '' });
+    return send(res, 200, r);
+  }
+
   /* ---- 需要鉴权的接口 ---- */
-  if (p === '/api/metrics' || p === '/api/docker' || p === '/api/processes' || p === '/api/printer' || p === '/api/logout') {
+  if (p === '/api/metrics' || p === '/api/docker' || p === '/api/processes' || p === '/api/logout') {
     if (!checkAuth(req)) {
       return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
     }
@@ -108,11 +136,6 @@ async function route(req, res, url) {
     }
     if (p === '/api/docker') return send(res, 200, state.docker);
     if (p === '/api/processes') return send(res, 200, state.processes);
-    // 未启用时 503；已启用但 CUPS 不可用时仍返回 200 + available=false（与 docker 一致）
-    if (p === '/api/printer') {
-      if (!cfg.printer.enabled) return send(res, 503, { error: 'Printer disabled' });
-      return send(res, 200, state.printer);
-    }
     if (p === '/api/logout') {
       const clear = `${COOKIE_NAME}=; Path=${BASE}; HttpOnly; SameSite=Lax; Max-Age=0`;
       return send(res, 200, { ok: true }, { 'Set-Cookie': clear });

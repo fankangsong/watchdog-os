@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ClassicyApp,
+  ClassicyButton,
   ClassicyControlGroup,
   ClassicyIcons,
   ClassicyTable,
@@ -8,7 +9,7 @@ import {
   ClassicyWindow,
   useClassicyAboutMenu,
 } from 'classicy';
-import { fetchPrinter, Unauthorized, type PrinterInfo, type PrinterJob, type PrinterState } from '../api';
+import { fetchPrinter, printTestPage, Unauthorized, type PrinterInfo, type PrinterJob, type PrinterState } from '../api';
 import { usePolling } from '../hooks/usePolling';
 import { quitMenuItem } from '../quitMenuItem';
 
@@ -68,8 +69,25 @@ function usbStatus(p: PrinterInfo) {
   );
 }
 
-/** 打印机状态区（单台或多台逐行展示） */
-function PrinterList({ state }: { state: PrinterState | null }) {
+/** 测试页操作结果（按打印机名关联，成功/失败都就地展示在对应行） */
+interface TestPageResult {
+  printer: string;
+  ok: boolean;
+  text: string;
+}
+
+/** 打印机状态区（单台或多台逐行展示），每台附「打印测试页」按钮 */
+function PrinterList({
+  state,
+  testingName,
+  testResult,
+  onTestPage,
+}: {
+  state: PrinterState | null;
+  testingName: string;
+  testResult: TestPageResult | null;
+  onTestPage: (name: string) => void;
+}) {
   if (!state) return <p className="sp-dim">Loading…</p>;
   if (!state.available) return <p className="sp-dim">{state.error || 'CUPS unavailable'}</p>;
   if (state.printers.length === 0) return <p className="sp-dim">未发现打印机</p>;
@@ -85,6 +103,20 @@ function PrinterList({ state }: { state: PrinterState | null }) {
           <div>
             连接：{usbStatus(p)}
             <span style={{ color: '#666', wordBreak: 'break-all' }}> · {p.deviceUri}</span>
+          </div>
+          <div style={{ marginTop: 2, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <ClassicyButton
+              buttonSize="small"
+              disabled={!!testingName || !p.accepting}
+              onClickFunc={() => onTestPage(p.name)}
+            >
+              {testingName === p.name ? '正在提交…' : '打印测试页'}
+            </ClassicyButton>
+            {testResult && testResult.printer === p.name && (
+              <span style={{ color: testResult.ok ? '#070' : '#a00', wordBreak: 'break-all' }}>
+                {testResult.text}
+              </span>
+            )}
           </div>
         </div>
       ))}
@@ -138,6 +170,24 @@ function JobTable({ jobs, showCompletedAt }: { jobs: PrinterJob[]; showCompleted
 export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
   const poll = usePolling(fetchPrinter, 5000);
 
+  /** 正在提交测试页的打印机名（空串 = 空闲）；结果就地展示在对应打印机行 */
+  const [testingName, setTestingName] = useState('');
+  const [testResult, setTestResult] = useState<TestPageResult | null>(null);
+
+  const onTestPage = async (name: string) => {
+    setTestingName(name);
+    setTestResult(null);
+    try {
+      const r = await printTestPage(name);
+      setTestResult({ printer: name, ok: true, text: r.jobId ? `测试页已提交（作业 #${r.jobId}）` : '测试页已提交' });
+      poll.reload(); // 新作业会出现在队列/历史里，立即刷新
+    } catch (e) {
+      setTestResult({ printer: name, ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setTestingName('');
+    }
+  };
+
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.system.printer);
 
   useEffect(() => {
@@ -179,7 +229,7 @@ export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
         appMenu={appMenu}
       >
         <ClassicyControlGroup label={`Printers (${state?.printers?.length ?? 0})`}>
-          <PrinterList state={state} />
+          <PrinterList state={state} testingName={testingName} testResult={testResult} onTestPage={onTestPage} />
         </ClassicyControlGroup>
         <ClassicyControlGroup label={`Queue (${state?.activeJobs?.length ?? 0})`}>
           <JobTable jobs={state?.activeJobs ?? []} showCompletedAt={false} />
