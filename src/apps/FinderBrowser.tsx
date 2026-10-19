@@ -340,6 +340,14 @@ export function FinderBrowser({
   const cascadeRef = useRef(0);
   // 图标视图 shift 连选的锚点下标
   const iconAnchor = useRef(-1);
+  // 图标视图拖拽框选（rubber band）：画布引用、拖动参数、应用结果去抖、最后命中下标
+  const iconsRef = useRef<HTMLDivElement | null>(null);
+  const bandStartRef = useRef<{ x: number; y: number; base: string[]; mod: 'plain' | 'shift' | 'cmd' } | null>(null);
+  const bandDidDragRef = useRef(false);
+  const bandAppliedRef = useRef<string[] | null>(null);
+  const bandLastHitRef = useRef(-1);
+  const bandUpRef = useRef<(() => void) | null>(null);
+  const [band, setBand] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const setViewMode = useCallback((m: ViewMode) => {
     setViewModeState(m);
@@ -923,6 +931,122 @@ export function FinderBrowser({
     [visibleEntries]
   );
 
+  /**
+   * 图标视图拖拽框选（rubber band，对齐经典 Finder / Windows 资源管理器）：
+   * 画布任意位置按下左键拖动超过 4px 即开始框选，与矩形相交（含边缘相触）的条目被选中。
+   * 修饰键语义与单击一致——plain：框内结果整体替换选中；⇧：在按下时的选中基础上追加；
+   * ⌘/Ctrl：以按下时的选中为基座，对框内条目取反。Esc 取消并还原按下时的选中。
+   * 未超过阈值的移动视为单击，选择/清空仍走既有 click handlers。
+   */
+  const handleIconsMouseDown = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      // 上一次拖动残留（如在窗口外松键/失焦未收尾）：先收尾再开始新的，避免状态卡死
+      bandUpRef.current?.();
+      const canvas = iconsRef.current;
+      if (!canvas) return;
+      const start = {
+        x: e.clientX,
+        y: e.clientY,
+        base: selected,
+        mod: e.shiftKey ? ('shift' as const) : e.metaKey || e.ctrlKey ? ('cmd' as const) : ('plain' as const),
+      };
+      bandStartRef.current = start;
+      bandDidDragRef.current = false;
+      bandAppliedRef.current = null;
+      bandLastHitRef.current = -1;
+
+      // 把「框内命中」按修饰键合并到基座选中上；每帧结果与上次相同则跳过 setState（去抖）
+      const applyHits = (hits: string[]) => {
+        let next: string[];
+        if (start.mod === 'plain') {
+          next = hits; // 无修饰键：框内结果整体替换
+        } else if (start.mod === 'shift') {
+          const s = new Set(start.base);
+          for (const p of hits) s.add(p); // ⇧：在按下时的选中上追加（含已选项不去重）
+          next = [...s];
+        } else {
+          const s = new Set(start.base);
+          for (const p of hits) {
+            if (s.has(p)) s.delete(p); // ⌘/Ctrl：以按下时的选中为基座取反
+            else s.add(p);
+          }
+          next = [...s];
+        }
+        const prev = bandAppliedRef.current;
+        if (prev && prev.length === next.length && prev.every((p, i) => p === next[i])) return;
+        bandAppliedRef.current = next;
+        setSelected(next);
+      };
+
+      const onMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - start.x;
+        const dy = ev.clientY - start.y;
+        if (!bandDidDragRef.current && Math.abs(dx) + Math.abs(dy) < 4) return;
+        if (!bandDidDragRef.current) {
+          bandDidDragRef.current = true;
+          document.body.classList.add('sp-fm-band-active');
+        }
+        ev.preventDefault(); // 阻止拖动途中的原生文本选择/图片拖拽
+        const x0 = Math.min(start.x, ev.clientX);
+        const x1 = Math.max(start.x, ev.clientX);
+        const y0 = Math.min(start.y, ev.clientY);
+        const y1 = Math.max(start.y, ev.clientY);
+        // 命中测试：条目客户区矩形与选框相交（边缘相触即算）；querySelectorAll 顺序即渲染顺序
+        const hits: string[] = [];
+        canvas.querySelectorAll<HTMLElement>('[data-fm-item]').forEach((el, i) => {
+          const r = el.getBoundingClientRect();
+          if (r.right < x0 || r.left > x1 || r.bottom < y0 || r.top > y1) return;
+          const p = el.dataset.fmItem;
+          if (p) {
+            hits.push(p);
+            bandLastHitRef.current = i;
+          }
+        });
+        applyHits(hits);
+        // 选框定位换算为画布内容坐标（含滚动偏移），画布滚动时不错位
+        const cr = canvas.getBoundingClientRect();
+        setBand({
+          left: x0 - cr.left + canvas.scrollLeft,
+          top: y0 - cr.top + canvas.scrollTop,
+          width: x1 - x0,
+          height: y1 - y0,
+        });
+      };
+
+      const finish = (cancel: boolean) => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('keydown', onKeyDown, true);
+        window.removeEventListener('blur', onBlur);
+        bandUpRef.current = null;
+        document.body.classList.remove('sp-fm-band-active');
+        if (bandDidDragRef.current) {
+          if (cancel) setSelected(start.base); // Esc：还原按下时的选中
+          else iconAnchor.current = bandLastHitRef.current; // 供随后 shift 连选延伸
+        }
+        bandStartRef.current = null;
+        setBand(null);
+      };
+      const onUp = () => finish(false);
+      const onBlur = () => finish(false); // 窗口失焦（如 alt-tab）时收尾，保留当前框选结果
+      const onKeyDown = (ev: KeyboardEvent) => {
+        // 仅真正拖动中的 Escape 归框选所有（取消并还原）；未激活时放行给其它处理器
+        if (ev.key === 'Escape' && bandDidDragRef.current) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          finish(true);
+        }
+      };
+      bandUpRef.current = onUp;
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('keydown', onKeyDown, true);
+      window.addEventListener('blur', onBlur);
+    },
+    [selected]
+  );
+
   /** 图标视图右键：命中条目则即时改选并构建条目菜单，空白处构建目录菜单（preventDefault 使 ContextualMenuTarget 静默） */
   const handleIconsContextMenu = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
@@ -1287,8 +1411,15 @@ export function FinderBrowser({
           ) : viewMode === 'icons' ? (
             // 图标视图：大图标 + 下方名称（参考图 Workspace）；单击选择、双击打开
             <div
+              ref={iconsRef}
               className="sp-fm-icons"
+              onMouseDown={handleIconsMouseDown}
               onClick={(e) => {
+                // 吞掉拖拽框选结束后跟随的那次画布 click，避免清空刚框出的选中
+                if (bandDidDragRef.current) {
+                  bandDidDragRef.current = false;
+                  return;
+                }
                 if ((e.target as HTMLElement).closest('[data-fm-item]')) return;
                 setSelected([]);
                 iconAnchor.current = -1;
@@ -1314,6 +1445,13 @@ export function FinderBrowser({
                   <span className="sp-fm-icon-label">{entry.name}</span>
                 </div>
               ))}
+              {/* 拖拽框选矩形（绝对定位于画布内容坐标，不拦截鼠标） */}
+              {band && (
+                <div
+                  className="sp-fm-band"
+                  style={{ left: band.left, top: band.top, width: band.width, height: band.height }}
+                />
+              )}
             </div>
           ) : (
             // 列表视图：名称/大小/修改时间/种类，目录行内联展开（双击/回车进目录）

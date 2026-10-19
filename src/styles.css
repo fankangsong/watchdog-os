@@ -360,7 +360,12 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-fm-fav-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 图标视图（默认）：大图标 + 下方名称（参考图 Workspace），单元格网格排布 */
-.sp-fm-icons { flex: 1 1 auto; min-height: 0; overflow: auto; box-sizing: border-box; display: flex; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; gap: 8px 4px; padding: 12px 10px; }
+/* position:relative 供拖拽框选矩形绝对定位；名称标签属界面文本，不参与原生选择 */
+.sp-fm-icons { position: relative; user-select: none; flex: 1 1 auto; min-height: 0; overflow: auto; box-sizing: border-box; display: flex; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; gap: 8px 4px; padding: 12px 10px; }
+/* 拖拽框选矩形（rubber band）：经典 Finder 的行军蚁式点线框 + 轻量填充，不拦截鼠标 */
+.sp-fm-band { position: absolute; z-index: 2; pointer-events: none; border: 1px dotted var(--color-system-07); background: rgba(32, 32, 32, 0.12); box-sizing: border-box; }
+/* 框选进行中：全局十字光标 + 禁原生选择，提示正在画选框 */
+body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important; user-select: none !important; }
 .sp-fm-icon { width: 92px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; }
 .sp-fm-icon img { width: 32px; height: 32px; image-rendering: pixelated; flex: 0 0 auto; }
 .sp-fm-icon-label { max-width: 100%; font-size: 12px; line-height: 1.25; text-align: center; word-break: break-word; padding: 0 2px; }

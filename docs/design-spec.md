@@ -30,7 +30,7 @@
 
 ### 0.3 设计原则（按优先级排序）
 
-1. **一致性优先于个性**：新应用必须在窗口结构、控件选用、反馈方式上与既有 9 个应用（Monitor / Docker / Terminal / Disk / Editor / Runner / Printer / Chat / imcolin）保持一致。用户在一个应用里学到的操作方式，必须能迁移到所有其他应用。
+1. **一致性优先于个性**：新应用必须在窗口结构、控件选用、反馈方式上与既有 9 个应用（Monitor / Docker / Terminal / Macintosh HD / Editor / Runner / Printer / Chat / imcolin）保持一致。用户在一个应用里学到的操作方式，必须能迁移到所有其他应用。
 2. **桌面隐喻与 WIMP**：一切皆窗口与对象；操作为「选择对象 → 对对象执行命令」（菜单 / 工具栏 / 右键菜单三条等价路径）。
 3. **状态可见**：系统在做什么、刚刚做完了什么、出了什么问题，必须能在窗口内直接看到（状态栏、进度、错误文本），不靠弹窗轰炸。
 4. **宽容而非阻断**：破坏性操作必须可确认、可取消；输入错误给出明确原因；网络失败保留上次正常数据并提示。
@@ -120,7 +120,7 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
 - 有标准文本输入的应用用 `useClassicyEditMenu(idPrefix)`；操作对象不是文本框（CodeMirror、终端、文件选择）才自建 Edit 组。
 - 帮助项（快捷键说明、使用提示）经 `useClassicyHelpMenu(appId, useMemo(items))` 注册，**不自建 Help 菜单**。
 - 快捷键在菜单项上声明；浏览器/终端本地拦截的项标 `nativeShortcut: true` 并按需 `disabled`。
-- **classicy 菜单渲染两条必修项**（Disk 实战教训，2026-10）：
+- **classicy 菜单渲染两条必修项**（Macintosh HD（原 Disk）实战教训，2026-10）：
   1. **勾选列一致性**：classicy 仅对 `checked !== undefined` 的项渲染 15px 勾选列——同一菜单内混用会导致标题左起点不齐（无勾选列项左移 21px）。含 `checked` 项的菜单必须给**所有**项显式声明 `checked`（不可用切换项写 `checked: false`）；无任何 checked 项的菜单则全部不声明。
   2. **菜单不折行**：classicy 菜单项默认 `flex-wrap: wrap`，下拉宽度受顶级项宽度约束（仅 `min-width: 180px` 兜底），长标题/快捷键超出即折行——Mac 菜单从不折行、只应变宽。按菜单项 id 前缀覆盖：`li[id^="<前缀>-"] { flex-wrap: nowrap } li[id^="<前缀>-"] > p { white-space: nowrap }`。
   3. **快捷键须真实绑定**：classicy 的 `keyboardShortcut` 仅作展示、不自动生效（不同于 TerminalApp 的 `nativeShortcut` 浏览器拦截）。菜单声明了快捷键的应用必须自建 `keydown` 监听执行同一动作，并跳过输入框/编辑器焦点（避免劫持打字）。
@@ -210,7 +210,7 @@ onBeforeClose={async () => (dirty ? await confirmDiscard() : true)}
 /* 高度链前提：禁窗口级滚动 + ContentsInner 钉为 flex column（见 §4.1） */
 #<win> > .classicyWindowContents { overflow: hidden; }
 #<win> .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
-/* ① 容器带（共享类 .sp-toolbar，Disk / WatchDog OS 已在用）：浅灰底 + 1px 分隔线，
+/* ① 容器带（共享类 .sp-toolbar，Macintosh HD / WatchDog OS 已在用）：浅灰底 + 1px 分隔线，
       全宽，高 ~32px，不参与滚动；右端状态可加 .sp-toolbar-status（margin-left:auto） */
 .sp-toolbar {
   flex: 0 0 auto;
