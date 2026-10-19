@@ -376,6 +376,13 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     }
   }, [handleLogout]);
 
+  // 就绪后自动拉取一次会话列表：sessions 窗口常驻渲染树，app 打开时 classicy 会把所有
+  // 已注册窗口置为可见（见 AGENTS.md 注意事项 11），首屏即能看到列表窗——若不主动加载，
+  // 窗口会一直停在「No sessions」空态，直到用户从菜单重开才触发 loadSessions。
+  useEffect(() => {
+    if (state === 'ready') void loadSessions();
+  }, [state, loadSessions]);
+
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || streaming || historyLoading || state !== 'ready') return;
