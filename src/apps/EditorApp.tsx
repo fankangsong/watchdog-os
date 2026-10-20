@@ -433,7 +433,11 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
             <ClassicySplitView direction="horizontal" defaultSizes={[55, 45]} minPaneSize={200} className="sp-editor-body">
               {editorNode}
               <div className="sp-editor-preview">
-                {isMd ? <MarkdownPreview source={content} /> : <pre className="sp-editor-plain">{content}</pre>}
+                {isMd ? (
+                  <MarkdownPreview source={content} docPath={path || undefined} />
+                ) : (
+                  <pre className="sp-editor-plain">{content}</pre>
+                )}
               </div>
             </ClassicySplitView>
           ) : (

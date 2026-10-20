@@ -1795,7 +1795,7 @@ function PreviewWindow({
             </div>
           ) : isMd && !source ? (
             <div className="sp-fm-preview-body sp-fm-md">
-              <MarkdownPreview source={state.content} />
+              <MarkdownPreview source={state.content} docPath={entry.path} />
             </div>
           ) : (
             <div className="sp-fm-preview-body sp-fm-code">
