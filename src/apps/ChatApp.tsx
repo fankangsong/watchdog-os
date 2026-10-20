@@ -173,6 +173,48 @@ function closeRunning(steps: ToolStep[], status: 'done' | 'error'): ToolStep[] {
   );
 }
 
+/** 一次后台流式运行的完整记录（runsRef 注册表的一项） */
+interface ChatRun {
+  /** 注册表键：sessionId；新会话未关联服务端前为 `tmp:<bubbleId>` 临时键 */
+  key: string;
+  /** 服务端会话 ID，onSessionId 到达后回填并重映射 key */
+  sessionId: string | null;
+  userBubble: ChatBubble;
+  /** 流式期间持续累积的 AI 气泡快照（content/reasoning/tools/tool/error） */
+  aiBubble: ChatBubble;
+  controller: AbortController;
+  running: boolean;
+  /** 等待态起点时间戳（null=正文已到，非等待态） */
+  thinkStart: number | null;
+  thinkTool: string;
+}
+
+/**
+ * 切回会话时合并 run 记录与服务端历史：
+ * - 运行中：追加本地气泡并保留 run（流式回调继续定点 patch 视图）
+ * - 已完成且服务端已含该轮：服务端版本为准，丢弃 run
+ * - 已完成但 transcript 写入延迟：先展示本地完整轮次并消费 run，下次切换 refetch 自然对齐
+ */
+function reconcileRun(
+  bubbles: ChatBubble[],
+  run: ChatRun | null,
+  sessionId: string,
+  registry: Map<string, ChatRun>,
+  bump: () => void
+): ChatBubble[] {
+  if (!run) return bubbles;
+  const userIdx = bubbles.findIndex(
+    (b) => b.role === 'user' && b.content.trim() === run.userBubble.content.trim()
+  );
+  if (run.running) {
+    // user 气泡已被 hermes 写入 transcript 时只追加 AI 气泡，避免重复
+    return userIdx >= 0 ? [...bubbles, run.aiBubble] : [...bubbles, run.userBubble, run.aiBubble];
+  }
+  registry.delete(sessionId);
+  bump();
+  return userIdx >= 0 ? bubbles : [...bubbles, run.userBubble, run.aiBubble];
+}
+
 /** 工具调用时间线：折叠列表，每步显示名称+状态+耗时，可展开入参/结果详情 */
 function ToolTimeline({ steps, live }: { steps: ToolStep[]; live: boolean }) {
   const running = steps.some((s) => s.status === 'running');
@@ -274,16 +316,42 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [alert, setAlert] = useState<ChatAlert | null>(null);
   const [input, setInput] = useState('');
-  const [streaming, setStreaming] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  // 后台流式运行注册表：key 为 sessionId（新会话未关联前为 `tmp:<bubbleId>` 临时键）。
+  // 流式增量永远写入 run 快照；仅当该会话正被查看时才同步写 messages 视图——
+  // 切换会话因此不中断流（不再 abort），切回时由 reconcileRun 合并恢复。
+  const runsRef = useRef(new Map<string, ChatRun>());
+  const [runsVersion, setRunsVersion] = useState(0);
+  const bumpRuns = useCallback(() => setRunsVersion((v) => v + 1), []);
+  // currentId 镜像：流式回调据此判断「run 所属会话是否正被查看」（避免闭包读到旧 state）
+  const currentIdRef = useRef<string | null>(null);
+  const applyCurrentId = useCallback((id: string | null) => {
+    currentIdRef.current = id;
+    setCurrentId(id);
+  }, []);
+  // 新会话（currentId=null）视图跟随的临时 run key（send 时设置；切换/认领时更新或清空）
+  const [viewRunKey, setViewRunKey] = useState<string | null>(null);
+  const viewRunKeyRef = useRef<string | null>(null);
+  const applyViewRunKey = useCallback((key: string | null) => {
+    viewRunKeyRef.current = key;
+    setViewRunKey(key);
+  }, []);
   // 历史加载竞态序号：快速连续切换会话时丢弃过期响应
   const loadSeqRef = useRef(0);
-  // 等待态：请求已发出但尚无可见正文时，在 assistant 气泡内显示「思考中」块
-  // thinkStart 为等待起点时间戳（null=非等待态）；thinkSec 为秒表显示值
-  const [activeAiId, setActiveAiId] = useState<string | null>(null);
-  const [thinkStart, setThinkStart] = useState<number | null>(null);
+  // 等待态秒表显示值（等待起点存于 run.thinkStart，这里只存每秒 tick）
   const [thinkSec, setThinkSec] = useState(0);
-  const [thinkTool, setThinkTool] = useState('');
+
+  // 当前查看会话对应的运行记录（currentId 优先，未关联会话回退临时键）
+  const currentRun = useMemo(() => {
+    void runsVersion; // run 注册/结束/删除时 bump，驱动此处重算
+    const key = currentId ?? viewRunKey;
+    return key ? (runsRef.current.get(key) ?? null) : null;
+  }, [currentId, viewRunKey, runsVersion]);
+
+  // 视图实时状态全部派生自 currentRun：切走会话天然复位，切回运行中会话天然恢复
+  const streaming = currentRun?.running ?? false;
+  const activeAiId = currentRun?.aiBubble.id ?? null;
+  const thinkStart = currentRun?.thinkStart ?? null;
+  const thinkTool = currentRun?.thinkTool ?? '';
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
   // 消息输入为标准 textarea，编辑命令由 classicy 作用于最后聚焦的文本框
@@ -359,9 +427,9 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   }, []);
 
-  /** 拉取服务端会话列表（打开窗口 / Refresh / 新会话首次发送后静默刷新共用） */
-  const loadSessions = useCallback(async () => {
-    setSessionsLoading(true);
+  /** 拉取服务端会话列表（打开窗口 / Refresh / 新会话首次发送后静默刷新共用）；silent 时不闪 Loading */
+  const loadSessions = useCallback(async (silent = false) => {
+    if (!silent) setSessionsLoading(true);
     setSessionsError(null);
     try {
       setServerSessions(await fetchChatSessions(50));
@@ -385,7 +453,10 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
 
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming || historyLoading || state !== 'ready') return;
+    // 仅「当前查看会话已有运行中的流」时禁止重复发送；其他会话的后台流不受影响（并行收发）
+    const viewKey = currentId ?? viewRunKey;
+    if (!text || historyLoading || state !== 'ready') return;
+    if (viewKey && runsRef.current.get(viewKey)?.running) return;
 
     // 组装 API 消息：错误气泡与空回复不进入上下文
     const apiMessages: ChatMessage[] = [
@@ -399,57 +470,71 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
 
     setMessages((prev) => [...prev, userBubble, aiBubble]);
     setInput('');
-    setStreaming(true);
-    // 进入等待态：显示「思考中 · 已用 Ns」直到首条正文到达
-    setActiveAiId(aiBubble.id);
-    setThinkStart(Date.now());
-    setThinkSec(0);
-    setThinkTool('');
+
+    // 注册后台运行：新会话（未关联）用临时键，onSessionId 到达后重映射到真实 sessionId
     const ac = new AbortController();
-    abortRef.current = ac;
+    const isTemp = currentId === null;
+    const key = isTemp ? `tmp:${aiBubble.id}` : currentId;
+    const run: ChatRun = {
+      key,
+      sessionId: isTemp ? null : currentId,
+      userBubble,
+      aiBubble,
+      controller: ac,
+      running: true,
+      // 进入等待态：显示「思考中 · 已用 Ns」直到首条正文到达
+      thinkStart: Date.now(),
+      thinkTool: '',
+    };
+    runsRef.current.set(key, run);
+    if (isTemp) applyViewRunKey(key);
+    bumpRuns();
 
-    const update = (patch: Partial<ChatBubble>) =>
-      setMessages((prev) => prev.map((b) => (b.id === aiBubble.id ? { ...b, ...patch } : b)));
+    // 双写：增量永远累积进 run 快照；仅当该会话正被查看时才同步进 messages 视图
+    const aiId = aiBubble.id;
+    const isLive = () => (currentIdRef.current ?? viewRunKeyRef.current) === run.key;
+    const commit = (patch: Partial<ChatBubble>) => {
+      run.aiBubble = { ...run.aiBubble, ...patch };
+      if (isLive()) setMessages((prev) => prev.map((b) => (b.id === aiId ? { ...b, ...patch } : b)));
+    };
 
-    // 是否已收到首条正文 delta（到达后结束等待态，后续 tool.progress 回退到气泡内小状态行）
-    let gotContent = false;
-
-    // 本轮工具时间线（闭包累积，经 commitTools 写回气泡）
+    // 本轮工具时间线（闭包累积，经 commit 写回气泡与 run 快照）
     let tools: ToolStep[] = [];
-    const commitTools = () => update({ tools: [...tools] });
 
     await streamChat({
       messages: apiMessages,
       signal: ac.signal,
       // 已关联服务端会话则带上会话头，让 hermes 记入同一 transcript
-      sessionId: currentId ?? undefined,
-      // 首次发送：从响应头关联服务端会话并静默刷新列表
+      sessionId: run.sessionId ?? undefined,
+      // 首次发送：从响应头关联服务端会话；重映射注册表键。用户仍停留在发起视图
+      // 时才认领 currentId 并刷新列表，否则只静默重映射（不劫持已切换的会话）
       onSessionId: (sid) => {
-        setCurrentId((prev) => {
-          if (prev) return prev;
-          void loadSessions();
-          return sid;
-        });
+        if (run.sessionId === sid) return;
+        const followed = viewRunKeyRef.current === run.key;
+        runsRef.current.delete(run.key);
+        run.key = sid;
+        run.sessionId = sid;
+        runsRef.current.set(sid, run);
+        if (followed) {
+          applyViewRunKey(sid);
+          applyCurrentId(sid);
+          void loadSessions(true);
+        }
+        bumpRuns();
       },
       onDelta: (t) => {
-        if (!gotContent) {
-          gotContent = true;
-          setThinkStart(null);
-          setThinkTool('');
+        // 首条正文到达即结束等待态，后续 tool.progress 回退到气泡内小状态行
+        if (run.thinkStart !== null) {
+          run.thinkStart = null;
+          run.thinkTool = '';
         }
-        setMessages((prev) =>
-          prev.map((b) => (b.id === aiBubble.id ? { ...b, content: b.content + t } : b))
-        );
+        commit({ content: run.aiBubble.content + t });
       },
-      onReasoning: (t) =>
-        setMessages((prev) =>
-          prev.map((b) => (b.id === aiBubble.id ? { ...b, reasoning: (b.reasoning ?? '') + t } : b))
-        ),
+      onReasoning: (t) => commit({ reasoning: (run.aiBubble.reasoning ?? '') + t }),
       onToolProgress: (d) => {
         const label = toolLabel(d);
-        update({ tool: label });
         // 等待期（尚无正文）的工具进度提升到「思考中」块内展示
-        if (!gotContent) setThinkTool(label);
+        if (run.thinkStart !== null) run.thinkTool = label;
         // 并入时间线：真实协议经 SSE event: 行传输，data 含 toolCallId（同一调用的 running/completed 帧靠它合并）
         const status = stepStatus(d);
         const id = typeof d.toolCallId === 'string' && d.toolCallId ? d.toolCallId : undefined;
@@ -464,7 +549,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
           args: stringifyClip(pickStr(d, ['args', 'arguments', 'input', 'params'])),
           result: stringifyClip(pickStr(d, ['result', 'output', 'response', 'message'])),
         });
-        commitTools();
+        commit({ tool: label, tools: [...tools] });
       },
       onToolCall: (calls) => {
         const now = Date.now();
@@ -478,7 +563,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
             args: c.arguments || undefined,
           });
         }
-        commitTools();
+        commit({ tools: [...tools] });
       },
       onEvent: (d, evName) => {
         // 未知自定义事件兜底进时间线：类型优先取 data.type，回退到 SSE event: 行声明的 evName；
@@ -497,52 +582,54 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
           result: stringifyClip(pickStr(d, ['result', 'output', 'response', 'message'])),
           detail: stringifyClip(d),
         });
-        commitTools();
+        commit({ tools: [...tools] });
       },
       onDone: () => {
         tools = closeRunning(tools, 'done');
-        commitTools();
-        update({ tool: undefined });
+        commit({ tool: undefined, tools: [...tools] });
+        run.running = false;
+        // 查看中：视图已是最终态，直接消费 run；后台结束的 run 保留，待切回时 reconcileRun 对齐服务端
+        if (isLive()) runsRef.current.delete(run.key);
+        bumpRuns();
+        void loadSessions(true); // 静默刷新列表的 updatedAt / messageCount
       },
       onError: (e) => {
         tools = closeRunning(tools, 'error');
-        commitTools();
-        update({ tool: undefined, error: e.message });
+        commit({ tool: undefined, error: e.message, tools: [...tools] });
+        run.running = false;
+        if (isLive()) runsRef.current.delete(run.key);
+        bumpRuns();
+        void loadSessions(true);
       },
     });
-    // 流结束（[DONE] / 出错 / 主动停止）统一兜底清理等待态，不残留「思考中」
-    setStreaming(false);
-    setThinkStart(null);
-    setThinkTool('');
-    setActiveAiId(null);
-    abortRef.current = null;
-  }, [input, messages, streaming, historyLoading, currentId, state, loadSessions]);
+  }, [input, messages, historyLoading, currentId, viewRunKey, state, loadSessions, applyCurrentId, applyViewRunKey, bumpRuns]);
 
+  /** 停止按钮：只中止当前查看会话的运行；其他会话的后台流不受影响 */
   const stop = useCallback(() => {
-    abortRef.current?.abort();
+    const k = currentIdRef.current ?? viewRunKeyRef.current;
+    const r = k ? runsRef.current.get(k) : undefined;
+    if (r?.running) r.controller.abort(); // AbortError 由 api 层转为 onDone 正常收尾
   }, []);
 
-  /** 切换会话：流式中自动 stop（abort 保留部分回复）；拉取服务端历史替换视图，每次切回都重新拉取（服务端为准） */
+  /**
+   * 切换会话：不中断后台流（运行中的 run 继续接收 SSE，hermes transcript 完整）；
+   * 拉取服务端历史替换视图，有 run 记录时经 reconcileRun 合并（服务端为准 + 本地实时气泡）。
+   */
   const switchSession = useCallback(
     async (id: string) => {
-      if (id === currentId) return;
-      abortRef.current?.abort();
+      if (id === currentIdRef.current) return;
+      applyViewRunKey(null); // 未关联会话的临时视图跟随结束（后台 run 不受影响）
       const seq = ++loadSeqRef.current;
-      setCurrentId(id);
+      applyCurrentId(id);
       setMessages([]);
       setHistoryLoading(true);
       setInput('');
-      // 复位所有等待态/瞬态（对齐流结束的兜底清单）
-      setStreaming(false);
-      setActiveAiId(null);
-      setThinkStart(null);
-      setThinkSec(0);
-      setThinkTool('');
       stickRef.current = true;
+      const run = runsRef.current.get(id) ?? null;
       try {
         const bubbles = (await fetchChatSessionMessages(id)).map<ChatBubble>((b) => ({ ...b, id: uid() }));
         if (loadSeqRef.current !== seq) return; // 已被更新的切换覆盖
-        setMessages(bubbles);
+        setMessages(reconcileRun(bubbles, run, id, runsRef.current, bumpRuns));
       } catch (e) {
         if (loadSeqRef.current !== seq) return;
         if (e instanceof Unauthorized) {
@@ -555,26 +642,22 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
           message: e instanceof Error ? e.message : String(e),
           buttons: [{ id: 'ok', label: 'OK', role: 'default' }],
         });
-        setCurrentId(null); // 会话可能已被删除等 → 回到空会话
+        applyCurrentId(null); // 会话可能已被删除等 → 回到空会话
       } finally {
         if (loadSeqRef.current === seq) setHistoryLoading(false);
       }
     },
-    [currentId, handleLogout]
+    [applyCurrentId, applyViewRunKey, bumpRuns, handleLogout]
   );
 
+  /** 新会话：只切换视图，不中断后台运行（原会话的流继续接收，完成后可从列表切回） */
   const newSession = useCallback(() => {
-    abortRef.current?.abort();
-    setCurrentId(null);
+    applyCurrentId(null);
+    applyViewRunKey(null);
     setMessages([]);
     setInput('');
-    setStreaming(false);
-    setActiveAiId(null);
-    setThinkStart(null);
-    setThinkSec(0);
-    setThinkTool('');
     stickRef.current = true;
-  }, []);
+  }, [applyCurrentId, applyViewRunKey]);
 
   /** 打开会话列表窗口：Open + Focus 双发，保证重开已关闭窗口时置顶聚焦；每次打开都刷新列表 */
   const openSessionList = useCallback(() => {
@@ -591,15 +674,20 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     void loadSessions();
   }, [loadSessions, sessionsPos]);
 
-  /** 确认后删除服务端会话；删除当前会话时中断流并回到空会话 */
+  /** 确认后删除服务端会话；该会话有运行中的流则一并中止；删除当前会话时回到空会话 */
   const doDelete = useCallback(
     async (s: HermesSession) => {
       try {
         await deleteChatSession(s.id);
         setServerSessions((prev) => prev.filter((x) => x.id !== s.id));
-        if (s.id === currentId) {
-          abortRef.current?.abort();
-          setCurrentId(null);
+        const run = runsRef.current.get(s.id);
+        if (run) {
+          if (run.running) run.controller.abort();
+          runsRef.current.delete(s.id);
+          bumpRuns();
+        }
+        if (s.id === currentIdRef.current) {
+          applyCurrentId(null);
           setMessages([]);
         }
       } catch (e) {
@@ -615,7 +703,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
         });
       }
     },
-    [currentId, handleLogout]
+    [applyCurrentId, bumpRuns, handleLogout]
   );
 
   /** 行内删除图标：弹确认框（确认后 doDelete） */
@@ -642,10 +730,29 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     }
   };
 
-  // 会话列表列定义（静态，仅一次）；末列为行内删除图标（点击不触发行选中）
+  // 有流式运行中的会话集合（驱动列表「运行中」图标；runsVersion 变化时重算）
+  const runningIds = useMemo(() => {
+    const s = new Set<string>();
+    runsRef.current.forEach((r) => {
+      if (r.running && r.sessionId) s.add(r.sessionId);
+    });
+    return s;
+  }, [runsVersion]);
+
+  // 会话列表列定义；Title 列带「运行中」脉冲圆点，末列为行内删除图标（点击不触发行选中）
   const sessionColumns = useMemo<ClassicyTableColumn<HermesSession>[]>(
     () => [
-      { id: 'title', title: 'Title', accessor: (s) => s.title },
+      {
+        id: 'title',
+        title: 'Title',
+        accessor: (s) => s.title,
+        render: (s) => (
+          <span className="sp-chat-session-title">
+            {runningIds.has(s.id) && <span className="sp-chat-run-dot" />}
+            {s.title}
+          </span>
+        ),
+      },
       {
         id: 'count',
         title: 'Messages',
@@ -683,7 +790,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
         ),
       },
     ],
-    [requestDelete]
+    [requestDelete, runningIds]
   );
 
   const appMenu = useMemo(
@@ -831,7 +938,8 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
                         {thinkTool && <div className="sp-chat-thinking-tool">{thinkTool}</div>}
                       </div>
                     ) : (
-                      streaming && <span className="sp-chat-cursor">▌</span>
+                      // 流式光标仅属于当前运行中的 AI 气泡：历史中断轮次留下的空气泡不显示
+                      streaming && b.id === activeAiId && <span className="sp-chat-cursor">▌</span>
                     )}
                   </div>
                 </div>

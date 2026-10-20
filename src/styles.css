@@ -560,6 +560,11 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-chat-session-del img { width: 14px; height: 14px; vertical-align: middle; }
 .sp-chat-session-del:hover { filter: brightness(0.75); }
 .sp-chat-session-del:active { filter: brightness(0.6); }
+/* 会话列表「运行中」标识：流式进行中的会话在 Title 前显示脉冲小圆点 */
+.sp-chat-session-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.sp-chat-run-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #4c68d8; animation: sp-chat-pulse 1s ease-in-out infinite; }
+@keyframes sp-chat-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sp-chat-run-dot { animation: none; opacity: 0.85; } }
 
 /* ---------- 桌面图标"已打开"态修正 ----------
    classicy 默认在应用窗口打开后把桌面图标渲染为轮廓棋盘网纹（图标本体 opacity:0 +
