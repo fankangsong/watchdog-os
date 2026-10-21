@@ -602,6 +602,8 @@ export interface ChatHistoryBubble {
   role: 'user' | 'assistant';
   content: string;
   reasoning?: string;
+  /** 消息时间（ms，提取失败为 0；hermes 字段官方未详述，按候选键容错） */
+  at: number;
 }
 
 /* --- 宽松字段提取工具（hermes 响应 JSON 结构官方文档未详述，按候选键容错）--- */
@@ -662,6 +664,18 @@ const SESSION_UPDATED_KEYS = [
   'createdAt',
 ];
 
+/** 消息时间候选键（hermes 消息字段官方未详述，宽松容错；提取不到为 0，前端不显示时间） */
+const MESSAGE_TIME_KEYS = [
+  'created_at',
+  'createdAt',
+  'timestamp',
+  'ts',
+  'time',
+  'sent_at',
+  'date',
+  'updated_at',
+];
+
 /** 消息 content 容错提取：string 直用；blocks 数组拼接各块 .text；对象取 .text/.body */
 function pickContent(m: Record<string, unknown>): string {
   const c = m.content ?? m.text ?? m.body;
@@ -708,7 +722,7 @@ function adaptSessionMessages(raw: unknown): ChatHistoryBubble[] {
     const content = pickContent(m);
     const reasoning = pickStr(m, ['reasoning_content', 'reasoning', 'thinking']);
     if (!content && !reasoning) continue;
-    out.push({ role, content, reasoning: reasoning || undefined });
+    out.push({ role, content, reasoning: reasoning || undefined, at: pickTime(m, MESSAGE_TIME_KEYS) });
   }
   return out.slice(-200);
 }
@@ -731,3 +745,45 @@ export async function fetchChatSessionMessages(id: string): Promise<ChatHistoryB
 export async function deleteChatSession(id: string): Promise<void> {
   await request<unknown>(`./api/chat/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+/* ---------- Usage Dashboard（大模型余额/配额，/api/usage/*）---------- */
+
+/** DeepSeek 余额（上游官方 /user/balance 响应原样透传） */
+export interface DeepseekBalance {
+  is_available: boolean;
+  balance_infos: Array<{ currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }>;
+}
+
+/** ZAI Coding 套餐配额（上游 quota/limit 响应原样透传，字段容错解析放前端） */
+export interface ZaiQuota {
+  code?: number;
+  success?: boolean;
+  /** 业务失败文案（上游 HTTP 200 但 success=false，如「当前用户不存在coding plan」） */
+  msg?: string;
+  data?: {
+    level?: string;
+    limits?: Array<{ type: string; percentage?: number; usage?: number; currentValue?: number; remaining?: number }>;
+  };
+}
+
+/** 用量接口结果：503（未启用/未配置）标记 disabled，供前端区分「未配置」与「服务异常」 */
+export type UsageResult<T> = { ok: true; data: T } | { ok: false; error: string; disabled?: boolean };
+
+async function fetchUsage<T>(path: string): Promise<UsageResult<T>> {
+  try {
+    const r = await fetch(path);
+    if (r.status === 401) throw new Unauthorized();
+    const body = (await r.json().catch(() => null)) as (T & { error?: string }) | null;
+    if (!r.ok) {
+      const err = body && typeof body.error === 'string' ? body.error : `HTTP ${r.status}`;
+      return { ok: false, error: err, disabled: r.status === 503 };
+    }
+    return { ok: true, data: body as T };
+  } catch (e) {
+    if (e instanceof Unauthorized) throw e; // 冒泡给调用方走统一登出
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export const fetchDeepseekUsage = () => fetchUsage<DeepseekBalance>('./api/usage/deepseek');
+export const fetchZaiUsage = () => fetchUsage<ZaiQuota>('./api/usage/zai');

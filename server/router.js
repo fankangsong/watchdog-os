@@ -17,6 +17,7 @@ const { serveFile, serveIndex, servePwaFile } = require('./static');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
+const { getDeepseekUsage, getZaiUsage } = require('./api/usage');
 const { fsRoute } = require('./api/fs');
 const { prefsRoute } = require('./api/prefs');
 
@@ -252,6 +253,16 @@ async function route(req, res, url) {
       return send(res, 404, { error: 'not found' });
     }
     return send(res, 404, { error: 'not found' });
+  }
+
+  /* ---- 大模型用量 Dashboard 代理（余额/配额，统一 JWT 鉴权）---- */
+  if (p === '/api/usage/deepseek' || p === '/api/usage/zai') {
+    if (!checkAuth(req)) {
+      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+    }
+    if (!cfg.usage.enabled) return send(res, 503, { error: 'Usage dashboard disabled' });
+    if (req.method !== 'GET') return send(res, 404, { error: 'not found' });
+    return p === '/api/usage/deepseek' ? getDeepseekUsage(req, res) : getZaiUsage(req, res);
   }
 
   /* ---- 静态页面 ---- */

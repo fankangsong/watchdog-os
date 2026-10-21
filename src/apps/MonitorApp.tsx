@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { ClassicyApp, ClassicyButton, ClassicyIcons, ClassicyPopUpMenu, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
-import { fetchMetrics, fetchProcesses, logout, Unauthorized } from '../api';
-import { usePolling } from '../hooks/usePolling';
+import { logout, Unauthorized } from '../api';
+import { monitorPoll } from '../polls';
+import { useSharedPoll } from '../sharedPoll';
 import { SystemInfoPanel } from '../components/SystemInfoPanel';
 import { ResourcesPanel } from '../components/ResourcesPanel';
 import { ProcessPanel } from '../components/ProcessPanel';
@@ -14,13 +15,13 @@ const INTERVALS = [1, 2, 5, 10, 30];
 
 // 窗口1：系统信息 + 资源使用率 + 系统进程
 export function MonitorApp({ onLogout }: { onLogout: () => void }) {
-  const [intervalSec, setIntervalSec] = useState(5);
-  const [paused, setPaused] = useState(false);
-
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.applications.systemProfiler.app);
 
-  const metricsPoll = usePolling(fetchMetrics, intervalSec * 1000, !paused);
-  const procsPoll = usePolling(fetchProcesses, intervalSec * 1000, !paused);
+  // 页面级共享轮询（monitorPoll）：退出应用 / 关闭窗口不再停止（docs/tasks.md），
+  // 因此文档标题登录即更新、重开窗口即有最新数据。
+  const poll = useSharedPoll(monitorPoll);
+  const m = poll.data?.metrics ?? null;
+  const procs = poll.data?.processes ?? null;
 
   const handleLogout = useCallback(async () => {
     try {
@@ -33,10 +34,10 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
 
   // 会话失效（401）→ 回到登录
   useEffect(() => {
-    if (metricsPoll.error instanceof Unauthorized || procsPoll.error instanceof Unauthorized) {
+    if (poll.error instanceof Unauthorized) {
       handleLogout();
     }
-  }, [metricsPoll.error, procsPoll.error, handleLogout]);
+  }, [poll.error, handleLogout]);
 
   const appMenu = useMemo(
     () => [
@@ -53,11 +54,8 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
     [aboutMenuItem]
   );
 
-  const m = metricsPoll.data;
-
   // 文档标题同步主机名：metrics 就绪后为「WatchDog OS · <主机名>」，否则保持产品名。
   // 主机名只来自已鉴权的 /api/metrics，未登录阶段（LoginApp）不暴露。
-  // MonitorApp 常驻挂载于桌面，轮询不受窗口开闭影响，标题因此登录即更新。
   useEffect(() => {
     document.title = m ? `${APP_NAME} · ${m.host.hostname}` : APP_NAME;
   }, [m]);
@@ -87,17 +85,17 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
             labelPosition="left"
             size="small"
             options={INTERVALS.map((s) => ({ value: String(s), label: `${s}s` }))}
-            selected={String(intervalSec)}
-            onChangeFunc={(e) => setIntervalSec(parseInt(e.target.value, 10))}
+            selected={String(poll.intervalMs / 1000)}
+            onChangeFunc={(e) => monitorPoll.setIntervalMs(parseInt(e.target.value, 10) * 1000)}
           />
-          <ClassicyButton onClickFunc={() => setPaused((p) => !p)}>
-            {paused ? 'Resume' : 'Pause'}
+          <ClassicyButton onClickFunc={() => monitorPoll.setPaused(!poll.paused)}>
+            {poll.paused ? 'Resume' : 'Pause'}
           </ClassicyButton>
-          <ClassicyButton onClickFunc={() => { metricsPoll.reload(); procsPoll.reload(); }}>
+          <ClassicyButton onClickFunc={() => monitorPoll.reload()}>
             Refresh Now
           </ClassicyButton>
           {/* 右端状态（规则 9）：暂停指示 */}
-          <span className="sp-pulse sp-toolbar-status" hidden={!paused}>Paused</span>
+          <span className="sp-pulse sp-toolbar-status" hidden={!poll.paused}>Paused</span>
         </div>
 
         <div className="sp-monitor-scroll">
@@ -115,7 +113,7 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
           </div>
 
           <div className="sp-block">
-            <ProcessPanel processes={procsPoll.data} />
+            <ProcessPanel processes={procs} />
           </div>
         </div>
       </ClassicyWindow>
@@ -123,4 +121,3 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
     </ClassicyApp>
   );
 }
-

@@ -116,6 +116,20 @@ const cfg = {
     model: envStr('HERMES_MODEL', 'hermes-agent'), // 客户端未指定 model 时注入
     timeoutMs: envInt('HERMES_TIMEOUT_MS', 300000), // agent 执行工具可能很久
   },
+  // 大模型用量 Dashboard（余额/配额，/api/usage/* 代理；key 只存服务端，不回传前端）
+  usage: {
+    enabled: envBool('USAGE_ENABLED', false),
+    deepseekKey: envStr('DEEPSEEK_API_KEY', ''), // DeepSeek 上游 Bearer（留空经 SSH 从 Mac hermes 配置读取）
+    deepseekBaseUrl: envStr('DEEPSEEK_BASE_URL', ''), // 留空 = hermes 配置值优先，否则官方 https://api.deepseek.com
+    zaiKey: envStr('ZAI_API_KEY', ''), // 智谱 Coding 套餐 Key（与标准 API Key 不通用）
+    zaiBaseUrl: envStr('ZAI_BASE_URL', 'https://open.bigmodel.cn'), // 国际站改 https://api.z.ai
+    // 两个 key 留空时的兜底：SSH 读 Mac 上 ~/.hermes/.env（mac 为 ~/.ssh/config 的免密别名；grep 只取所需键名）
+    sshCmd: envStr(
+      'USAGE_SSH_CMD',
+      'ssh -o BatchMode=yes -o ConnectTimeout=5 mac "grep -E \'^(DEEPSEEK_API_KEY|DEEPSEEK_BASE_URL|GLM_API_KEY|ZAI_API_KEY)=\' ~/.hermes/.env"'
+    ),
+    timeoutMs: envInt('USAGE_TIMEOUT_MS', 15000),
+  },
 };
 
 /* 访问密码 fail-fast：无内置默认口令，必须显式配置。

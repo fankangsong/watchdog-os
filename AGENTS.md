@@ -23,6 +23,8 @@ node test/test-runner-api.js        # Runner API 冒烟测试（自起自停 ser
 node test/test-chat-api.js          # Hermes 聊天代理 API 冒烟测试（自起 mock 上游）
 node test/test-chat-sessions-api.js # Hermes 会话 API 冒烟测试
 node test/test-terminal-ws.js [port]# 终端链路验证（直连 ttyd 端口：/token、WS 握手、ttyd 帧协议、输入回显；零依赖，默认 7681）
+node test/test-favorites-store.mjs   # 收藏夹 store 竞态回归（esbuild 转译 TS + mock fetch；esbuild 缺失时 SKIP）
+node test/test-shared-poll.mjs       # 页面级共享轮询回归（同上；覆盖零订阅者续轮/暂停/401 重启/慢接口防叠加）
 # 以下两个连接「已在运行的服务」，需带 PASSWORD 环境变量
 $env:PASSWORD='<访问密码>'; node test/test-smoke.js       # 端到端冒烟（默认 BASE_HOST=http://localhost:3000）
 $env:PASSWORD='<访问密码>'; node test/test-basepath.js    # basePath 子路径冒烟（默认 BASE_HOST=http://localhost:3001）
@@ -88,6 +90,7 @@ node server/index.js
 | Runner   | `RUNNER_ENABLED` / `RUNNER_SCRIPT`（必配绝对路径）/ `RUNNER_SHELL` / `RUNNER_MAX_LOG_BYTES`                                    | `false` / `''` / `bash` / `5242880`                                              |
 | 打印机   | `PRINTER_ENABLED` / `PRINTER_INTERVAL` / `PRINTER_HISTORY_LIMIT`                                                               | `true` / `10000` / `200`                                                         |
 | Hermes   | `HERMES_ENABLED` / `HERMES_BASE_URL` / `HERMES_API_KEY` / `HERMES_API_SERVER_KEY` / `HERMES_MODEL` / `HERMES_TIMEOUT_MS`       | `false` / `http://192.168.100.20:8642` / `''` / `''` / `hermes-agent` / `300000` |
+| 用量     | `USAGE_ENABLED` / `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `ZAI_API_KEY` / `ZAI_BASE_URL` / `USAGE_SSH_CMD` / `USAGE_TIMEOUT_MS`  | `false` / `''`（留空经 SSH 读 Mac hermes 配置）/ `''`（hermes 配置值优先，默认官方）/ `''` / `https://open.bigmodel.cn` / `ssh … mac "grep … ~/.hermes/.env"` / `15000` |
 
 > `JWT_SECRET` 可用 `openssl rand -hex 32` 生成。**密钥与密码是两个独立秘密**：不要用密码派生密钥（旧实现下任意一个泄露的 token 都能离线反推密码），也不要复用同一字符串。换密钥等价于让所有人重新登录；改密码则不会影响已签发的 token。
 
@@ -176,7 +179,16 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - 前端 `RunnerApp`：状态区（Idle/Running/上次结果）+ Build/Stop 按钮 + 等宽日志区；轮询间隔运行中 2s、空闲 10s，新日志自动滚底
 - ⚠️ `build.sh` 含 `git push` 与 COS 上传等真实发布动作，Windows 本机验证 UI 时不要点击 Build
 
-### Macintosh HD（文件管理器）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`）
+### 轮询架构（页面级共享轮询：src/sharedPoll.ts + src/polls.ts）
+
+- **背景（docs/tasks.md 已修复的问题）**：`/api/metrics`、`/api/processes`、`/api/docker`、`/api/printer` 的轮询原挂在各 App 组件内（`usePolling`），生命周期受 classicy 窗口 / 应用开关影响（「APP 退出就不再轮询」）；且 MonitorApp / DockerApp 的源码注释对「窗口关闭后是否续轮」各说不一，属于未验证的臆断。现收敛为**模块级单例 store**，与 `favoritesStore` 同一模式（模块状态 + `useSyncExternalStore` 订阅），生命周期等同页面
+- `createSharedPoll(fetcher, { intervalMs })`（sharedPoll.ts）：订阅即启动并立即首拉；**最后一个订阅者退出不停止**（退出 App / 关闭窗口 / 组件卸载均不中断，重开即有最新数据）；`setPaused` 暂停（停定时器、保留数据，Resume 恢复并立即拉一次）；`setIntervalMs` 改间隔（重启定时器并立即拉一次）；`reload()` 立即刷新（暂停中 no-op）；慢接口保护（上一次未返回则跳过本轮，不叠加请求）；快照对象无变更时引用稳定（`useSyncExternalStore` 契约）
+- **401 自愈**：轮询抓到 `Unauthorized` 即停止（避免 401 风暴）并记入 `error`（各 App 的 401 → 登出逻辑不变）；重新登录后桌面重建、新订阅进来自动重置并重启
+- `src/polls.ts` 单例：`monitorPoll`（metrics + processes 合并为一次轮询内的顺序两个请求，同一节奏）、`dockerPoll`、`printerPoll`；RunnerApp 的构建状态轮询保持组件级 `usePolling`（手动触发型界面，退出即停无妨）
+- 回归测试 `node test/test-shared-poll.mjs`（零订阅者续轮 / 立即首拉 / 暂停恢复 / 改间隔 / 401 停止与重启 / 慢接口防叠加 / 快照稳定性 / reload 语义 / 端点接线）
+- ⚠️ classicy 0.79 实测（读 dist 源码）：`ClassicyDesktop` 无条件渲染全部 App 子组件，`ClassicyApp` 仅在 `open` 时渲染其窗口子树——即「关窗口 / 退应用」本就不卸载 App 组件本身；共享 store 化之后该行为不再是轮询连续性的依赖项，后续换 classicy 版本或改桌面装配都不会 reintroduce 该问题
+
+### Macintosh HD（文件管理器）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`)
 
 - 后端 `server/api/fs.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`copy`（POST `{ path, dir }` 递归复制文件/目录：同名**不覆盖**，按 Finder 惯例自动追加 ` copy` / ` copy 2` 后缀——扩展名前插入；目标目录位于源目录内部（含自身）时 400 防递归；根目录禁止复制；符号链接按链接本身复制，Windows 无权限时回退复制目标内容；失败清理半截副本）、`favorites`（GET/PUT，持久化到用户目录 `~/.watchdog-os/data.json`——与项目目录解耦，同步脚本/重部署不丢收藏；经 `server/lib/userdata.js` 合并写：保留文件内其它键，临时文件 + rename 原子写）
 - 安全约定：所有路径经 `path.resolve` 规范化并校验在允许根内（`FS_ROOTS` 环境变量可覆盖，默认 Windows 为项目盘符 + C 盘、POSIX 为 `/`）；根目录禁止删除/重命名/复制；文件名清洗只取 basename
@@ -188,7 +200,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
   - 快捷键经 window keydown 真实绑定（classicy 的 `keyboardShortcut` 仅作展示）：焦点在输入框/编辑器时放行，不劫持对话框内打字
   - 图标视图**拖拽框选**（rubber band，`handleIconsMouseDown`）：画布任意位置左键拖动超过 4px 即框选与矩形相交（含边缘相触）的条目；修饰键语义与单击一致——plain 整体替换、⇧ 在按下时的选中上**追加**、⌘/Ctrl 以按下时的选中为基座**取反**；Esc 取消并还原，窗口失焦收尾（保留结果）；选框 `.sp-fm-band` 绝对定位于画布内容坐标（含滚动偏移），命中测试取条目 `data-fm-item` 的客户区矩形，每帧结果与上次相同则跳过 setState；拖拽结束后尾随的那次画布 click 由 `bandDidDragRef` 吞掉，避免清空刚框出的选中（list 视图多选走 ClassicyTable 自身，无框选）。⚠️ 修饰键分支曾把 ⇧ 误实现为取反（与 ⌘ 同分支），表现是 shift 加选反而只留框选交集——用真实浏览器（Playwright 合成鼠标事件 + 页面侧 capture 埋点）定位
   - 上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
-  - 收藏夹：`src/favoritesStore.ts` 外部 store（`useSyncExternalStore` 订阅，经 `/api/fs/favorites` 持久化到 `~/.watchdog-os/data.json`，多窗口共享）。添加入口三处：右键文件夹条目（Add / Remove from Favorites）、右键空白处（当前目录）、工具栏 Favorites 按钮；菜单栏 Go 之后有 Favorites 菜单组（Open Favorites + 收藏路径列表 + Add/Remove Current Folder）。浏览主体抽为 `src/apps/FinderBrowser.tsx`（按 `winId` + `initialPath` 多实例）：`FinderApp` 持主窗口（`fm-main`）、收藏夹列表窗口（`fm-favorites`，ClassicyTable，双击/Open 新开文件夹窗口）与收藏目标文件夹窗口注册表（`folderWinId(path)` 按路径生成 id，同路径复用仅聚焦）
+  - 收藏夹：`src/favoritesStore.ts` 外部 store（`useSyncExternalStore` 订阅，经 `/api/fs/favorites` 持久化到 `~/.watchdog-os/data.json`，多窗口共享）。添加入口三处：右键文件夹条目（Add / Remove from Favorites）、右键空白处（当前目录）、工具栏 Favorites 按钮；菜单栏 Go 之后有 Favorites 菜单组（Open Favorites + 收藏路径列表 + Add/Remove Current Folder）。⚠️ 曾出现「添加 B 覆盖了刚添加的 A」（docs/tasks.md）：服务端 favorites 是**全量替换**语义，而旧 store 的变更既不与首次加载互等、提交也不串行、过期 GET 响应还会后落地覆盖新状态。现所有变更先进串行队列、队列内 `await ensureLoaded()` 后基于最新状态计算 next（加载失败则原样报错，不盲写），加载响应带世代号防过期覆盖；回归测试 `node test/test-favorites-store.mjs`。浏览主体抽为 `src/apps/FinderBrowser.tsx`（按 `winId` + `initialPath` 多实例）：`FinderApp` 持主窗口（`fm-main`）、收藏夹列表窗口（`fm-favorites`，ClassicyTable，双击/Open 新开文件夹窗口）与收藏目标文件夹窗口注册表（`folderWinId(path)` 按路径生成 id，同路径复用仅聚焦）
 - 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify），主题/字号/字体偏好存 localStorage；View 菜单的 Word Wrap / Show Preview 经 `GET/PUT /api/prefs/editor` 持久化到服务端（挂载拉取 + 变更推送；本地已变更时本地胜出；升级时以旧 localStorage 值为初始值自动迁移），未保存关闭有 `onBeforeClose` veto 确认
 - 用户偏好 API（`server/api/prefs.js` 的 `GET/PUT /api/prefs/editor`，统一 `checkAuth` 401 优先）：Editor 视图偏好落盘 `~/.watchdog-os/data.json` 的 `editor` 键（经 `lib/userdata.js` 合并写，与 favorites 键互不覆盖）。GET 仅返回白名单布尔键（`wordWrap`/`showPreview`，未设置的键不出现）；PUT 为**部分合并**语义（区别于 favorites 的全量替换）：请求体 `{ editor: { … } }` 经布尔白名单清洗后与磁盘现有值合并，未传字段不丢；非法/超大 body（>64KB）400，未知路径/方法 404
 - 跨应用联动：`src/editorBridge.ts` 的 `openInEditor(path)` —— 记录 pendingPath + dispatch `ClassicyAppOpen`/`ClassicyWindowOpen` + DOM 事件双通道（挂载消费 pending、已挂载走事件），避免竞态
@@ -203,6 +215,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - 前端 `ChatApp.tsx`（混合模式）：**发送**走 completions（无状态协议，全量重传 messages，`streamChat` 带 `sessionId` 请求头 / `onSessionId` 消费响应头——首次发送后关联 `currentId`）；**会话列表/历史**以服务端为准（`fetchChatSessions` / `fetchChatSessionMessages` + 容错适配器，hermes 响应字段官方未详述，按候选键宽松提取，仅保留 user/assistant 消息）。`currentId=null` 表示未关联的新会话；切换会话每次都重新拉取服务端历史（`loadSeqRef` 序号防乱序）；本地**不做持久化**（挂载时一次性清理旧版 `watchdog-chat-history` / `watchdog-chat-sessions` / `watchdog-chat-session:*` key）
 - 会话列表窗口 `chat-sessions`：常驻渲染树 + dispatch Open/Focus 显隐；四态（Loading / error+Retry / empty / ClassicyTable）；Refresh / Delete… 工具栏（删除走 ClassicyAlert caution 确认，删除当前会话回空会话）；单击行切换、双击/Enter 切换并关窗
 - ⚠️ 带会话请求头理论上可能造成 hermes 上下文重复（transcript 注入 + 全量重传）：若实测发现重复，回退方式为前端 `streamChat` 不传 `sessionId`（代理双向透传保留，无需改后端）
+- **聊天内容支持选中复制**：classicy 桌面容器全局 `user-select:none`（`.classicyDesktop`），`styles.css` 在 `.sp-chat-list, .sp-chat-list *` 显式放开消息区文本选择（折叠区 summary 自身 `user-select:none` 特异性更高，保留防误选；选区高亮沿用 classicy 全局 `::selection` theme-02）。复制三路等价——**键盘 ⌘C**（`nativeShortcut`，浏览器原生处理选区，无需拦截）、**Edit 菜单 Copy**（经 `ChatApp.tsx` 的 `editMenu` 包装）、**右键 Copy**（`onListContextMenu` + `useClassicyContextualMenu` 自建单项菜单；classicy 窗口 `onContextMenu` 会 `preventDefault` 吞掉原生右键菜单且本窗口未传 `contextMenu`，故右键原本无任何反馈；无选区不弹菜单，对齐 Finder 收藏夹模式）。后两路共用 `chatSelectionText()`——消息区内有选区时直接复制，**不抢焦点**（classicy 默认实现会先把焦点移回最后操作的文本框，破坏消息区选区）；Edit 菜单 Copy 无选区时回落默认行为（聚焦输入框复制）
 
 ### HEIC 转换器（ConverterApp：浏览器端 HEIC → JPEG）
 
@@ -346,6 +359,9 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - PWA：`node test/test-pwa.js` 全部 PASS（自起 server，`BASE_PATH=/tkp`，覆盖 manifest 字段/相对 scope/SW 占位符替换/图标尺寸/缓存头/穿越防护；未先 `npm run build` 时 SKIP）
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
 - 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（401/默认读取/单字段 PUT/合并语义/布尔白名单/400/落盘 `~/.watchdog-os/data.json`/与 favorites 键互不破坏等 17 项；测试前后快照恢复真实 data.json，零残留）。
+- 收藏夹 store 竞态：`node test/test-favorites-store.mjs` 全部 PASS（8 项：加载响应晚于提交 / 未加载即变更 / 并发添加乱序 / 加载失败不破坏性盲写 / 正常增删切换回归；经 esbuild 转译真实 TS store + mock fetch 驱动，esbuild 缺失时 SKIP）。
+- 页面级共享轮询：`node test/test-shared-poll.mjs` 全部 PASS（16 项：零订阅者续轮 / 订阅即首拉 / 暂停恢复 / 改间隔 / 401 停止与重登重启 / 慢接口防叠加 / 快照引用稳定 / reload 语义 / polls.ts 端点接线）。
+- 用量 Dashboard：`node test/test-usage-api.js` 全部 PASS（401 / 503 未启用 / key 未配置 503 / 200 转发透传 / 上游 401→502 / key 留空时经 USAGE_SSH_CMD 读取 hermes 配置并作为上游 Bearer；自起 mock 上游）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。
 - 桌面图标：改桌面应用（新增/改名/换图标）或触碰 `Desktop.tsx` 的图标清理逻辑后，用浏览器实测 `document.querySelectorAll('.classicyDesktopIcon')` 的数量与 `id`（`id` 即 appId），确认没有多余图标（如 classicy 示例的 `Finder.app.shortcut`）。
 - HEIC 转换器（Converter）：heic-to 的 WASM 解码依赖 blob Worker，**Node 冒烟测不了，必须真实浏览器**。一次性验证法（Playwright，用完 `npm uninstall -D playwright`，勿入库）：`npm i -D playwright && npx playwright install chromium`，起服务（`PASSWORD/JWT_SECRET/PORT/FS_ROOTS=<样本目录>`，注意项目 `.env` 的 `BASE_PATH` 会生效，基址要带子路径），无头 Chromium 走「登录 → 双击桌面图标开 Converter → 双击根目录行进样本目录 → Shift 连选 HEIC 行 → Convert… → 等状态栏 Converted N」，然后断言磁盘产物（解析 JPEG SOF 帧宽高；含 EXIF 方向用例）。样本可用 pillow-heif 生成（`venv + pip install pillow-heif`，`register_heif_opener()` 后才能 `save('.heic')`）。

@@ -510,10 +510,32 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-md-preview hr { border: none; border-top: 1px solid rgba(0, 0, 0, 0.2); }
 
 /* ---------- 聊天（Hermes 代理） ---------- */
-.sp-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.sp-chat { display: flex; height: 100%; min-height: 0; }
+/* 会话侧栏：New Chat 按钮 + 无表头标题列表（与对话区合并进主窗口） */
+.sp-chat-side { flex: 0 0 176px; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #ece9e2; border-right: 1px solid rgba(0, 0, 0, 0.2); min-height: 0; }
+.sp-chat-new { display: flex; }
+.sp-chat-new button { flex: 1 1 auto; }
+.sp-chat-sess { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.sp-chat-sess-row { display: flex; align-items: center; gap: 4px; padding: 4px 6px; cursor: pointer; font-size: 12px; border-radius: 2px; }
+.sp-chat-sess-row:hover { background: rgba(0, 0, 0, 0.08); }
+.sp-chat-sess-row.on { background: #c9d4ee; }
+.sp-chat-sess-title { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-chat-sess-del { display: none; flex: none; border: none; background: transparent; padding: 0 2px; cursor: pointer; line-height: 0; }
+.sp-chat-sess-row:hover .sp-chat-sess-del { display: inline-block; }
+.sp-chat-sess-del:hover { filter: brightness(0.75); }
+.sp-chat-sess-del:active { filter: brightness(0.6); }
+.sp-chat-sess-del img { width: 12px; height: 12px; vertical-align: middle; }
+.sp-chat-sess-empty { color: #777; font-size: 12px; padding: 8px 4px; text-align: center; }
+/* 对话区（右栏）：沿用原有 list + input 纵向布局 */
+.sp-chat-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .sp-chat-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; background: rgba(255, 255, 255, 0.55); border: 1px solid rgba(0, 0, 0, 0.2); }
-.sp-chat-row { display: flex; }
-.sp-chat-row.user { justify-content: flex-end; }
+/* 聊天内容支持选中复制：classicy 桌面容器全局 user-select:none（.classicyDesktop），
+   消息区显式放开。折叠区 summary（推理过程/工具调用）自身声明了 user-select:none
+   且特异性更高，保留防误选；选区高亮沿用 classicy 全局 ::selection（theme-02） */
+.sp-chat-list, .sp-chat-list * { -webkit-user-select: text; user-select: text; }
+.sp-chat-row { display: flex; flex-direction: column; }
+.sp-chat-row.user { align-items: flex-end; }
+.sp-chat-time { font-size: 10px; color: #888; padding: 0 2px 1px; }
 .sp-chat-bubble { max-width: 82%; min-width: 0; box-sizing: border-box; border: 1px solid rgba(0, 0, 0, 0.35); box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.12); padding: 5px 10px; font-size: 13px; line-height: 1.6; overflow-wrap: break-word; }
 .sp-chat-bubble.user { background: #ccccff; }
 .sp-chat-bubble.assistant { background: #fff; }
@@ -555,16 +577,32 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 /* 会话列表窗口 */
 .sp-chat-sessions { height: 100%; box-sizing: border-box; overflow: auto; }
 .sp-chat-sessions-empty { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; color: #777; font-size: 13px; }
-/* 行内删除图标（表格操作列）：无边框透明按钮，悬停高亮 */
-.sp-chat-session-del { border: none; background: transparent; padding: 0 2px; cursor: pointer; line-height: 0; }
-.sp-chat-session-del img { width: 14px; height: 14px; vertical-align: middle; }
-.sp-chat-session-del:hover { filter: brightness(0.75); }
-.sp-chat-session-del:active { filter: brightness(0.6); }
 /* 会话列表「运行中」标识：流式进行中的会话在 Title 前显示脉冲小圆点 */
-.sp-chat-session-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .sp-chat-run-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #4c68d8; animation: sp-chat-pulse 1s ease-in-out infinite; }
 @keyframes sp-chat-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .sp-chat-run-dot { animation: none; opacity: 0.85; } }
+/* ---------- 用量 Dashboard（Usage 窗口：provider 余额/配额卡片） ---------- */
+.sp-usage { height: 100%; box-sizing: border-box; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.sp-usage-toolbar { display: flex; align-items: center; gap: 8px; }
+.sp-usage-updated { font-size: 11px; color: #777; }
+.sp-usage-card { border: 1px solid rgba(0, 0, 0, 0.25); background: #fff; box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.sp-usage-provider { font-weight: bold; font-size: 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.15); padding-bottom: 3px; margin-bottom: 2px; }
+.sp-usage-state { font-size: 12px; color: #777; padding: 2px 0; }
+.sp-usage-state.err { color: #c00; }
+.sp-usage-avail { font-size: 11px; }
+.sp-usage-avail.ok { color: #2a7a2a; }
+.sp-usage-avail.bad { color: #c00; }
+.sp-usage-balance-line { display: flex; align-items: baseline; gap: 8px; }
+.sp-usage-currency { font-size: 11px; color: #555; }
+.sp-usage-total { font-size: 16px; font-weight: bold; }
+.sp-usage-sub { font-size: 10px; color: #888; }
+.sp-usage-level { align-self: flex-start; font-size: 10px; text-transform: uppercase; background: #c9d4ee; padding: 0 6px; border-radius: 2px; }
+.sp-usage-quota { display: flex; flex-direction: column; gap: 2px; }
+.sp-usage-quota-label { display: flex; justify-content: space-between; font-size: 11px; color: #444; }
+.sp-usage-bar { height: 8px; border: 1px solid rgba(0, 0, 0, 0.3); background: rgba(0, 0, 0, 0.05); }
+.sp-usage-bar-fill { height: 100%; background: #4c68d8; }
+.sp-usage-bar-fill.warm { background: #c68a2e; }
+.sp-usage-bar-fill.hot { background: #c03030; }
 
 /* ---------- 桌面图标"已打开"态修正 ----------
    classicy 默认在应用窗口打开后把桌面图标渲染为轮廓棋盘网纹（图标本体 opacity:0 +

@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from 'react';
 import { ClassicyApp, ClassicyControlGroup, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
-import { fetchDocker, Unauthorized } from '../api';
-import { usePolling } from '../hooks/usePolling';
+import { Unauthorized } from '../api';
+import { dockerPoll } from '../polls';
+import { useSharedPoll } from '../sharedPoll';
 import { DockerTable } from '../components/DockerTable';
 import { quitMenuItem } from '../quitMenuItem';
 // ⚠️ 必须用 ?no-inline（仅 ?url 不够，它不绕过 assetsInlineLimit）让 Vite 输出独立文件 URL，
@@ -13,9 +14,9 @@ const APP_NAME = 'Docker';
 /** 应用图标：自绘 SVG（蓝鲸驮集装箱），见 src/assets/icons/docker.svg */
 const ICON = dockerIcon;
 
-// 窗口2：Docker 容器列表（仅窗口打开时轮询）
+// 窗口2：Docker 容器列表（页面级共享轮询，退出应用不中断——docs/tasks.md）
 export function DockerApp({ onLogout }: { onLogout?: () => void }) {
-  const poll = usePolling(fetchDocker, 5000);
+  const poll = useSharedPoll(dockerPoll);
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 

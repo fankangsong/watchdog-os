@@ -1,25 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
   ClassicyAlert,
   ClassicyApp,
   ClassicyButton,
   ClassicyIcons,
-  ClassicyTable,
   ClassicyWindow,
-  dispatch,
   useClassicyAboutMenu,
+  useClassicyContextualMenu,
   useClassicyEditMenu,
 } from 'classicy';
-import type { ClassicyTableColumn } from 'classicy';
+import type { ClassicyMenuItem } from 'classicy';
 import {
   deleteChatSession,
   fetchChatSessionMessages,
   fetchChatSessions,
   fetchChatStatus,
+  fetchDeepseekUsage,
+  fetchZaiUsage,
   streamChat,
   Unauthorized,
   type ChatMessage,
+  type DeepseekBalance,
   type HermesSession,
+  type ZaiQuota,
 } from '../api';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 import { quitMenuItem } from '../quitMenuItem';
@@ -39,6 +43,8 @@ interface ChatBubble {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /** 消息时间（ms；本地发送取当下，历史来自服务端字段容错提取，缺省不显示） */
+  at?: number;
   /** 推理内容（reasoning_content 增量累积），折叠展示 */
   reasoning?: string;
   /** 工具执行进度状态行（流式期间展示，结束清除） */
@@ -173,6 +179,14 @@ function closeRunning(steps: ToolStep[], status: 'done' | 'error'): ToolStep[] {
   );
 }
 
+/** 消息时间显示：当天只显时分，跨天带日期（YYYY-MM-DD HH:mm） */
+function fmtChatTime(at: number): string {
+  const d = new Date(at);
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (d.toDateString() === new Date().toDateString()) return hm;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${hm}`;
+}
+
 /** 一次后台流式运行的完整记录（runsRef 注册表的一项） */
 interface ChatRun {
   /** 注册表键：sessionId；新会话未关联服务端前为 `tmp:<bubbleId>` 临时键 */
@@ -267,33 +281,89 @@ function ToolTimeline({ steps, live }: { steps: ToolStep[]; live: boolean }) {
   );
 }
 
-/**
- * 会话列表窗口的初始位置：主窗口居中，列表窗优先摆其左侧（构成「列表 + 对话」布局）。
- * 视口放不下时逐级降级，任何落点都保证列表窗至少有约 200px 宽度露在主窗口之外——
- * 否则列表窗（440×320）会被更大的主窗口（620×520）完全盖住，看起来就像「没有打开」。
- */
-function sessionsWindowPosition(): [number, number] {
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const mainW = 620;
-  const mainH = 520;
-  const sessW = 440;
-  const sessH = 320;
-  const EDGE = 8; // 贴视口边缘留白
-  const GAP = 16; // 与主窗口的间距
-  const MIN_VISIBLE = 200; // 部分重叠时至少露出的宽度
-  const mainX = Math.max(0, (vw - mainW) / 2);
-  const mainY = Math.max(30, (vh - mainH) / 2);
-  // 1) 主窗口左侧完整放下（宽屏首选）
-  if (mainX - sessW - GAP >= EDGE) return [Math.round(mainX - sessW - GAP), Math.round(mainY)];
-  // 2) 主窗口右侧完整放下
-  if (mainX + mainW + GAP + sessW <= vw - EDGE) return [Math.round(mainX + mainW + GAP), Math.round(mainY)];
-  // 3) 贴视口左缘、与主窗口顶对齐（左半区可见宽度足够）
-  if (mainX - EDGE >= MIN_VISIBLE) return [EDGE, Math.round(mainY)];
-  // 4) 贴视口右缘同理
-  if (vw - EDGE - (mainX + mainW) >= MIN_VISIBLE) return [Math.round(vw - EDGE - sessW), Math.round(mainY)];
-  // 5) 兜底（极窄视口）：主窗口左下层叠，标题栏错开保证两窗都能被看到
-  return [EDGE, Math.round(Math.min(mainY + 64, Math.max(30, vh - sessH - EDGE)))];
+
+/** 用量卡片三态：loading / error（含未配置降级）/ ok */
+interface UsageCard<T> {
+  status: 'loading' | 'ok' | 'error';
+  data?: T;
+  error?: string;
+  disabled?: boolean;
+}
+
+/** 用量卡片通用状态行（loading / error 态；ok 态返回 null 由各卡片自渲染） */
+function UsageState({ state }: { state: UsageCard<unknown> }) {
+  if (state.status === 'loading') return <div className="sp-usage-state">Loading…</div>;
+  if (state.status === 'error') {
+    return <div className="sp-usage-state err">{state.disabled ? 'Not configured' : state.error}</div>;
+  }
+  return null;
+}
+
+/** DeepSeek 余额卡片内容（ok 态）：状态灯 + 多币种余额（总/赠金/充值） */
+function UsageDeepseekCard({ state }: { state: UsageCard<DeepseekBalance> }) {
+  // 非 ok 态交给 UsageState 渲染（loading / error / 未配置）；ok 态才渲染余额
+  if (state.status !== 'ok') return <UsageState state={state} />;
+  const d = state.data;
+  if (!d) return null;
+  return (
+    <>
+      <div className={`sp-usage-avail ${d.is_available ? 'ok' : 'bad'}`}>
+        {d.is_available ? 'Available' : 'Insufficient balance'}
+      </div>
+      {(d.balance_infos ?? []).map((b) => (
+        <div key={b.currency} className="sp-usage-balance">
+          <div className="sp-usage-balance-line">
+            <span className="sp-usage-currency">{b.currency}</span>
+            <span className="sp-usage-total">{b.total_balance}</span>
+          </div>
+          <div className="sp-usage-sub">
+            Granted {b.granted_balance} · Topped up {b.topped_up_balance}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** ZAI 配额卡片内容（ok 态）：Coding 套餐无货币余额，以 5h/周/月配额余量呈现 */
+function UsageZaiCard({ state }: { state: UsageCard<ZaiQuota> }) {
+  // 同上：非 ok 态交 UsageState；ok 态（含上游 success=false）才走配额/文案渲染
+  if (state.status !== 'ok') return <UsageState state={state} />;
+  const q = state.data;
+  if (q && q.success === false) {
+    // 上游 HTTP 200 但业务失败（如「当前用户不存在coding plan」——Key 是标准 API 而非 Coding 套餐）
+    return <div className="sp-usage-state err">{q.msg || 'Upstream error'}</div>;
+  }
+  const limits = q?.data?.limits ?? [];
+  const tokens = limits.filter((l) => l.type === 'TOKENS_LIMIT');
+  const time = limits.find((l) => l.type === 'TIME_LIMIT');
+  const level = state.data?.data?.level;
+  const rows: Array<{ label: string; pct?: number }> = [
+    { label: '5h window', pct: tokens[0]?.percentage },
+    { label: 'Weekly', pct: tokens[1]?.percentage },
+    { label: 'Monthly tools', pct: time?.percentage },
+  ];
+  const shown = rows.filter((r) => typeof r.pct === 'number');
+  return (
+    <>
+      {level && <div className="sp-usage-level">{level}</div>}
+      {shown.map((r) => (
+        <div key={r.label} className="sp-usage-quota">
+          <div className="sp-usage-quota-label">
+            <span>{r.label}</span>
+            <span>{r.pct}%</span>
+          </div>
+          <div className="sp-usage-bar">
+            <div
+              className={`sp-usage-bar-fill${(r.pct ?? 0) >= 95 ? ' hot' : (r.pct ?? 0) >= 80 ? ' warm' : ''}`}
+              style={{ width: `${Math.min(100, Math.max(0, r.pct ?? 0))}%` }}
+            />
+          </div>
+        </div>
+      ))}
+      {shown.length === 0 && <div className="sp-usage-state">No quota data</div>}
+    </>
+  );
 }
 
 /**
@@ -339,6 +409,11 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
   const loadSeqRef = useRef(0);
   // 等待态秒表显示值（等待起点存于 run.thinkStart，这里只存每秒 tick）
   const [thinkSec, setThinkSec] = useState(0);
+  // 用量 Dashboard：窗口条件渲染 + 两张卡片各自三态（互不影响）
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [dsUsage, setDsUsage] = useState<UsageCard<DeepseekBalance>>({ status: 'loading' });
+  const [zaiUsage, setZaiUsage] = useState<UsageCard<ZaiQuota>>({ status: 'loading' });
+  const [usageAt, setUsageAt] = useState(0);
 
   // 当前查看会话对应的运行记录（currentId 优先，未关联会话回退临时键）
   const currentRun = useMemo(() => {
@@ -356,12 +431,81 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
   // 消息输入为标准 textarea，编辑命令由 classicy 作用于最后聚焦的文本框
   const editMenuItem = useClassicyEditMenu('chat');
-  // 会话列表窗口初始位置（挂载时算一次；窗口注册后位置由用户拖动接管）
-  const sessionsPos = useMemo(sessionsWindowPosition, []);
+  const { showContextMenu } = useClassicyContextualMenu();
 
   // 自动滚动：用户上滚（离底超过阈值）时暂停拉底，回到底部附近自动恢复
   const listRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+
+  // 聊天内容支持选中复制（classicy 桌面容器全局 user-select:none，消息区经 styles.css 放开）：
+  // - 键盘 ⌘C 为 nativeShortcut，浏览器原生复制选区，无需拦截；
+  // - Edit 菜单 Copy 与右键 Copy 共用 chatSelectionText——消息区内有选区时直接复制，
+  //   **不抢焦点**（classicy 默认实现会先把焦点移回最后操作的文本框，破坏消息区选区）；
+  // - 无选区时 Edit 菜单 Copy 回落 classicy 默认行为（聚焦输入框复制）。
+  /** 取消息区内的文本选区（无选区或选区不全在消息区时返回 null） */
+  const chatSelectionText = useCallback((): string | null => {
+    const sel = window.getSelection();
+    const el = listRef.current;
+    const inList = (n: Node | null) => !!n && !!el && el.contains(n);
+    if (!sel || sel.isCollapsed || !inList(sel.anchorNode) || !inList(sel.focusNode)) return null;
+    return sel.toString();
+  }, []);
+
+  const editMenu = useMemo(() => {
+    const children = (editMenuItem.menuChildren ?? []).map((m) => {
+      if (m.id !== 'chat_copy') return m;
+      const fallback = m.onClickFunc; // classicy 默认：聚焦最后聚焦的文本框后 execCommand('copy')
+      return {
+        ...m,
+        onClickFunc: () => {
+          const text = chatSelectionText();
+          if (text === null) {
+            fallback?.();
+            return;
+          }
+          // 剪贴板 API 失败时选区仍在，execCommand 可兜底
+          if (navigator.clipboard?.writeText) {
+            void navigator.clipboard.writeText(text).catch(() => document.execCommand('copy'));
+          } else {
+            document.execCommand('copy');
+          }
+        },
+      };
+    });
+    return { ...editMenuItem, menuChildren: children };
+  }, [editMenuItem, chatSelectionText]);
+
+  // 消息区右键 Copy：classicy 窗口 onContextMenu 会 preventDefault 吞掉浏览器原生菜单，
+  // 且本窗口未传 contextMenu（窗口级菜单为空）——自建单项菜单补上复制入口。
+  // preventDefault 同时经 classicy 的 defaultPrevented 早退抑制窗口级菜单，互不干扰。
+  const listContextMenu = useMemo<ClassicyMenuItem[]>(
+    () => [
+      {
+        id: 'chat-cm-copy',
+        title: 'Copy',
+        keyboardShortcut: '⌘C',
+        onClickFunc: () => {
+          const text = chatSelectionText();
+          if (text === null) return;
+          if (navigator.clipboard?.writeText) {
+            void navigator.clipboard.writeText(text).catch(() => document.execCommand('copy'));
+          } else {
+            document.execCommand('copy');
+          }
+        },
+      },
+    ],
+    [chatSelectionText]
+  );
+
+  const onListContextMenu = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      if (!chatSelectionText()) return; // 无选区不弹菜单（对齐 Finder 收藏夹模式）
+      showContextMenu(listContextMenu, [e.clientX, e.clientY]);
+    },
+    [chatSelectionText, listContextMenu, showContextMenu]
+  );
 
   const handleLogout = useCallback(() => onLogout?.(), [onLogout]);
 
@@ -465,8 +609,9 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
         .map((b) => ({ role: b.role, content: b.content }) as ChatMessage),
       { role: 'user', content: text },
     ];
-    const userBubble: ChatBubble = { id: uid(), role: 'user', content: text };
-    const aiBubble: ChatBubble = { id: uid(), role: 'assistant', content: '' };
+    const now = Date.now();
+    const userBubble: ChatBubble = { id: uid(), role: 'user', content: text, at: now };
+    const aiBubble: ChatBubble = { id: uid(), role: 'assistant', content: '', at: now };
 
     setMessages((prev) => [...prev, userBubble, aiBubble]);
     setInput('');
@@ -659,20 +804,33 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     stickRef.current = true;
   }, [applyCurrentId, applyViewRunKey]);
 
-  /** 打开会话列表窗口：Open + Focus 双发，保证重开已关闭窗口时置顶聚焦；每次打开都刷新列表 */
-  const openSessionList = useCallback(() => {
-    dispatch({
-      type: 'ClassicyWindowOpen',
-      app: { id: APP_ID },
-      window: { id: 'chat-sessions', minimumSize: [320, 220], size: [440, 320], position: sessionsPos },
-    });
-    dispatch({
-      type: 'ClassicyWindowFocus',
-      app: { id: APP_ID },
-      window: { id: 'chat-sessions' },
-    });
-    void loadSessions();
-  }, [loadSessions, sessionsPos]);
+  /** 用量 Dashboard：并发拉取两家平台，卡片互不影响；Unauthorized 冒泡走统一登出 */
+  const loadUsage = useCallback(async () => {
+    setUsageAt(Date.now());
+    setDsUsage((prev) => ({ ...prev, status: 'loading' }));
+    setZaiUsage((prev) => ({ ...prev, status: 'loading' }));
+    try {
+      const [ds, zai] = await Promise.all([fetchDeepseekUsage(), fetchZaiUsage()]);
+      setDsUsage(ds.ok ? { status: 'ok', data: ds.data } : { status: 'error', error: ds.error, disabled: ds.disabled });
+      setZaiUsage(zai.ok ? { status: 'ok', data: zai.data } : { status: 'error', error: zai.error, disabled: zai.disabled });
+    } catch (e) {
+      if (e instanceof Unauthorized) {
+        handleLogout();
+        return;
+      }
+      const msg = e instanceof Error ? e.message : String(e);
+      setDsUsage({ status: 'error', error: msg });
+      setZaiUsage({ status: 'error', error: msg });
+    }
+  }, [handleLogout]);
+
+  /** 菜单入口：打开 Usage 窗口并刷新（条件渲染窗口挂载即自动注册聚焦） */
+  const openUsage = useCallback(() => {
+    setUsageOpen(true);
+    void loadUsage();
+  }, [loadUsage]);
+
+
 
   /** 确认后删除服务端会话；该会话有运行中的流则一并中止；删除当前会话时回到空会话 */
   const doDelete = useCallback(
@@ -739,60 +897,6 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     return s;
   }, [runsVersion]);
 
-  // 会话列表列定义；Title 列带「运行中」脉冲圆点，末列为行内删除图标（点击不触发行选中）
-  const sessionColumns = useMemo<ClassicyTableColumn<HermesSession>[]>(
-    () => [
-      {
-        id: 'title',
-        title: 'Title',
-        accessor: (s) => s.title,
-        render: (s) => (
-          <span className="sp-chat-session-title">
-            {runningIds.has(s.id) && <span className="sp-chat-run-dot" />}
-            {s.title}
-          </span>
-        ),
-      },
-      {
-        id: 'count',
-        title: 'Messages',
-        accessor: (s) => s.messageCount ?? Number.NaN,
-        width: 72,
-        align: 'right',
-        render: (s) => (s.messageCount == null ? '' : String(s.messageCount)),
-      },
-      {
-        id: 'updated',
-        title: 'Updated',
-        accessor: (s) => s.updatedAt,
-        width: 120,
-        render: (s) => (s.updatedAt > 0 ? new Date(s.updatedAt).toLocaleString() : ''),
-      },
-      {
-        id: 'actions',
-        title: '',
-        accessor: () => '',
-        width: 40,
-        sortable: false,
-        resizable: false,
-        render: (s) => (
-          <button
-            type="button"
-            className="sp-chat-session-del"
-            title="Delete session"
-            onClick={(e) => {
-              e.stopPropagation(); // 不触发行选中/切换
-              requestDelete(s);
-            }}
-          >
-            <img src={ClassicyIcons.system.desktop.trashEmpty} alt="" />
-          </button>
-        ),
-      },
-    ],
-    [requestDelete, runningIds]
-  );
-
   const appMenu = useMemo(
     () => [
       {
@@ -801,75 +905,20 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
         menuChildren: [
           aboutMenuItem,
           { id: 'spacer' },
+          { id: 'chat-m-usage', title: 'Dashboard…', onClickFunc: openUsage },
+          { id: 'spacer' },
           quitMenuItem(APP_ID, APP_NAME, ICON),
         ],
       },
-      editMenuItem,
-      {
-        id: 'chat-session',
-        title: 'Session',
-        menuChildren: [
-          { id: 'chat-m-list', title: 'Session List…', onClickFunc: openSessionList },
-          { id: 'chat-m-refresh', title: 'Refresh Sessions', onClickFunc: () => void loadSessions() },
-          { id: 'chat-m-new', title: 'New Session', onClickFunc: newSession },
-        ],
-      },
+      editMenu,
     ],
-    [aboutMenuItem, editMenuItem, newSession, openSessionList, loadSessions]
+    [aboutMenuItem, editMenu, openUsage]
   );
 
   return (
     <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="chat-main">
-      {/* 会话列表窗口：常驻渲染树（内容由 serverSessions/currentId 驱动），Open/Focus 控制显隐；
-          复用主 appMenu，聚焦列表窗口时菜单栏同样可用（Refresh Sessions 等）。
-          ⚠️ 必须放在主窗口之前：classicy 按挂载顺序注册窗口且「后注册者获得焦点」，
-          主窗口最后注册即持有启动焦点（与 defaultWindow 一致），列表窗不会抢焦点。 */}
-      <ClassicyWindow
-        id="chat-sessions"
-        title="Sessions"
-        icon={ICON}
-        appId={APP_ID}
-        resizable
-        closable
-        initialSize={[440, 320]}
-        initialPosition={sessionsPos}
-        minimumSize={[320, 220]}
-        appMenu={appMenu}
-      >
-        {sessionsLoading ? (
-          <div className="sp-chat-sessions-empty">Loading sessions…</div>
-        ) : sessionsError ? (
-          <div className="sp-chat-sessions-empty">
-            <div>
-              {sessionsError}
-              <br />
-              <ClassicyButton buttonSize="small" onClickFunc={() => void loadSessions()}>
-                Retry
-              </ClassicyButton>
-            </div>
-          </div>
-        ) : serverSessions.length === 0 ? (
-          <div className="sp-chat-sessions-empty">No sessions on the server yet.</div>
-        ) : (
-          <div className="sp-chat-sessions">
-            <ClassicyTable
-              columns={sessionColumns}
-              rows={serverSessions}
-              getRowId={(s) => s.id}
-              selectionMode="single"
-              selected={currentId ? [currentId] : []}
-              onSelectionChange={(ids) => {
-                if (ids[0]) void switchSession(ids[0]);
-              }}
-              onActivateRow={(id) => {
-                void switchSession(id);
-                dispatch({ type: 'ClassicyWindowClose', app: { id: APP_ID }, window: { id: 'chat-sessions' } });
-              }}
-              defaultSort={{ columnId: 'updated', desc: true }}
-            />
-          </div>
-        )}
-      </ClassicyWindow>
+      {/* 会话列表与对话合并进同一窗口：左侧会话侧栏 + 右侧对话区（classicy 0.79 的
+          「app 打开即显示所有已注册窗口」机制不再涉及第二个窗口，无抢焦点问题）。 */}
       <ClassicyWindow
         id="chat-main"
         title={APP_NAME}
@@ -879,9 +928,9 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
         zoomable
         collapsable
         closable
-        initialSize={[620, 520]}
+        initialSize={[880, 520]}
         initialPosition={['center', 'center']}
-        minimumSize={[420, 340]}
+        minimumSize={[600, 380]}
         appMenu={appMenu}
       >
         {state !== 'ready' ? (
@@ -903,7 +952,60 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
           </div>
         ) : (
           <div className="sp-chat">
-            <div className="sp-chat-list" ref={listRef} onScroll={onListScroll}>
+            {/* 会话侧栏：顶部 New Chat 按钮 + 无表头标题列表，行悬停显示删除按钮 */}
+            <aside className="sp-chat-side">
+              <div className="sp-chat-new">
+                <ClassicyButton buttonSize="small" isDefault onClickFunc={newSession}>
+                  + New Chat
+                </ClassicyButton>
+              </div>
+              <div className="sp-chat-sess">
+                {sessionsLoading ? (
+                  <div className="sp-chat-sess-empty">Loading…</div>
+                ) : sessionsError ? (
+                  <div className="sp-chat-sess-empty">
+                    {sessionsError}
+                    <br />
+                    <ClassicyButton buttonSize="small" onClickFunc={() => void loadSessions()}>
+                      Retry
+                    </ClassicyButton>
+                  </div>
+                ) : serverSessions.length === 0 ? (
+                  <div className="sp-chat-sess-empty">No sessions yet.</div>
+                ) : (
+                  serverSessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className={`sp-chat-sess-row${s.id === currentId ? ' on' : ''}`}
+                      onClick={() => void switchSession(s.id)}
+                    >
+                      <span className="sp-chat-sess-title">
+                        {runningIds.has(s.id) && <span className="sp-chat-run-dot" />}
+                        {s.title}
+                      </span>
+                      <button
+                        type="button"
+                        className="sp-chat-sess-del"
+                        title="Delete session"
+                        onClick={(e) => {
+                          e.stopPropagation(); // 不触发行选中/切换
+                          requestDelete(s);
+                        }}
+                      >
+                        <img src={ClassicyIcons.system.desktop.trashEmpty} alt="" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </aside>
+            <div className="sp-chat-body">
+            <div
+              className="sp-chat-list"
+              ref={listRef}
+              onScroll={onListScroll}
+              onContextMenu={onListContextMenu}
+            >
               {historyLoading ? (
                 <div className="sp-chat-empty">Loading conversation…</div>
               ) : (
@@ -911,6 +1013,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
               )}
               {messages.map((b) => (
                 <div key={b.id} className={`sp-chat-row ${b.role}`}>
+                  {b.at ? <div className="sp-chat-time">{fmtChatTime(b.at)}</div> : null}
                   <div className={`sp-chat-bubble ${b.role}${b.error ? ' error' : ''}`}>
                     {b.tool && <div className="sp-chat-tool">{b.tool}</div>}
                     {b.reasoning && (
@@ -963,10 +1066,44 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
                   发送
                 </ClassicyButton>
               )}
+              </div>
             </div>
           </div>
         )}
       </ClassicyWindow>
+      {usageOpen && (
+        // 用量 Dashboard：条件渲染（AGENTS.md 注意事项 11——挂载自动注册并聚焦）
+        <ClassicyWindow
+          id="chat-usage"
+          title="Usage"
+          icon={ICON}
+          appId={APP_ID}
+          resizable
+          closable
+          initialSize={[360, 360]}
+          initialPosition={['center', 'center']}
+          minimumSize={[260, 220]}
+          appMenu={appMenu}
+          onCloseFunc={() => setUsageOpen(false)}
+        >
+          <div className="sp-usage">
+            <div className="sp-usage-toolbar">
+              <ClassicyButton buttonSize="small" onClickFunc={() => void loadUsage()}>
+                Refresh
+              </ClassicyButton>
+              {usageAt > 0 && <span className="sp-usage-updated">Updated {new Date(usageAt).toLocaleTimeString()}</span>}
+            </div>
+            <div className="sp-usage-card">
+              <div className="sp-usage-provider">DeepSeek</div>
+              <UsageDeepseekCard state={dsUsage} />
+            </div>
+            <div className="sp-usage-card">
+              <div className="sp-usage-provider">ZAI</div>
+              <UsageZaiCard state={zaiUsage} />
+            </div>
+          </div>
+        </ClassicyWindow>
+      )}
       {alert && (
         <ClassicyAlert
           appId={APP_ID}

@@ -9,8 +9,9 @@ import {
   ClassicyWindow,
   useClassicyAboutMenu,
 } from 'classicy';
-import { fetchPrinter, printTestPage, Unauthorized, type PrinterInfo, type PrinterJob, type PrinterState } from '../api';
-import { usePolling } from '../hooks/usePolling';
+import { printTestPage, Unauthorized, type PrinterInfo, type PrinterJob, type PrinterState } from '../api';
+import { printerPoll } from '../polls';
+import { useSharedPoll } from '../sharedPoll';
 import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-printer.app';
@@ -168,7 +169,8 @@ function JobTable({ jobs, showCompletedAt }: { jobs: PrinterJob[]; showCompleted
 
 /** 应用：CUPS 打印机状态 / 打印队列 / 打印历史 */
 export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
-  const poll = usePolling(fetchPrinter, 5000);
+  // 页面级共享轮询（printerPoll）：退出应用不中断（docs/tasks.md）
+  const poll = useSharedPoll(printerPoll);
 
   /** 正在提交测试页的打印机名（空串 = 空闲）；结果就地展示在对应打印机行 */
   const [testingName, setTestingName] = useState('');
@@ -180,7 +182,7 @@ export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
     try {
       const r = await printTestPage(name);
       setTestResult({ printer: name, ok: true, text: r.jobId ? `测试页已提交（作业 #${r.jobId}）` : '测试页已提交' });
-      poll.reload(); // 新作业会出现在队列/历史里，立即刷新
+      printerPoll.reload(); // 新作业会出现在队列/历史里，立即刷新
     } catch (e) {
       setTestResult({ printer: name, ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
