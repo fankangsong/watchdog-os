@@ -90,7 +90,7 @@ const FONT_FAMILIES: { label: string; css: string }[] = [
 /* 默认字体族：Courier New 笔画清晰、识别度高，日常命令输出观感更好 */
 const DEFAULT_FONT_FAMILY = FONT_FAMILIES[3].css;
 
-/* ---------- 设置持久化（localStorage） ---------- */
+/* ---------- 设置持久化（localStorage，应用级：各窗口共享） ---------- */
 const PREFS_KEY = 'srv-terminal-prefs';
 
 /** 终端设置：两个复制/粘贴开关 + 字体字号，整体持久化，刷新或重开窗口后保留 */
@@ -156,8 +156,8 @@ function savePrefs(prefs: TerminalPrefs): void {
 }
 
 /**
- * macOS 才启用 ⌘A 全选快捷键：Windows / Linux 的 Ctrl+A 是 readline 的「行首」，
- * 必须原样交给远端 shell，否则会破坏命令行编辑。
+ * macOS 才启用 ⌘A 全选 / ⌘N 新窗口快捷键：Windows / Linux 的 Ctrl+A 是 readline 的「行首」、
+ * Ctrl+N 是「下一行」（且被浏览器占用），必须原样交给远端 shell，否则会破坏命令行编辑。
  */
 const IS_MAC =
   typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent);
@@ -193,11 +193,240 @@ interface TermAlert {
   message: string;
 }
 
+/* ---------- 多窗口 ---------- */
+/** 主窗口 id（桌面图标打开的应用默认窗口） */
+const MAIN_WIN_ID = 'terminal-main';
+/** 新终端窗口的级联偏移计数器（模 6 循环，避免多窗口完全重叠） */
+let winCascade = 0;
+
 /**
- * 终端应用：xterm.js 直连后端代理的 ttyd WebSocket。
- * 鉴权复用 Dashboard 的 JWT Cookie（token 接口 + WS 升级均由后端校验）。
+ * 终端应用外壳：多窗口注册表 + 应用级偏好（字体 / 复制粘贴开关）+ 应用级菜单与对话框。
+ *
+ * 多窗口模型（参照 FinderApp 的 FinderBrowser，但次窗用条件渲染）：
+ * - 主窗口 `terminal-main` 常驻渲染（classicy 仅在 app.open 时挂载 children）；
+ * - File > New Window（⌘N）追加 `terminal-win-N` 窗口，各自持有独立的 xterm 实例、
+ *   WebSocket 连接与会话，互不干扰；关闭盒即从注册表移除并销毁该窗终端；
+ * - ⚠️ 不用「常驻渲染树 + dispatch Open/Focus」模式：classicy 0.79 中 app 被打开时会把该
+ *   app 全部 store 窗口的 closed 置 false，常驻次窗会一并弹出并抢焦点。条件渲染下
+ *   ClassicyWindow 挂载即自发 ClassicyWindowOpen（open + focus），无需手动派发；
+ * - 应用级状态只在外壳注册一次：useClassicyHelpMenu 的卸载会删掉整个 app 的帮助项，
+ *   不能每窗口重复注册；About / Settings / 快捷键窗同理只有一份。
  */
 export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
+  /* 设置懒初始化：终端首次 new Terminal 就使用持久化值，避免先按默认字体渲染再跳变 */
+  const [storedPrefs] = useState(loadPrefs);
+  const [autoCopy, setAutoCopy] = useState(storedPrefs.autoCopy);
+  const [pasteHotkey, setPasteHotkey] = useState(storedPrefs.pasteHotkey);
+  const [fontSize, setFontSize] = useState(storedPrefs.fontSize);
+  const [fontFamily, setFontFamily] = useState(storedPrefs.fontFamily);
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  /* 多开终端窗口注册表：仅存主窗口之外的窗口 id，条件渲染。
+     id 单调递增不复用，避免与 classicy store 中已关闭窗口的记录相撞 */
+  const [extraWins, setExtraWins] = useState<string[]>([]);
+  const winSeqRef = useRef(0);
+
+  // 任一入口（设置面板）改动设置都落盘（偏好为应用级，各窗口共享）
+  useEffect(() => {
+    savePrefs({ autoCopy, pasteHotkey, fontSize, fontFamily });
+  }, [autoCopy, pasteHotkey, fontSize, fontFamily]);
+
+  const prefs = useMemo<TerminalPrefs>(
+    () => ({ autoCopy, pasteHotkey, fontSize, fontFamily }),
+    [autoCopy, pasteHotkey, fontSize, fontFamily]
+  );
+
+  const handleLogout = useCallback(() => {
+    onLogout?.();
+  }, [onLogout]);
+
+  /** File > New Window（⌘N）：追加一个窗口 id，挂载后 classicy 自动打开并聚焦 */
+  const openNewWindow = useCallback(() => {
+    const id = `terminal-win-${++winSeqRef.current}`;
+    setExtraWins((prev) => [...prev, id]);
+  }, []);
+
+  /** 窗口关闭（关闭盒）：从注册表移除，组件卸载时销毁 xterm/WS 并清理 store 记录 */
+  const closeWindow = useCallback((id: string) => {
+    setExtraWins((prev) => prev.filter((w) => w !== id));
+  }, []);
+
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
+
+  // Help 菜单由系统渲染，这里只注册帮助项（items 需保持引用稳定）。
+  // ⚠️ 全应用只注册一次：卸载时会删掉整个 app 的帮助项，每窗口重复注册会互相删
+  const helpItems = useMemo<ClassicyMenuItem[]>(
+    () => [
+      {
+        id: 'terminal-m-shortcuts',
+        title: 'Keyboard Shortcuts…',
+        onClickFunc: () => setShortcutsOpen(true),
+      },
+    ],
+    []
+  );
+  useClassicyHelpMenu(APP_ID, helpItems);
+
+  /**
+   * File 组：新建窗口。
+   * ⌘N 字形仅 macOS 展示——Windows / Linux 的 Ctrl+N 是 readline 的「下一行」且被浏览器
+   * 占用，不能绑定；菜单点击在所有平台可用。
+   */
+  const fileMenuItems = useMemo<ClassicyMenuItem[]>(
+    () => [
+      {
+        id: 'terminal-m-new-window',
+        title: 'New Window',
+        keyboardShortcut: IS_MAC ? '⌘N' : undefined,
+        // nativeShortcut：全局快捷键派发器不接管该组合，由各窗口终端的
+        // attachCustomKeyEventHandler 统一处理——与 Copy / Paste 同模式，杜绝一条按键两条通道
+        nativeShortcut: true,
+        onClickFunc: openNewWindow,
+      },
+    ],
+    [openNewWindow]
+  );
+
+  /* 应用名菜单 + File：应用级命令，外壳构建后随各窗口 appMenu 注入 */
+  const menuHead = useMemo<ClassicyMenuItem[]>(
+    () => [
+      {
+        id: 'terminal-menu',
+        title: APP_NAME,
+        menuChildren: [
+          aboutMenuItem,
+          { id: 'spacer' },
+          {
+            id: 'terminal-m-settings',
+            title: 'Settings…',
+            onClickFunc: () => setSettingsOpen(true),
+          },
+          { id: 'spacer' },
+          quitMenuItem(APP_ID, APP_NAME, ICON),
+        ],
+      },
+      {
+        id: 'terminal-file',
+        title: 'File',
+        menuChildren: fileMenuItems,
+      },
+    ],
+    [aboutMenuItem, fileMenuItems]
+  );
+
+  /* Font 组：偏好为应用级；各窗口的 xterm 选项同步更新（不重建终端、不断连） */
+  const menuTail = useMemo<ClassicyMenuItem[]>(
+    () => [
+      {
+        id: 'terminal-font',
+        title: 'Font',
+        menuChildren: [
+          {
+            id: 'terminal-m-font-size',
+            title: 'Font Size',
+            menuChildren: FONT_SIZES.map((size) => ({
+              id: `terminal-m-font-size-${size}`,
+              // 选中态用 checked 字段渲染 ✓，不手拼前缀
+              title: `${size} px`,
+              checked: fontSize === size,
+              onClickFunc: () => setFontSize(size),
+            })),
+          },
+          {
+            id: 'terminal-m-font-family',
+            title: 'Font Family',
+            menuChildren: FONT_FAMILIES.map((font) => ({
+              id: `terminal-m-font-family-${font.label.replace(/\s+/g, '-').toLowerCase()}`,
+              title: font.label,
+              checked: fontFamily === font.css,
+              onClickFunc: () => setFontFamily(font.css),
+            })),
+          },
+        ],
+      },
+    ],
+    [fontSize, fontFamily]
+  );
+
+  return (
+    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow={MAIN_WIN_ID}>
+      <TerminalWindow
+        key={MAIN_WIN_ID}
+        winId={MAIN_WIN_ID}
+        isMain
+        prefs={prefs}
+        menuHead={menuHead}
+        menuTail={menuTail}
+        onLogout={handleLogout}
+        onNewWindow={openNewWindow}
+      />
+      {/* 新开窗口：条件渲染，挂载即自动打开并聚焦；关闭盒回调移除注册表 */}
+      {extraWins.map((winId) => (
+        <TerminalWindow
+          key={winId}
+          winId={winId}
+          prefs={prefs}
+          menuHead={menuHead}
+          menuTail={menuTail}
+          onLogout={handleLogout}
+          onNewWindow={openNewWindow}
+          onCloseWindow={() => closeWindow(winId)}
+        />
+      ))}
+      {aboutWindow}
+      {/* 设置对话框：菜单 Terminal > Settings… 打开；使用草稿状态，点「好」才生效，取消/关闭则丢弃 */}
+      {settingsOpen && (
+        <TerminalSettingsDialog
+          initial={prefs}
+          onSave={(p) => {
+            setAutoCopy(p.autoCopy);
+            setPasteHotkey(p.pasteHotkey);
+            setFontFamily(p.fontFamily);
+            setFontSize(p.fontSize);
+          }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {/* 快捷键说明：Help > Keyboard Shortcuts… */}
+      {shortcutsOpen && <TerminalShortcutsWindow onClose={() => setShortcutsOpen(false)} />}
+    </ClassicyApp>
+  );
+}
+
+/**
+ * 单个终端窗口（多开实例之一）：独立的 xterm 终端 + ttyd WebSocket 连接 + 选区/告警状态。
+ * 应用级能力（偏好、Settings / 快捷键 / About / Quit、New Window、Font 菜单）由外壳经
+ * menuHead / menuTail 注入；本组件只提供作用于「本窗口会话」的 Edit / Session 菜单。
+ */
+function TerminalWindow({
+  winId,
+  isMain = false,
+  prefs,
+  menuHead,
+  menuTail,
+  onLogout,
+  onNewWindow,
+  onCloseWindow,
+}: {
+  /** 窗口 id（主窗口 MAIN_WIN_ID；新窗口 terminal-win-N） */
+  winId: string;
+  /** 是否主窗口（仅决定初始位置：主窗居中，新窗级联偏移） */
+  isMain?: boolean;
+  /** 应用级偏好（外壳持有、各窗口共享；字号/字体变化直接更新本窗 xterm 选项，不重建） */
+  prefs: TerminalPrefs;
+  /** 应用名菜单 + File 菜单（外壳构建） */
+  menuHead: ClassicyMenuItem[];
+  /** Font 菜单（外壳构建） */
+  menuTail: ClassicyMenuItem[];
+  onLogout: () => void;
+  /** File > New Window / ⌘N：由外壳维护窗口注册表 */
+  onNewWindow: () => void;
+  /** 关闭盒回调（主窗口不传：关窗仅隐藏，重开应用时复活） */
+  onCloseWindow?: () => void;
+}) {
+  const { autoCopy, pasteHotkey, fontSize, fontFamily } = prefs;
   // 窗口内容由 classicy 按需挂载（app.open 时才渲染 children）：
   // 必须用 callback ref + state，容器真实挂载/卸载时才能触发 effect 重跑
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
@@ -211,17 +440,9 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
   const [title, setTitle] = useState<string | null>(null);
   // 当前是否存在选区：驱动 Edit / 右键菜单里 Copy 的置灰状态
   const [hasSelection, setHasSelection] = useState(false);
-
-  // 设置懒初始化：终端首次 new Terminal 就使用持久化值，避免先按默认字体渲染再跳变
-  const [storedPrefs] = useState(loadPrefs);
-  const [autoCopy, setAutoCopy] = useState(storedPrefs.autoCopy);
-  const [pasteHotkey, setPasteHotkey] = useState(storedPrefs.pasteHotkey);
-  const [fontSize, setFontSize] = useState(storedPrefs.fontSize);
-  const [fontFamily, setFontFamily] = useState(storedPrefs.fontFamily);
-
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [alert, setAlert] = useState<TermAlert | null>(null);
+  // 非主窗口的级联偏移（挂载时取一次；id 不复用，无需记录原位）
+  const [cascade] = useState(() => (winCascade++ % 6) * 26);
 
   /* 开关/选区变化同步给注册一次的监听器（onSelectionChange、自定义按键处理器）：
      切换开关不重建终端、不重连 WebSocket */
@@ -240,17 +461,17 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
   const nativePasteBlockUntilRef = useRef(0);
   const lastPasteAtRef = useRef(0);
   const lastPasteTextRef = useRef('');
+  /* New Window 回调经 ref 同步：⌘N 拦截器只在挂载时注册一次，避免重建终端 */
+  const newWindowRef = useRef(onNewWindow);
+  useEffect(() => {
+    newWindowRef.current = onNewWindow;
+  }, [onNewWindow]);
 
   // 渲染期快照：非安全上下文中恒为 false，用于菜单置灰与设置面板提示
   const clipboardReadable = canReadClipboard();
 
-  // 任一入口（设置面板 / 菜单）改动设置都落盘
-  useEffect(() => {
-    savePrefs({ autoCopy, pasteHotkey, fontSize, fontFamily });
-  }, [autoCopy, pasteHotkey, fontSize, fontFamily]);
-
   const handleLogout = useCallback(() => {
-    onLogout?.();
+    onLogout();
   }, [onLogout]);
 
   /** 复制当前选区到剪贴板；无选区时静默返回（菜单项已置灰） */
@@ -484,12 +705,20 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       });
 
       /**
-       * 快捷键：Copy / Paste / Select All 在终端本地拦截。
+       * 快捷键：Copy / Paste / Select All / New Window 在终端本地拦截。
        * 菜单里同名的项都标了 nativeShortcut（字形照常显示），classicy 全局快捷键派发器
        * 会跳过它们，因此这里 preventDefault + return false 后不会双发。
        */
       term.attachCustomKeyEventHandler((ev) => {
         const key = ev.key.toLowerCase();
+
+        // New Window：⌘N（仅 macOS）。Windows/Linux 的 Ctrl+N 是 readline 的「下一行」，
+        // 且被浏览器占用；菜单项标了 nativeShortcut，全局派发器不接管，这里统一处理
+        if (IS_MAC && key === 'n' && ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey) {
+          ev.preventDefault();
+          newWindowRef.current();
+          return false;
+        }
 
         // Paste：⌘V / Ctrl+V。关闭开关或读不到剪贴板时交回浏览器原生 paste（xterm 内置处理）
         if (key === 'v' && (ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey) {
@@ -584,8 +813,6 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
 
   const reconnect = useCallback(() => setAttempt((a) => a + 1), []);
 
-  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
-
   /**
    * Edit 组：Copy / Paste / Select All。
    * 三项都标 nativeShortcut —— 字形照常渲染，但全局派发器不拦截按键，
@@ -622,6 +849,12 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
     [hasSelection, clipboardReadable, doCopy, doPasteWithNotice, doSelectAll]
   );
 
+  /** Session 组：只作用于本窗口的 ttyd 会话 */
+  const sessionMenuItems = useMemo<ClassicyMenuItem[]>(
+    () => [{ id: 'terminal-m-reconnect', title: 'Reconnect', onClickFunc: reconnect }],
+    [reconnect]
+  );
+
   /** 终端区域右键菜单：classicy 解析顺序为 wrapped control > window > app > 桌面默认 */
   const contextMenuItems = useMemo<ClassicyMenuItem[]>(
     () => [
@@ -632,37 +865,11 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
     [hasSelection, clipboardReadable, doCopy, doPasteWithNotice, doSelectAll]
   );
 
-  // Help 菜单由系统渲染，这里只注册帮助项（items 需保持引用稳定）
-  const helpItems = useMemo<ClassicyMenuItem[]>(
-    () => [
-      {
-        id: 'terminal-m-shortcuts',
-        title: 'Keyboard Shortcuts…',
-        onClickFunc: () => setShortcutsOpen(true),
-      },
-    ],
-    []
-  );
-  useClassicyHelpMenu(APP_ID, helpItems);
-
-  // 桌面顶部菜单栏（窗口聚焦时显示）：应用名菜单 + Edit + Session/Font 特有菜单；Sign Out 由 Apple 菜单全局提供
+  /* 菜单栏 = 外壳注入的应用级菜单（应用名 / File … Font）+ 本窗口的 Edit / Session。
+     顺序遵循菜单规范：应用名 / File / Edit / 应用特有 / Help（系统渲染） */
   const appMenu = useMemo(
     () => [
-      {
-        id: 'terminal-menu',
-        title: APP_NAME,
-        menuChildren: [
-          aboutMenuItem,
-          { id: 'spacer' },
-          {
-            id: 'terminal-m-settings',
-            title: 'Settings…',
-            onClickFunc: () => setSettingsOpen(true),
-          },
-          { id: 'spacer' },
-          quitMenuItem(APP_ID, APP_NAME, ICON),
-        ],
-      },
+      ...menuHead,
       {
         id: 'terminal-edit',
         title: 'Edit',
@@ -671,43 +878,17 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
       {
         id: 'terminal-session',
         title: 'Session',
-        menuChildren: [{ id: 'terminal-m-reconnect', title: 'Reconnect', onClickFunc: reconnect }],
+        menuChildren: sessionMenuItems,
       },
-      {
-        id: 'terminal-font',
-        title: 'Font',
-        menuChildren: [
-          {
-            id: 'terminal-m-font-size',
-            title: 'Font Size',
-            menuChildren: FONT_SIZES.map((size) => ({
-              id: `terminal-m-font-size-${size}`,
-              // 选中态用 checked 字段渲染 ✓，不手拼前缀
-              title: `${size} px`,
-              checked: fontSize === size,
-              onClickFunc: () => setFontSize(size),
-            })),
-          },
-          {
-            id: 'terminal-m-font-family',
-            title: 'Font Family',
-            menuChildren: FONT_FAMILIES.map((font) => ({
-              id: `terminal-m-font-family-${font.label.replace(/\s+/g, '-').toLowerCase()}`,
-              title: font.label,
-              checked: fontFamily === font.css,
-              onClickFunc: () => setFontFamily(font.css),
-            })),
-          },
-        ],
-      },
+      ...menuTail,
     ],
-    [aboutMenuItem, editMenuItems, reconnect, fontSize, fontFamily]
+    [menuHead, menuTail, editMenuItems, sessionMenuItems]
   );
 
   return (
-    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="terminal-main">
+    <>
       <ClassicyWindow
-        id="terminal-main"
+        id={winId}
         title={title ? `${APP_NAME} · ${title}` : APP_NAME}
         icon={ICON}
         appId={APP_ID}
@@ -716,9 +897,10 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
         collapsable
         closable
         initialSize={[900, 560]}
-        initialPosition={['center', 'center']}
+        initialPosition={isMain ? ['center', 'center'] : [140 + cascade, 90 + cascade]}
         minimumSize={[520, 340]}
         appMenu={appMenu}
+        onCloseFunc={onCloseWindow}
       >
         {disabled ? (
           <div className="sp-term-disabled">
@@ -744,22 +926,6 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
           </ClassicyContextualMenuTarget>
         )}
       </ClassicyWindow>
-      {aboutWindow}
-      {/* 设置对话框：菜单 Terminal > Settings… 打开；使用草稿状态，点「好」才生效，取消/关闭则丢弃 */}
-      {settingsOpen && (
-        <TerminalSettingsDialog
-          initial={{ autoCopy, pasteHotkey, fontFamily, fontSize }}
-          onSave={(p) => {
-            setAutoCopy(p.autoCopy);
-            setPasteHotkey(p.pasteHotkey);
-            setFontFamily(p.fontFamily);
-            setFontSize(p.fontSize);
-          }}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
-      {/* 快捷键说明：Help > Keyboard Shortcuts… */}
-      {shortcutsOpen && <TerminalShortcutsWindow onClose={() => setShortcutsOpen(false)} />}
       {/* 粘贴失败提示（非安全上下文 / 剪贴板权限被拒） */}
       {alert && (
         <ClassicyAlert
@@ -771,7 +937,7 @@ export function TerminalApp({ onLogout }: { onLogout?: () => void }) {
           onClose={() => setAlert(null)}
         />
       )}
-    </ClassicyApp>
+    </>
   );
 }
 
@@ -908,6 +1074,7 @@ const SHORTCUT_ROWS: { label: string; keys: string; macOnly?: boolean; note?: st
   { label: '粘贴剪贴板', keys: '⇧⌘V' },
   { label: '粘贴（传统键）', keys: '⇧Insert' },
   { label: '全选终端缓冲', keys: '⌘A', macOnly: true, note: 'Windows / Linux 的 Ctrl+A 保留给远端 shell' },
+  { label: '新建终端窗口', keys: '⌘N', macOnly: true, note: '或经 File > New Window；Windows / Linux 用菜单点击' },
 ];
 
 /**
