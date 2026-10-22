@@ -1,0 +1,3 @@
+#!/bin/sh
+# git pre-commit：拦截包含 .env 字段值的提交（详见 scripts/check-commit-env.mjs）
+node "$(git rev-parse --show-toplevel)/scripts/check-commit-env.mjs" || exit 1

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "check:commit": "node scripts/check-commit-env.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
