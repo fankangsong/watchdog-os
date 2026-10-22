@@ -100,6 +100,14 @@ const cfg = {
     maxLogBytes: envInt('RUNNER_MAX_LOG_BYTES', 5 * 1024 * 1024), // 超过则归档为 .old
   },
 
+  /* Blog：static-gallary-generator 构建触发（复用 Runner 引擎，日志独立落 data/blog.log）。scriptPath 只接受服务端配置 */
+  blog: {
+    enabled: envBool('BLOG_ENABLED', true),
+    scriptPath: envStr('BLOG_SCRIPT', '~/workspace/static-gallary-generator/build.sh'), // 支持 ~ 前缀（引擎内展开为用户主目录）
+    shell: envStr('BLOG_SHELL', 'bash'),
+    maxLogBytes: envInt('BLOG_MAX_LOG_BYTES', 5 * 1024 * 1024), // 超过则归档为 .old
+  },
+
   /* Printer：CUPS 打印机与任务监控（依赖 ipptool / lpinfo，命令缺失时 available=false） */
   printer: {
     enabled: envBool('PRINTER_ENABLED', true),

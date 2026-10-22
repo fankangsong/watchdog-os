@@ -123,7 +123,8 @@ async function readPrinter() {
       if (m) liveUris.add(m[1]);
     }
     for (const p of printers) {
-      if (p.usbConfigured) p.usbConnected = liveUris.has(p.deviceUri);
+      // 打印中（processing）时 CUPS USB 后端独占设备，lpinfo 枚举不到它——此时链路必然是通的，直接视为已连接
+      if (p.usbConfigured) p.usbConnected = liveUris.has(p.deviceUri) || p.state === 'processing';
     }
   }
 

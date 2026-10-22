@@ -10,6 +10,7 @@
  *  - api/printer.js   打印机采集
  *  - api/terminal.js  终端 ttyd 代理（TerminalApp）
  *  - api/runner.js    脚本任务（RunnerApp）
+ *  - api/blog.js      博客构建触发（BlogApp）
  *  - api/chat.js      Hermes 聊天代理（ImcolinApp）
  *  - api/fs.js        文件管理（FinderApp / EditorApp）
  *  - static.js        静态资源服务
@@ -27,6 +28,7 @@ const { state, startCollectTimers } = require('./api/metrics');
 const { startPrinterTimer } = require('./api/printer');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
+const blog = require('./api/blog');
 const { route, handleUpgrade } = require('./router');
 
 const server = http.createServer(async (req, res) => {
@@ -104,6 +106,7 @@ function shutdown() {
   shuttingDown = true;
   terminal.stopTerminal();
   if (runner.stopRunnerJob()) { /* 任务已 SIGTERM */ }
+  if (blog.stopJob()) { /* 构建已 SIGTERM */ }
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
@@ -111,4 +114,5 @@ process.on('SIGTERM', shutdown);
 process.on('exit', () => {
   terminal.cleanupSync();
   try { runner.stopRunnerJob(); } catch { /* 已退出忽略 */ }
+  try { blog.stopJob(); } catch { /* 已退出忽略 */ }
 });

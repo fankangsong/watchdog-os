@@ -316,6 +316,16 @@ export const startRunnerBuild = () =>
 export const stopRunnerBuild = () =>
   request<{ ok: true; job: RunnerJob | null }>('./api/runner/stop', { method: 'POST' });
 
+/* ---------- Blog（static-gallary-generator 构建，复用 Runner 引擎响应结构）---------- */
+
+export const fetchBlogStatus = () => request<RunnerStatus>('./api/blog/status?lines=400');
+
+export const startBlogBuild = () =>
+  request<{ ok: true; jobId: string; startedAt: number }>('./api/blog/start', { method: 'POST' });
+
+export const stopBlogBuild = () =>
+  request<{ ok: true; job: RunnerJob | null }>('./api/blog/stop', { method: 'POST' });
+
 /* ---------- Printer（CUPS 打印机与任务监控）---------- */
 
 export interface PrinterInfo {

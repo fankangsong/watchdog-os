@@ -16,6 +16,7 @@ const { printTestPage } = require('./api/printer');
 const { serveFile, serveIndex, servePwaFile } = require('./static');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
+const blog = require('./api/blog');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { getDeepseekUsage, getZaiUsage } = require('./api/usage');
 const { fsRoute } = require('./api/fs');
@@ -199,6 +200,36 @@ async function route(req, res, url) {
     if (p === '/api/runner/stop' && req.method === 'POST') {
       if (!runner.stopRunnerJob()) return send(res, 409, { error: 'No job running' });
       return send(res, 200, { ok: true, job: runner.currentJob() });
+    }
+    return send(res, 404, { error: 'not found' });
+  }
+
+  /* ---- Blog API（static-gallary-generator 构建触发，统一 JWT 鉴权，与 Runner 同构）---- */
+  if (p.startsWith('/api/blog/')) {
+    if (!checkAuth(req)) {
+      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+    }
+    // status 是信息性接口：未启用时也返回 200 + enabled=false，便于前端区分"未配置"与"服务异常"
+    if (p === '/api/blog/status' && req.method === 'GET') {
+      const q = url.searchParams;
+      let lines = parseInt(q.get('lines') || '300', 10);
+      if (!Number.isFinite(lines) || lines < 1) lines = 300;
+      lines = Math.min(lines, 2000);
+      return send(res, 200, blog.statusPayload(lines));
+    }
+    if (!cfg.blog.enabled || !cfg.blog.scriptPath) {
+      return send(res, 503, { error: 'Blog disabled' });
+    }
+    if (p === '/api/blog/start' && req.method === 'POST') {
+      const r = blog.startJob();
+      if (r.error === 'Job already running') return send(res, 409, { error: r.error, job: r.job });
+      if (r.error === 'Script not found') return send(res, 400, { error: r.error });
+      if (r.error) return send(res, 500, { error: r.error, detail: r.detail || '' });
+      return send(res, 200, { ok: true, jobId: r.job.id, startedAt: r.job.startedAt, script: r.job.script });
+    }
+    if (p === '/api/blog/stop' && req.method === 'POST') {
+      if (!blog.stopJob()) return send(res, 409, { error: 'No job running' });
+      return send(res, 200, { ok: true, job: blog.currentJob() });
     }
     return send(res, 404, { error: 'not found' });
   }
