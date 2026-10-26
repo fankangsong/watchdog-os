@@ -767,7 +767,25 @@ function TerminalWindow({
 
     connect();
 
+    /* 空闲保活：ttyd 空闲期间不发任何流量（1.6.x / 1.7.x 实测均无 ping），
+     * 用户停止输入后整条链路完全静默，中间的反向代理（nginx 默认 60s 空闲超时）
+     * 或 NAT/隧道会掐断连接。屏保激活意味着用户已闲置数分钟，断链恰在此窗口
+     * 出现，看似「屏保导致断链」，实为空闲超时。每 25s 发一个尺寸不变的
+     * resize 帧（协议合法、幂等），刷新链路各跳的空闲计时。取 25s 是给浏览器
+     * 后台标签页的定时器节流（最坏 ×2）留出余量，仍低于 nginx 默认 60s。 */
+    const keepalive = setInterval(() => {
+      const ws = wsRef.current;
+      const t = termRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN || !t) return;
+      const body = enc.encode(JSON.stringify({ columns: t.cols, rows: t.rows }));
+      const frame = new Uint8Array(1 + body.length);
+      frame[0] = OP_RESIZE;
+      frame.set(body, 1);
+      ws.send(frame);
+    }, 25000);
+
     return () => {
+      clearInterval(keepalive);
       ro?.disconnect();
       container.removeEventListener('pointerdown', refocus);
       container.removeEventListener('paste', blockNativePaste, true);

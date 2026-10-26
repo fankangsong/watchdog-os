@@ -121,7 +121,7 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 
 | 能力 | 说明 |
 |---|---|
-| 构建 | `build_terminal()` / `build_chat()` / `build_docker()` / `build_runner()`（32 档）与 `build_fm_back()` / `build_fm_up()` / `build_fm_fav()`（16 档）—— 用 `fill` / `hline` / `roundbox` / `blit` 画网格；异形主体（鲸、三角）用 `sil_rect()` 搭剪影 + `bevel()` 上立体色 + `outline()` 描外框 |
+| 构建 | `build_terminal()` / `build_chat()` / `build_docker()` / `build_runner()` / `build_blog()`（32 档）与 `build_fm_back()` / `build_fm_up()` / `build_fm_fav()`（16 档）—— 用 `fill` / `hline` / `roundbox` / `blit` 画网格；异形主体（鲸、三角）用 `sil_rect()` 搭剪影 + `bevel()` 上立体色 + `outline()` 描外框 |
 | 尺寸切换 | `set_size(32/16)` —— 全部绘制/输出函数调用时读全局 `W/H`，构建前切一次即可；`to_svg` / `verify` / `preview` 随之自适应 |
 | 合并 | `merge_rects()` 贪心最大同色矩形（先横向游程、再纵向扩展） |
 | 输出 | `to_svg()` 每色一个 `<path>`，`M x y h w v h h -w z`；浅色先画、深色后画 |

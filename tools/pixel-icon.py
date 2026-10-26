@@ -11,6 +11,7 @@
   src/assets/icons/chat.svg       同上
   src/assets/icons/docker.svg     同上
   src/assets/icons/runner.svg     同上
+  src/assets/icons/blog.svg       同上（窗口 + 白纸文本行 + 铅笔）
   src/assets/icons/fm-back.svg    16x16, viewBox="0 0 16 16"（窗口操作按钮带内嵌图标）
   src/assets/icons/fm-up.svg      同上
   src/assets/icons/fm-fav.svg     同上
@@ -72,6 +73,14 @@ PALETTE = {
     'G': '#2c6e31',     # 播放键暗部
     'P': '#46a049',     # 播放键基色
     'p': '#7cc47f',     # 播放键高光
+    # --- Blog（铅笔：橡皮高光/橡皮/杆身高光/基色/暗部/木杆/木杆暗部）---
+    'e': '#d98a8a',     # 橡皮高光
+    'E': '#c46a6a',     # 橡皮
+    'y': '#f2d488',     # 铅笔杆高光
+    'Y': '#e8b84b',     # 铅笔杆基色
+    'o': '#c09434',     # 铅笔杆暗部
+    'A': '#d8a878',     # 木杆
+    'a': '#b08050',     # 木杆暗部
     # --- 按钮内嵌图标（16 档工具栏字形，单色）---
     'C': 'currentColor',  # 跟随宿主元素文字色：按钮启用=黑、禁用=灰、按下=白（Platinum 三态一致）
 }
@@ -308,6 +317,64 @@ def build_runner():
     # 日志行（灰，递减宽度，像被截断的输出）
     hline(g, 11, 23, 12, 'g')
     hline(g, 11, 25, 8, 'g')
+    return g
+
+
+def build_blog():
+    """Blog：Mac OS 9 窗口 + 白纸文本行 + 斜放铅笔（橡皮右上、尖左下）。
+
+    与 terminal/runner 同构的窗口外框保证桌面观感统一；纸面承接灰色文本行，
+    铅笔后画盖在纸面上——「写」即博客。铅笔 3px 宽、左上光源：每行
+    高光 y / 基色 Y / 暗部 o，木杆 A/a，笔尖收为 2px K。
+    """
+    g = blank()
+
+    # 窗口外框 x2..x29 / y2..y29（与 terminal/runner 同构，保持桌面观感统一）
+    fill(g, 2, 2, 28, 28, 'L')
+    hline(g, 2, 2, 28, 'K')
+    hline(g, 2, 29, 28, 'K')
+    vline(g, 2, 2, 28, 'K')
+    vline(g, 29, 2, 28, 'K')
+
+    # 标题栏 y3..y8：顶高光 -> 基色(+标题短横) -> 条纹 -> 底暗边
+    fill(g, 3, 3, 26, 6, 'L')
+    fill(g, 3, 3, 26, 1, 'W')
+    fill(g, 3, 5, 26, 1, 'M')
+    fill(g, 3, 8, 26, 1, 'D')
+    fill(g, 13, 4, 5, 1, 'M')          # 标题居中短横
+
+    # 内容区：右侧与底部压暗边（光源左上）
+    fill(g, 3, 9, 26, 19, 'L')
+    fill(g, 28, 9, 1, 19, 'M')
+    fill(g, 3, 27, 26, 1, 'M')
+    fill(g, 3, 28, 26, 1, 'D')
+    fill(g, 28, 26, 1, 2, 'D')
+
+    # 白纸 x4..x19 / y11..y23：底/右压暗边，纸面 W
+    fill(g, 4, 11, 16, 13, 'W')
+    fill(g, 4, 23, 16, 1, 'd')         # 纸底暗部
+    fill(g, 19, 11, 1, 13, 'd')        # 纸右暗部
+
+    # 纸面文本行（灰，递减宽度，像被截断的段落）
+    hline(g, 6, 13, 12, 'g')
+    hline(g, 6, 15, 11, 'g')
+    hline(g, 6, 17, 12, 'g')
+    hline(g, 6, 19, 8, 'g')
+    hline(g, 6, 21, 6, 'g')
+
+    # 铅笔（斜放，后画盖在纸面上）：橡皮在右上、尖在左下
+    fill(g, 24, 11, 3, 1, 'e')         # 橡皮（顶行压亮，左上光源）
+    fill(g, 24, 12, 3, 1, 'E')
+    for x, y in ((23, 13), (22, 14), (21, 15), (20, 16), (19, 17), (18, 18)):
+        g[y][x] = 'y'                  # 杆身高光（左上光源）
+        g[y][x + 1] = 'Y'
+        g[y][x + 2] = 'o'              # 杆身暗部
+    for x, y in ((17, 19), (16, 20)):  # 木杆
+        g[y][x] = 'A'
+        g[y][x + 1] = 'A'
+        g[y][x + 2] = 'a'
+    fill(g, 16, 21, 2, 1, 'K')         # 笔尖（收尖）
+    fill(g, 15, 22, 2, 1, 'K')
     return g
 
 
@@ -606,6 +673,7 @@ if __name__ == '__main__':
     emit(build_chat(), 'chat')
     emit(build_docker(), 'docker')
     emit(build_runner(), 'runner')
+    emit(build_blog(), 'blog')
     # 16 档：窗口操作按钮带内嵌图标（Back / Up / Favorites，见 icon-pipeline.md §1.2）
     set_size(16)
     emit(build_fm_back(), 'fm-back')
