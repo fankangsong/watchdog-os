@@ -2,7 +2,9 @@
 // 浏览主体为 FinderBrowser（按 winId + initialPath 多实例，各自独立导航状态）；
 // 收藏夹数据经 favoritesStore（服务端 ~/.watchdog-os/data.json 持久化）在各窗口间共享——
 // 右键文件夹 Add/Remove from Favorites、工具栏 Favorites 按钮、菜单栏 Favorites 菜单
-// 均可打开收藏夹列表窗口；双击条目（或菜单项）新开文件夹窗口访问目标（同路径复用窗口）。
+// 均可打开收藏夹列表窗口；选中/双击条目（或菜单项）在已有主浏览窗口覆盖打开目标目录
+// （经 requestMainNavigate 导航桥，不新开窗口）；浏览窗口内 Favorites 菜单直达仍新开
+// 文件夹窗口（同路径复用窗口）。
 import { useCallback, useMemo, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
@@ -16,7 +18,7 @@ import {
   useClassicyContextualMenu,
 } from 'classicy';
 import type { ClassicyMenuItem, ClassicyTableColumn } from 'classicy';
-import { baseName, FAVORITES_WIN_ID, FinderBrowser, folderWinId, APP_NAME, ICON, MAIN_WIN_ID } from './FinderBrowser';
+import { baseName, FAVORITES_WIN_ID, FinderBrowser, folderWinId, requestMainNavigate, APP_NAME, ICON, MAIN_WIN_ID } from './FinderBrowser';
 import { removeFavorites, useFavorites } from '../favoritesStore';
 import { logout } from '../api';
 import { quitMenuItem } from '../quitMenuItem';
@@ -58,7 +60,8 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
     onLogout();
   }, [onLogout]);
 
-  /** 在新窗口打开收藏的文件夹：注册窗口 + Open + Focus（已打开则仅聚焦） */
+  /** 在新窗口打开收藏的文件夹：注册窗口 + Open + Focus（已打开则仅聚焦）。
+   *  仅浏览窗口内 Favorites 菜单「直达各收藏」使用 */
   const openFolderWindow = useCallback((path: string) => {
     setOpenFolders((prev) => (prev.includes(path) ? prev : [...prev, path]));
     const winId = folderWinId(path);
@@ -72,6 +75,15 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
       app: { id: APP_ID },
       window: { id: winId },
     });
+  }, []);
+
+  /** 收藏夹列表条目覆盖打开：导航已有主浏览窗口到目标目录并置前聚焦，不新开窗口。
+   *  主 FinderBrowser 常驻挂载（关窗不卸载），导航桥请求总是可达；
+   *  对已有窗口记录 ClassicyWindowOpen 仅置 closed=false，保留用户调整过的几何 */
+  const openFolderInMain = useCallback((path: string) => {
+    requestMainNavigate(path);
+    dispatch({ type: 'ClassicyWindowOpen', app: { id: APP_ID }, window: { id: MAIN_WIN_ID } });
+    dispatch({ type: 'ClassicyWindowFocus', app: { id: APP_ID }, window: { id: MAIN_WIN_ID } });
   }, []);
 
   const closeFavoritesWindow = useCallback(() => {
@@ -151,7 +163,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
         id: 'fm-fav-cm-open',
         title: 'Open',
         onClickFunc: () => {
-          if (favSelected) openFolderWindow(favSelected);
+          if (favSelected) openFolderInMain(favSelected);
         },
       },
       {
@@ -162,7 +174,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
         },
       },
     ],
-    [favSelected, openFolderWindow, requestRemoveFavorite]
+    [favSelected, openFolderInMain, requestRemoveFavorite]
   );
 
   const handleFavContextMenu = useCallback(
@@ -190,7 +202,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
             title: 'Open',
             disabled: !favSelected,
             onClickFunc: () => {
-              if (favSelected) openFolderWindow(favSelected);
+              if (favSelected) openFolderInMain(favSelected);
             },
           },
           {
@@ -206,7 +218,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
         ],
       },
     ],
-    [aboutMenuItem, favSelected, openFolderWindow, requestRemoveFavorite, closeFavoritesWindow]
+    [aboutMenuItem, favSelected, openFolderInMain, requestRemoveFavorite, closeFavoritesWindow]
   );
 
   // 选中项可能已被其它窗口移出收藏：表格选中态以当前列表为准，避免悬挂高亮
@@ -220,7 +232,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
       <FinderBrowser winId={MAIN_WIN_ID} onLogout={handleLogout} onOpenFolder={openFolderWindow} />
 
       {/* 收藏夹列表窗口：常驻渲染树（内容由 favorites store 驱动），Open/Focus 控制显隐；
-          双击条目新开文件夹窗口访问目标 */}
+          选中/双击条目在已有主浏览窗口覆盖打开目标目录 */}
       <ClassicyWindow
         id={FAVORITES_WIN_ID}
         title="Favorites"
@@ -249,7 +261,7 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
               selectionMode="single"
               selected={favTableSelected}
               onSelectionChange={(ids) => setFavSelected(ids[0] ?? null)}
-              onActivateRow={(id) => openFolderWindow(id)}
+              onActivateRow={(id) => openFolderInMain(id)}
               defaultSort={{ columnId: 'name' }}
             />
           </div>

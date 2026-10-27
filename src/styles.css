@@ -433,10 +433,18 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-fm-info-path-click:focus-visible { outline: 1px dotted var(--color-black); outline-offset: 1px; }
 .sp-fm-info-copied { color: var(--color-ok, #1a7a2e); }
 
-/* Finder 地址栏（工具栏右侧弹性占满）：等宽字体贴近路径语义，回车跳转 */
-.sp-fm-addr { flex: 1 1 auto; min-width: 120px; margin-left: auto; display: flex; align-items: center; }
-.sp-toolbar .sp-fm-addr .classicyInputHolder { width: auto; align-self: stretch; }
+/* Finder 地址栏（工具栏右侧弹性占满）：等宽字体贴近路径语义，回车跳转。
+   classicyInputHolder 默认 width:100% + flex:1，但 flex-basis 随内容（input 定宽），
+   在 flex 带中只撑到输入框固有宽度——需显式 flex-grow 铺满 .sp-fm-addr，
+   input（width:100%）随之延伸到窗口最右缘。
+   margin-right 补齐 .sp-toolbar 右内边距（10px）至按钮间距（--hig-button-gap-h，
+   classicy 回退 12px），使输入框右侧留白与左侧按钮间距一致 */
+.sp-fm-addr { flex: 1 1 auto; min-width: 120px; margin-left: auto; margin-right: calc(var(--hig-button-gap-h, 12px) - 10px); display: flex; align-items: center; }
+.sp-toolbar .sp-fm-addr .classicyInputHolder { flex: 1 1 auto; width: auto; min-width: 0; align-self: stretch; }
 .sp-toolbar .sp-fm-addr .classicyInput {
+  /* classicy 未给输入框设 border-box：width:100% 会额外叠加 padding+边框向右溢出 14px，
+     顶穿工具栏内边距贴到窗口边缘（看起来「没有边距」），必须显式收敛 */
+  box-sizing: border-box;
   height: var(--hig-button-height);
   font-size: 12px;
   font-family: Consolas, Menlo, monospace;

@@ -85,6 +85,15 @@ function safeId(p: string): string {
 /** 收藏目标文件夹窗口 id：由路径生成——同一路径复用同一窗口（重复打开仅聚焦，不新开） */
 export const folderWinId = (p: string) => `fm-folder-${safeId(p)}`;
 
+/**
+ * 主窗口导航桥：外部（FinderApp 的收藏夹列表窗口）请求主浏览窗口导航到某目录，
+ * 实现「在已有窗口覆盖打开」而非新开窗口。主 FinderBrowser 常驻挂载（不随窗口
+ * 关闭卸载），挂载时注册自身 navigate，请求总是可达；未注册时请求静默丢弃。
+ */
+type MainNavHandler = (path: string) => void;
+let mainNavHandler: MainNavHandler | null = null;
+export const requestMainNavigate = (path: string) => mainNavHandler?.(path);
+
 type ViewMode = 'icons' | 'list';
 
 function loadViewMode(): ViewMode {
@@ -410,6 +419,15 @@ export function FinderBrowser({
   useEffect(() => {
     void fetchDir(initialPath);
   }, [fetchDir, initialPath]);
+
+  // 主窗口注册导航桥（收藏夹窗口覆盖打开用）；仅主窗口注册，次窗口不参与
+  useEffect(() => {
+    if (winId !== MAIN_WIN_ID) return;
+    mainNavHandler = (p) => navigate(p);
+    return () => {
+      mainNavHandler = null;
+    };
+  }, [winId, navigate]);
 
   // 目录树懒加载缓存（列表视图的目录行内联展开用）
   const ensureChildren = useCallback(
