@@ -54,7 +54,7 @@ const FS_TEXT_EXT = new Set([
 const FS_RAW_MIME = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.svg': 'image/svg+xml', '.bmp': 'image/bmp', '.ico': 'image/x-icon',
-  '.avif': 'image/avif',
+  '.avif': 'image/avif', '.pdf': 'application/pdf',
 };
 
 /** 解析用户传入路径为绝对路径（统一 resolve 规范化防穿越），非法返回 null */
@@ -96,12 +96,14 @@ function fsModeString(mode) {
   return out;
 }
 
-/** 前端预览能力标记：image 内联图 / markdown 渲染 / text 编辑器 / none 仅下载 */
+/** 前端预览能力标记：image 内联图 / markdown 渲染 / text 编辑器 / pdf 内建 viewer / docx 前端渲染 / none 仅下载 */
 function fsPreviewKind(name, isDir) {
   if (isDir) return 'none';
   const base = path.basename(name);
   const ext = path.extname(base).toLowerCase();
   if (FS_IMAGE_EXT.includes(ext)) return 'image';
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.docx') return 'docx';
   if (ext === '.md' || ext === '.markdown') return 'markdown';
   if (FS_TEXT_EXT.has(ext)) return 'text';
   // 无扩展名（Makefile/LICENSE）与点文件（.env/.gitignore）多为文本，read 接口有二进制嗅探兜底
@@ -295,7 +297,8 @@ async function fsRoute(req, res, p, url) {
       return send(res, 200, { path: abs, name: path.basename(abs), ...info });
     }
 
-    /* GET /api/fs/raw：原始文件流。仅图片允许内联（<img> 预览），其余一律 attachment 下载。
+    /* GET /api/fs/raw：原始文件流。图片与 .pdf 允许内联（<img> 预览 / 浏览器内建 PDF viewer），
+       其余一律 attachment 下载（防内联 HTML/XSS；docx 无需 inline，前端 fetch 读 body 不受 attachment 影响）。
        注意：不设 Content-Length —— ReFS/Dev Drive 上刚写入文件的 stat.size 可能是
        预分配值（元数据延迟），按实际流读取到 EOF 输出（chunked）才不会截断或虚报。 */
     if (p === '/api/fs/raw' && method === 'GET') {
@@ -304,7 +307,7 @@ async function fsRoute(req, res, p, url) {
       const st = await fsp.stat(abs).catch(() => null);
       if (!st || !st.isFile()) return send(res, 404, { error: 'File does not exist' });
       const ext = path.extname(abs).toLowerCase();
-      const inline = FS_IMAGE_EXT.includes(ext) && q.get('download') !== '1';
+      const inline = (FS_IMAGE_EXT.includes(ext) || ext === '.pdf') && q.get('download') !== '1';
       res.writeHead(200, {
         'Content-Type': inline ? FS_RAW_MIME[ext] || 'application/octet-stream' : 'application/octet-stream',
         'Cache-Control': 'no-store',

@@ -411,6 +411,13 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-fm-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .sp-fm-md { display: block; }
 .sp-fm-code { display: block; }
+/* pdf 预览：iframe 吃满预览区，内建 viewer 自带工具栏 */
+.sp-fm-pdf iframe { display: block; width: 100%; height: 100%; border: 0; }
+/* docx 预览：滚动交给 .docx-wrapper（docx-preview 生成），提示/错误浮在容器顶部 */
+.sp-fm-docx { position: relative; display: block; flex: 1 1 auto; min-height: 0; overflow: auto; background: var(--color-white); border: 1px solid rgba(0, 0, 0, 0.35); }
+.sp-fm-docx-note { position: sticky; top: 0; z-index: 1; padding: 6px 10px; text-align: center; background: var(--color-white); border-bottom: 1px solid rgba(0, 0, 0, 0.35); }
+.sp-fm-docx-error { font-weight: bold; }
+.sp-fm-docx-body:empty { display: none; }
 /* 代码预览：宿主 .sp-code-editor 默认 content-box，height:100% + 上下 border 会产生
    2px 微溢出，令预览容器出现第二条纵向滚动条。border 计入高度并禁外层滚动，
    滚动只交给 CodeMirror 的 .cm-scroller，保证窗口内始终只有一条滚动条 */

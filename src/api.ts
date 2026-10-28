@@ -140,7 +140,7 @@ export async function logout(): Promise<void> {
 
 /* ---------- 文件管理（/api/fs/*）---------- */
 
-export type FsPreviewable = 'image' | 'text' | 'markdown' | 'none';
+export type FsPreviewable = 'image' | 'pdf' | 'docx' | 'text' | 'markdown' | 'none';
 
 /** 目录条目（/api/fs/list 返回） */
 export interface FsEntry {

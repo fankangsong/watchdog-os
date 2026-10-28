@@ -143,6 +143,42 @@ async function waitHealth() {
       `status=${raw.status} cd=${raw.headers.get('content-disposition')} len=${rawBuf.length}`
     );
 
+    // pdf/docx 预览：pdf 允许内联（application/pdf + inline，供浏览器内建 viewer；download=1 仍强制下载）；
+    // docx 不放宽 inline（attachment + octet-stream，前端 fetch 读 body 经 docx-preview 渲染）
+    fs.writeFileSync(path.join(TMP, 'p.pdf'), '%PDF-1.4 fake');
+    fs.writeFileSync(path.join(TMP, 'd.docx'), 'PK\x03\x04 fake');
+    const lst2 = await (await fetch(`${BASE}/api/fs/list?path=${encodeURIComponent(TMP)}`, { headers: H })).json();
+    const pdfEntry = (lst2.entries || []).find((e) => e.name === 'p.pdf');
+    const docxEntry = (lst2.entries || []).find((e) => e.name === 'd.docx');
+    ok(
+      'previewable pdf/docx',
+      pdfEntry?.previewable === 'pdf' && docxEntry?.previewable === 'docx',
+      `pdf=${pdfEntry?.previewable} docx=${docxEntry?.previewable}`
+    );
+    const rawPdf = await fetch(`${BASE}/api/fs/raw?path=${encodeURIComponent(path.join(TMP, 'p.pdf'))}`, { headers: H });
+    ok(
+      'raw pdf inline',
+      rawPdf.headers.get('content-type') === 'application/pdf' &&
+        (rawPdf.headers.get('content-disposition') || '').startsWith('inline'),
+      `ct=${rawPdf.headers.get('content-type')} cd=${rawPdf.headers.get('content-disposition')}`
+    );
+    const rawPdfDl = await fetch(
+      `${BASE}/api/fs/raw?path=${encodeURIComponent(path.join(TMP, 'p.pdf'))}&download=1`,
+      { headers: H }
+    );
+    ok(
+      'raw pdf download=1 attachment',
+      (rawPdfDl.headers.get('content-disposition') || '').startsWith('attachment'),
+      `cd=${rawPdfDl.headers.get('content-disposition')}`
+    );
+    const rawDocx = await fetch(`${BASE}/api/fs/raw?path=${encodeURIComponent(path.join(TMP, 'd.docx'))}`, { headers: H });
+    ok(
+      'raw docx attachment',
+      rawDocx.headers.get('content-type') === 'application/octet-stream' &&
+        (rawDocx.headers.get('content-disposition') || '').startsWith('attachment'),
+      `ct=${rawDocx.headers.get('content-type')} cd=${rawDocx.headers.get('content-disposition')}`
+    );
+
     // upload 二进制 + read 二进制嗅探
     const bin = Buffer.from([1, 2, 0, 3, 255]);
     const up = await (

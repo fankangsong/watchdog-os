@@ -55,6 +55,7 @@ import {
 import { quitMenuItem } from '../quitMenuItem';
 import { CodeEditor } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
+import { DocxPreview } from '../components/DocxPreview';
 // 窗口操作按钮带内嵌图标（16x16 工具栏档，见 docs/icon-pipeline.md §1.2）：
 // 单色 currentColor 跟随按钮文字色，启用/禁用/按下三态自动一致
 import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
@@ -1696,7 +1697,8 @@ function PreviewWindow({
 
   useEffect(() => {
     let alive = true;
-    if (entry.previewable === 'image') {
+    // pdf/docx 不走文本 read 通道（read 对二进制只返回 binary:true 标记），与 image 同为「无文本内容」分支
+    if (entry.previewable === 'image' || entry.previewable === 'pdf' || entry.previewable === 'docx') {
       setState({ loading: false, error: '', content: '' });
       return;
     }
@@ -1811,6 +1813,12 @@ function PreviewWindow({
             <div className="sp-fm-preview-body sp-fm-img">
               <img src={fsRawUrl(entry.path)} alt={entry.name} />
             </div>
+          ) : entry.previewable === 'pdf' ? (
+            <div className="sp-fm-preview-body sp-fm-pdf">
+              <iframe src={fsRawUrl(entry.path)} title={entry.name} />
+            </div>
+          ) : entry.previewable === 'docx' ? (
+            <DocxPreview path={entry.path} />
           ) : isMd && !source ? (
             <div className="sp-fm-preview-body sp-fm-md">
               <MarkdownPreview source={state.content} docPath={entry.path} />
