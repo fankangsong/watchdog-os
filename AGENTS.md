@@ -142,6 +142,8 @@ src/ # React 前端源码
 apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Macintosh HD，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）、AuditApp（登录审计日志）
 components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板、AuditPanels / AuditTrendChart（审计表格与趋势图）
 hooks/ # usePolling —— 数据轮询 Hook
+mobile/ # 移动外壳（仅 <768px 挂载）：shellModel.ts 纯逻辑 / MobileShell 组合 / MobileHome 首页网格 / MobileHomeBar 返回首页（见下节「移动端 / 小屏适配」）
+responsive.ts # 断点层：layoutForWidth 纯函数 + useViewport（matchMedia 单例）+ 写 html[data-wd-layout]
 api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理、/api/audit/\* 登录审计）
 editorBridge.ts # Finder → 文本编辑器 跨应用打开文件的联动桥
 hostFsAdapter.ts # classicy FS Adapter：内置 Finder（Finder.app / Macintosh HD）接入宿主机文件系统（见下节）
@@ -238,6 +240,16 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - 前端 `ConverterApp.tsx`：窗口内文件浏览（ClassicyTable 多选，目录双击进入、HEIC 双击即转换）→ Convert…（⌘E）→ 目标已存在时 caution alert 确认覆盖（默认按钮 Cancel）→ 顺序转换（WASM 解码内存峰值高，不并发）→ 进度条 + 可取消 → 状态栏汇总。质量档 High/Medium/Low（0.92/0.8/0.6）经 `ClassicyPopUpMenu` 选择，偏好持久化 localStorage `srv-converter-prefs`
 - 图标为自绘 `src/assets/icons/converter.svg`（双照片 + 箭头，`?no-inline` 引入）；样式 `sp-conv-` 前缀在 `styles.css`（含主窗口高度链与 `cv-` 菜单项防折行规则）
 - 注：HEIC 可含多图（连拍/实况深度图），只转换主图；上传受 `/api/fs/upload` 50MB 上限约束（iPhone 照片一般 2-5MB，无虞）
+
+### 移动端 / 小屏适配（src/responsive.ts + src/mobile/）
+
+- **三档断点**（`src/responsive.ts` 的 `layoutForWidth`）：`<768px` → `mobile`（手机 + iPad 1/3 分屏）、`768~1024px` → `tablet`、`>1024px` → `desktop` 与改造前完全一致。判定写在 `<html data-wd-layout>` 上，`main.tsx` 在 `createRoot` 前 `initViewport()` 保证首帧即正确档位；`useViewport()` 是 `matchMedia` 单例订阅，只在跨断点时重渲染。**不要在组件里各自监听 resize**。
+- **mobile 档是「移动外壳」**（`src/mobile/`）：原生桌面图标 `display:none`，改由 `MobileHome` 读同一份 store（`System.Manager.Desktop.icons`）排成 3 列网格；点开 app 后窗口被 CSS 全屏化，右下角 `MobileHomeBar` 逐个 `ClassicyWindowClose` 回首页。首页只收自研 app（`appId` 以 `srv-` 开头）与磁盘卷（`kind==='drive'`），classicy 内置 app / 废纸篓 / `hidden` 一律不出现；同名项按显示名去重且 app 优先（内置 Finder 与自研 Finder 都叫 Macintosh HD）。
+- ⚠️ **移动端不得写窗口几何**：全屏化只走 CSS `!important` 覆盖内联 style；一旦 `dispatch ClassicyWindowResize/Position`，尺寸会被持久化进 `classicyDesktopState`，桌面端多窗口布局就毁了。
+- ⚠️ **`ClassicyAppOpen` 会把该 app 所有已注册窗口一起打开并逐个聚焦**（srv-finder 的收藏夹窗口是常驻树，会盖住主窗口），因此首页打开 app 后必须补一次 `ClassicyWindowFocus` 到 `primaryWindowId()`。
+- ⚠️ **首页可见性只看「是否有未关闭窗口」**，不看 `focusedAppId`（返回首页后 classicy 不清它，用它判定会永远回不到首页）。
+- **样式规矩**：移动/平板覆盖一律写成 `html[data-wd-layout="mobile"] .sp-xxx { … }`，禁止裸写 `.sp-toolbar` 之类全局选择器；菜单栏只做缩字号/隐藏切换器，**不要**改顶级菜单项 `flex-wrap`（下拉会落到标题下方或溢出屏幕）。全屏窗口的 `top` 取 `--wd-m-menu-h`（`MobileShell` 用 ResizeObserver 量出），硬编码会与菜单栏重叠。
+- **已知降级**（手机端不提供）：窗口拖拽/缩放/折叠、多窗口并排、桌面图标框选与右键菜单。逐 app 的窄屏处理与验收步骤见 [docs/mobile-adaptation.md](docs/mobile-adaptation.md)。
 
 ### 重要注意事项
 
@@ -377,6 +389,7 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - 退出登录收尾：`node test/test-session-store.mjs` 全部 PASS（11 项：会话相关 storage 清理且保留纯外观偏好 / 并发 401 只导航一次 / `wd-signed-out` 一次性标记 / 401 与主动退出同路径 / storage 被禁仍完成收尾；优先直接 import `.ts`，旧 Node 回退 esbuild）。
 - 登录审计：`node test/test-audit-log-api.js` 全部 PASS（28 项：登录成功/失败/坏 body/登出落盘、日志不含凭据、401 去重合并、审计接口 401、统计与筛选、CSV 的 BOM/表头/不受 limit 限制、疑似暴力破解命中、保留期清理、重启后可读；临时 `LOGIN_LOG_DIR`，零残留）。
 - 用量 Dashboard：`node test/test-usage-api.js` 全部 PASS（401 / 503 未启用 / key 未配置 503 / 200 转发透传 / 上游 401→502 / key 留空时经 USAGE_SSH_CMD 读取 hermes 配置并作为上游 Bearer；自起 mock 上游）。
+- 移动外壳：`node test/test-mobile-shell.mjs` 全部 PASS（36 项：三档断点边界含 iPad 分屏 320/507 / 首页图标过滤（classicy 内置 app、废纸篓、hidden、inApplications:false）/ 同名项去重且 app 优先 / 打开动作 event 优先 / 首页可见性只看未关闭窗口 / 返回首页窗口枚举 / 主窗口选择；优先直接 import `.ts`，旧 Node 回退 esbuild）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。
 - 桌面图标：改桌面应用（新增/改名/换图标）或触碰 `Desktop.tsx` 的图标清理逻辑后，用浏览器实测 `document.querySelectorAll('.classicyDesktopIcon')` 的数量与 `id`（`id` 即 appId），确认没有多余图标（如 classicy 示例的 `Finder.app.shortcut`）。
 - Terminal 多窗口：改 `TerminalApp.tsx` 后用真实浏览器实测「File > New Window 开多窗 → 各窗独立输入互不串扰（对比各窗 `.xterm-rows` 回显）→ 关窗释放」。零依赖 CDP 探针要点：桌面图标 DOM id 为 `<appId>.shortcut`（如 `srv-terminal.app.shortcut`）；窗口 DOM id 为 `<appId>_<windowId>`；headless Chrome 需 `--single-process --no-zygote --no-sandbox --disable-dev-shm-usage` 且用 `Page.navigate`（初始 URL 参数不生效）；⌘N 分支仅 macOS 生效，Linux 无头验证需先 `Emulation.setUserAgentOverride`（platform=MacIntel）再合成 metaKey+N keydown。

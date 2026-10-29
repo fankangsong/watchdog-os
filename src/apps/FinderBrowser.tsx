@@ -28,6 +28,7 @@ import {
   useClassicyContextualMenu,
 } from 'classicy';
 import type { ClassicyMenuItem, ClassicyTableColumn } from 'classicy';
+import { useViewport } from '../responsive';
 import {
   fsCopy,
   fsDelete,
@@ -485,6 +486,28 @@ export function FinderBrowser({
   // 订选文件模式开关（Converter 侧 startConverterPick/cancel 时同步各浏览窗口）
   useEffect(() => onConverterPickingChange(setPicking), []);
 
+  // ---- 触屏打开条目（mobile 档）----
+  // 「打开」在桌面端绑在 dblclick 上（图标视图 onDoubleClick、表格视图 onActivateRow 亦然），
+  // 但移动浏览器对双击的支持不可靠：iOS Safari 在双击缩放生效时不派发 dblclick，
+  // 手机上点文件夹就只剩「选中」。这里保留单击选择，另用「350ms 内连续两次点击同一目标」
+  // 合成打开动作（不依赖原生 dblclick）；仅 mobile 档启用，桌面交互零变化。
+  const { layout } = useViewport();
+  const touchOpen = layout === 'mobile';
+  const lastTapRef = useRef<{ key: string; at: number } | null>(null);
+  const tapOpen = useCallback(
+    (key: string, entry: FsEntry) => {
+      if (!touchOpen) return;
+      const now = Date.now();
+      const last = lastTapRef.current;
+      lastTapRef.current = { key, at: now };
+      if (last && last.key === key && now - last.at < 350) {
+        lastTapRef.current = null;
+        openEntry(entry);
+      }
+    },
+    [touchOpen, openEntry]
+  );
+
   // 选文件模式下 Esc 取消回到 Converter（输入框聚焦时放行，避免打断打字）
   useEffect(() => {
     if (!picking) return;
@@ -711,6 +734,26 @@ export function FinderBrowser({
   const cutPaths = useMemo(
     () => (clipboard?.mode === 'cut' ? new Set(clipboard.entries.map((e) => e.path)) : null),
     [clipboard]
+  );
+
+  // 触屏表格打开：ClassicyTable 的行激活只挂在 dblclick/Enter 上，手机上点不开。
+  // 在表格容器上做点击代理——从 tr[data-row-id] 反查条目，复用 tapOpen 的双击合成。
+  // 子行（目录内联展开）也纳入映射：getRowId 对所有层级行生效，id 即条目 path
+  const rowById = useMemo(() => {
+    const m = new Map<string, FsEntry>();
+    for (const r of tableRows) m.set(r.path, r);
+    for (const kids of childrenCache.current.values()) for (const e of kids) m.set(e.path, e);
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableRows, treeVersion]);
+  const handleTableTap = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      const tr = (e.target as HTMLElement).closest('tr[data-row-id]');
+      if (!tr) return;
+      const row = rowById.get(tr.getAttribute('data-row-id') || '');
+      if (row) tapOpen(row.path, row);
+    },
+    [rowById, tapOpen]
   );
 
   /** 根列表视图（未进入任何目录）用磁盘图标，其余按扩展名细分 */
@@ -1451,7 +1494,11 @@ export function FinderBrowser({
                     .filter(Boolean)
                     .join(' ')}
                   title={entry.type === 'dir' ? entry.name : `${entry.name} — ${fmtBytes(entry.size)}`}
-                  onClick={(e) => handleIconClick(entry, idx, e)}
+                  onClick={(e) => {
+                    handleIconClick(entry, idx, e);
+                    // 触屏：350ms 内同一目标点两次即打开（桌面仍走 dblclick）
+                    tapOpen(entry.path, entry);
+                  }}
                   onDoubleClick={() => openEntry(entry)}
                 >
                   <img src={displayIcon(entry)} alt="" draggable={false} />
@@ -1468,7 +1515,7 @@ export function FinderBrowser({
             </div>
           ) : (
             // 列表视图：名称/大小/修改时间/种类，目录行内联展开（双击/回车进目录）
-            <div className="sp-fm-table">
+            <div className="sp-fm-table" onClick={handleTableTap}>
               <ClassicyTable
                 columns={columns}
                 rows={tableRows}

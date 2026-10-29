@@ -7,6 +7,7 @@ import {
 } from 'classicy';
 import type { ClassicyStore } from 'classicy';
 import { logout } from './api';
+import { MobileShell } from './mobile/MobileShell';
 import { HostFsLazyLoader } from './hostFsAdapter';
 import { MonitorApp } from './apps/MonitorApp';
 import { DockerApp } from './apps/DockerApp';
@@ -95,6 +96,9 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
     >
       <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg}>
         <HostFsLazyLoader />
+        {/* 移动外壳：仅在手机断点（<768px）渲染首页网格与「返回首页」悬浮键，
+            平板/桌面不渲染任何东西，13 个 app 的注册与窗口行为完全不变 */}
+        <MobileShell />
         <FinderApp onLogout={onLogout} />
         <MonitorApp onLogout={onLogout} />
         <DockerApp onLogout={onLogout} />

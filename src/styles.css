@@ -19,11 +19,25 @@
 }
 
 /* 去掉浏览器默认 body 边距，隐藏全局滚动条，桌面铺满视口 */
+/* 100dvh 兜底：iOS Safari 地址栏折叠/展开时 100% 会按「展开态」高度计算，
+   底部会被地址栏裁掉一截；dvh 跟随可视区，收起地址栏后铺满。@supports 让旧浏览器留在 100%。 */
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
   overflow: hidden;
+}
+@supports (height: 100dvh) {
+  html, body, #root { height: 100dvh; }
+}
+/* iOS 横竖屏切换时禁止字号被自动放大（会让整页排版跳变） */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+/* 禁止整页橡皮筋：桌面本身是 overflow:hidden 的全屏容器，滚动只发生在窗口内部 */
+body {
+  overscroll-behavior: none;
 }
 
 
@@ -949,3 +963,447 @@ ul.classicyContextMenu li[id^="cv-"] > p { white-space: nowrap; }
 /* 状态栏（双区）：左上下文 / 右全局 */
 .sp-audit-status { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 10px; font-size: 11px; color: #444; background: var(--color-system-01); border-top: var(--window-border-size) solid var(--color-system-05); }
 .sp-audit-status-err { color: #c00000; }
+
+/* ==================================================================
+   移动端 / 平板适配（见 docs/mobile-adaptation.md）
+   ------------------------------------------------------------------
+   作用域铁律：除「全局 + 安全区」小节外，本段所有规则都挂在
+   `html[data-wd-layout="mobile"]` / `"tablet"]` 下（由 src/responsive.ts 写入）。
+   裸写 `.sp-toolbar { ... }` 之类会直接回归桌面端布局——不要这么写。
+
+   为什么全屏化只用 CSS 不写 store：classicy 窗口节点的 width/height/left/top/
+   minWidth/minHeight 全是内联 style（非 important），样式表 !important 可覆盖；
+   若改走 dispatch ClassicyWindowResize/Position，移动端尺寸会被持久化进
+   classicyDesktopState，之后回到桌面端多窗口布局就全乱了。
+   ================================================================== */
+
+/* ---------- 手机（<768px，含 iPad 分屏窄态）：单 app 全屏 + 首页网格 ---------- */
+html[data-wd-layout="mobile"] {
+  /* 移动端菜单栏高度由 MobileShell 用 ResizeObserver 量出后写入；
+     兜底值仅在首帧（尚未测量）时生效 */
+  --wd-m-menu-h: 24px;
+  /* 触控目标的统一最小边长（44pt ≈ iOS 推荐命中区） */
+  --wd-m-touch: 44px;
+}
+
+/* 原生桌面图标：绝对定位 + 鼠标双击/拖拽框选，触屏不可用。手机上改用
+   MobileHome 的图标网格（同一份 store 数据） */
+html[data-wd-layout="mobile"] .classicyDesktopIcon { display: none !important; }
+
+/* 窗口 → 全屏。top 从菜单栏下沿开始（菜单栏 z-index 500 在窗口之上，
+   盖住会连标题栏与关闭框都点不到） */
+html[data-wd-layout="mobile"] .classicyWindow {
+  position: fixed !important;
+  left: 0 !important;
+  top: var(--wd-m-menu-h) !important;
+  width: 100% !important;
+  height: calc(100dvh - var(--wd-m-menu-h)) !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  max-width: none !important;
+  padding: 0 !important;
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: none;
+}
+/* 折叠态只保留标题栏，不能被拉成全屏 */
+html[data-wd-layout="mobile"] .classicyWindow.classicyWindowCollapsed {
+  height: auto !important;
+}
+/* 高度链：classicy 的内容区高度是 calc(100% - control*1 - padding*1.5) 的估算值，
+   手机上去掉窗口内边距后与真实可用高度差 1~2px，最后一整行会被 overflow:hidden 裁掉
+   （表现为状态栏文字贴边/缺一截）。改成 flex 列布局让内容区吃掉剩余高度，精确无残差 */
+html[data-wd-layout="mobile"] .classicyWindow {
+  display: flex;
+  flex-direction: column;
+}
+html[data-wd-layout="mobile"] .classicyWindow > .classicyWindowTitleBar {
+  flex: 0 0 auto;
+}
+html[data-wd-layout="mobile"] .classicyWindow > .classicyWindowContents {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 0;
+}
+/* 模态 / 错误弹窗：居中小卡片，不做全屏（否则一个警告框会独占整屏） */
+html[data-wd-layout="mobile"] .classicyWindow.classicyWindowModal,
+html[data-wd-layout="mobile"] .classicyWindow.classicyWindowModalFront,
+html[data-wd-layout="mobile"] .classicyWindow.classicyWindowRed {
+  left: 50% !important;
+  top: 50% !important;
+  width: calc(100vw - 32px) !important;
+  max-width: 420px;
+  height: auto !important;
+  max-height: 80dvh !important;
+  transform: translate(-50%, -50%);
+}
+/* 手机上没有「自由缩放 / 拖拽移动」：隐藏四边拖拽手柄、缩放角与缩放/折叠框，
+   只保留关闭框，避免指腹误触把窗口拖成半屏 */
+html[data-wd-layout="mobile"] .classicyWindowResizer,
+html[data-wd-layout="mobile"] .classicyWindowFrameEdge,
+html[data-wd-layout="mobile"] .classicyWindowZoomBox,
+html[data-wd-layout="mobile"] .classicyWindowCollapseBox {
+  display: none !important;
+}
+/* 控制框是「外层 .classicyWindowControlBox + 内层具体方块」两层结构，
+   只隐藏内层会在标题栏右侧留一个空盒子——必须连外层一起收掉 */
+html[data-wd-layout="mobile"] .classicyWindowControlBox:has(> .classicyWindowZoomBox),
+html[data-wd-layout="mobile"] .classicyWindowControlBox:has(> .classicyWindowCollapseBox) {
+  display: none !important;
+}
+/* 关闭框：视觉 18px，命中区用伪元素扩到约 42px（不改布局，标题栏高度不变） */
+html[data-wd-layout="mobile"] .classicyWindowCloseBox {
+  position: relative;
+  width: 18px !important;
+  height: 18px !important;
+}
+html[data-wd-layout="mobile"] .classicyWindowCloseBox::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+}
+
+/* 菜单栏：隐藏应用切换器（手机无 Cmd-Tab 语义，且它靠 float:right 吃掉半条宽度），
+   收紧字号与内边距。⚠️ 不改顶级菜单项的 flex-wrap：classicy 用「标题 + width:100%
+   的下拉容器」布局，改成 nowrap 会让下拉容器换行或整体溢出屏幕（见上方 fm-* 注释）。 */
+html[data-wd-layout="mobile"] .classicyDesktopMenuBar { padding-top: env(safe-area-inset-top); }
+html[data-wd-layout="mobile"] .classicyDesktopMenuAppSwitcher { display: none !important; }
+/* 手机外放/静音开关没有意义，让位给菜单标题（窄屏下每个像素都值钱） */
+html[data-wd-layout="mobile"] .classicyDesktopMenuWidgetSound { display: none !important; }
+html[data-wd-layout="mobile"] .classicyDesktopMenu {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+html[data-wd-layout="mobile"] .classicyDesktopMenu::-webkit-scrollbar { display: none; }
+html[data-wd-layout="mobile"] .classicyDesktopMenu > li {
+  flex: 0 0 auto;
+  float: none;
+  font-size: 12px;
+  padding-left: 6px;
+  padding-right: 6px;
+  white-space: nowrap;
+}
+
+/* 文件浏览器（图标视图 / 表格视图）：双击打开在触屏上是「快速点两次」。
+   不加 touch-action:manipulation 时，第二次点击会触发 iOS 的双击缩放——
+   页面被放大而 dblclick/tapOpen 都收不到第二次点击 */
+html[data-wd-layout="mobile"] .sp-fm-icons,
+html[data-wd-layout="mobile"] .sp-fm-table {
+  touch-action: manipulation;
+}
+
+/* ---------- 首页（MobileHome） ---------- */
+.sp-m-home {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--wd-m-menu-h);
+  bottom: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 10px 10px calc(8px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  animation: sp-m-fade-in 0.16s ease-out both;
+}
+.sp-m-home-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 12px;
+}
+.sp-m-home-logo {
+  width: 32px;
+  height: 32px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 8px rgba(226, 238, 250, 0.22));
+}
+.sp-m-home-title {
+  margin: 0;
+  font-family: 'Silkscreen', var(--mono-font, monospace);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  color: #f3f0e8;
+}
+.sp-m-home-sub {
+  margin: 3px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(243, 240, 232, 0.84);
+  word-break: break-all;
+}
+/* 图标网格：固定 3 列（320px 视口下每列约 100px，仍是舒适的命中区），
+   图标 48px + 名称 12px；≥520px（大屏手机横屏 / iPad 分屏宽态）自动升到 4 列，
+   避免图标被拉得过开 */
+.sp-m-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-content: start;
+  gap: 10px 2px;
+  padding: 2px 0;
+}
+@media (min-width: 520px) {
+  .sp-m-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.sp-m-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  min-height: 92px;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.sp-m-icon-img {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(1px 2px 0 rgba(0, 0, 0, 0.35));
+}
+.sp-m-icon-label {
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: center;
+  color: #ffffff;
+  word-break: break-word;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.65);
+}
+/* 按下：整体下沉 1px + 图标压暗（复用桌面的「已打开棋盘遮罩」语义） */
+.sp-m-icon:active .sp-m-icon-img { filter: brightness(0.75) drop-shadow(0 0 0 transparent); }
+.sp-m-icon:active .sp-m-icon-label { color: rgba(255, 255, 255, 0.82); }
+.sp-m-icon:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
+.sp-m-empty {
+  grid-column: 1 / -1;
+  margin: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+}
+/* 底部状态条：Platinum 浅灰带 + 顶边 1px 黑线（与登录页状态栏同一语言） */
+.sp-m-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  margin-top: 8px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background: #d9d5cd;
+  border: 1px solid #000;
+  box-shadow: inset 1px 1px 0 #ffffff;
+  font-size: 12px;
+  color: #3c3831;
+}
+.sp-m-led {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+.sp-m-led-on { background: #2fbf4a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 0 5px rgba(47, 191, 74, 0.8); }
+.sp-m-led-off { background: #d0342c; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4), 0 0 5px rgba(208, 52, 44, 0.7); }
+.sp-m-status-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sp-m-clock {
+  margin-left: auto;
+  font-family: var(--mono-font, monospace);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- 「返回首页」悬浮键（MobileHomeBar） ---------- */
+.sp-m-homebar {
+  position: fixed;
+  right: calc(12px + env(safe-area-inset-right));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 450;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--wd-m-touch, 44px);
+  height: var(--wd-m-touch, 44px);
+  padding: 0;
+  box-sizing: border-box;
+  background: #eeeeee;
+  border: 1px solid #000;
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #aaaaaa,
+    2px 2px 0 rgba(0, 0, 0, 0.42);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.sp-m-homebar img { width: 16px; height: 16px; image-rendering: pixelated; }
+.sp-m-homebar:active {
+  background: var(--color-system-05, #808080);
+  box-shadow: inset 1px 1px 0 #666666;
+  transform: translate(1px, 1px);
+}
+/* 按下时反白：中灰底上的深蓝描边几乎同明度，不提亮会糊成一团 */
+.sp-m-homebar:active img { filter: brightness(0) invert(1); }
+
+@keyframes sp-m-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---------- 触屏通用：输入框字号 ≥16px（iOS 聚焦时不自动缩放页面） ---------- */
+html[data-wd-layout="mobile"] input,
+html[data-wd-layout="mobile"] textarea,
+html[data-wd-layout="mobile"] select,
+html[data-wd-layout="tablet"] input,
+html[data-wd-layout="tablet"] textarea,
+html[data-wd-layout="tablet"] select {
+  font-size: 16px;
+}
+/* 手机端按钮加高到 26px（原 20px 在指腹下极易点空），文字仍保持 12px */
+html[data-wd-layout="mobile"] .sp-toolbar .classicyButton,
+html[data-wd-layout="mobile"] .sp-dialog-actions .classicyButton {
+  min-height: 26px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+/* ---------- 逐 app 窄屏降级 ---------- */
+/* 工具栏：允许换行；地址栏（Finder）独占第二行，避免与按钮互相挤压 */
+html[data-wd-layout="mobile"] .sp-toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding: 6px 8px;
+}
+html[data-wd-layout="mobile"] .sp-toolbar .sp-fm-addr {
+  order: 10;
+  flex: 1 1 100%;
+  min-width: 0;
+  margin: 0;
+}
+html[data-wd-layout="mobile"] .sp-toolbar .sp-toolbar-status { margin-left: auto; }
+/* 聊天：左侧会话栏 → 顶部横条（限制高度，把纵向空间留给对话） */
+html[data-wd-layout="mobile"] .sp-chat { flex-direction: column; }
+html[data-wd-layout="mobile"] .sp-chat-side {
+  flex: 0 0 auto;
+  max-height: 132px;
+  border-right: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+}
+html[data-wd-layout="mobile"] .sp-chat-list { padding: 8px; }
+html[data-wd-layout="mobile"] .sp-chat-bubble { max-width: 92%; }
+html[data-wd-layout="mobile"] .sp-chat-input { gap: 4px; padding: 6px; }
+html[data-wd-layout="mobile"] .sp-chat-textarea { height: 48px; }
+/* 编辑器：分栏在 JS 层改方向（EditorApp 读 useViewport），这里兜底成上下堆叠 */
+html[data-wd-layout="mobile"] .sp-editor-body { flex-direction: column; }
+/* 表格 / 长列表：触摸惯性滚动 + 横向滚动条贴住表格区（原本靠窗口高度链） */
+html[data-wd-layout="mobile"] .sp-fm-table,
+html[data-wd-layout="mobile"] .sp-conv-table,
+html[data-wd-layout="mobile"] .sp-audit-table,
+html[data-wd-layout="mobile"] .sp-fm-icons,
+html[data-wd-layout="mobile"] .sp-monitor-scroll,
+html[data-wd-layout="mobile"] .sp-audit-body {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+/* 图标视图：单元格收窄，一行放得下 3 个 */
+html[data-wd-layout="mobile"] .sp-fm-icons { padding: 8px 6px; gap: 6px 2px; }
+html[data-wd-layout="mobile"] .sp-fm-icon { width: 78px; }
+/* CPU 核心：单列（240px 的 minmax 在 390px 上只剩一列，显式声明避免半列） */
+html[data-wd-layout="mobile"] .sp-cores { grid-template-columns: 1fr; }
+/* 仪表 + 曲线：曲线块换行后铺满整行 */
+html[data-wd-layout="mobile"] .sp-chart-wrap { min-width: 0; flex-basis: 100%; }
+/* 审计：概览卡两列、事件表高度收一半（窗口已是全屏，页面内再滚动会双滚动） */
+html[data-wd-layout="mobile"] .sp-audit-cards { grid-template-columns: repeat(2, 1fr); }
+html[data-wd-layout="mobile"] .sp-audit-table { max-height: 40dvh; }
+html[data-wd-layout="mobile"] .sp-audit-trend canvas { height: 96px; }
+html[data-wd-layout="mobile"] .sp-audit-filter .classicyInputHolder { max-width: none; flex: 1 1 100%; }
+/* 对话框：留 12px 边距，超出 80dvh 时内部滚动 */
+html[data-wd-layout="mobile"] .sp-dialog {
+  width: calc(100vw - 24px);
+  max-width: none;
+  max-height: 80dvh;
+  overflow: auto;
+}
+/* 转换器 / 编辑器等状态栏：窄屏下换行，避免长路径把右端挤出视口 */
+html[data-wd-layout="mobile"] .sp-conv-status,
+html[data-wd-layout="mobile"] .sp-editor-status {
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+html[data-wd-layout="mobile"] .sp-conv-file { flex-wrap: wrap; gap: 8px; }
+html[data-wd-layout="mobile"] .sp-conv-file-actions { flex-direction: row; width: 100%; }
+html[data-wd-layout="mobile"] .sp-conv-progress-name,
+html[data-wd-layout="mobile"] .sp-fm-upload-name { width: 110px; }
+/* 终端：全屏后由 xterm FitAddon 重新计算行列（TerminalApp 已挂 ResizeObserver），
+   这里只保证触控滚动不与 xterm 的滚动手势打架 */
+html[data-wd-layout="mobile"] .sp-term { touch-action: pan-y; }
+
+/* ---------- 平板（768~1024px，含 iPad 横屏与分屏宽态）：保留多窗口，只夹取尺寸 ---------- */
+/* 窗口尺寸上限收进可视区（四周留 12px）：classicy 只在首帧应用 initialSize，
+   历史持久化的窗口尺寸不受其约束，因此约束必须落在 CSS 上限上 */
+html[data-wd-layout="tablet"] .classicyWindow {
+  max-width: calc(100vw - 24px) !important;
+  max-height: calc(100dvh - 32px) !important;
+}
+html[data-wd-layout="tablet"] .classicyWindowResizer { width: 24px !important; height: 24px !important; }
+html[data-wd-layout="tablet"] .classicyWindowCloseBox { width: 16px !important; height: 16px !important; }
+html[data-wd-layout="tablet"] .classicyDesktopMenu > li { font-size: 13px; }
+html[data-wd-layout="tablet"] .sp-toolbar { flex-wrap: wrap; row-gap: 6px; }
+html[data-wd-layout="tablet"] .sp-toolbar .sp-fm-addr { flex: 1 1 220px; margin-right: 0; }
+html[data-wd-layout="tablet"] .sp-chat-side { flex-basis: 140px; }
+html[data-wd-layout="tablet"] .sp-chat-bubble { max-width: 88%; }
+html[data-wd-layout="tablet"] .sp-cores { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+
+/* ---------- 登录页小屏收口（≤767px） ----------
+   窗口本身已是 width:380px + max-width:calc(100vw-40px)，小屏只需回收外边距、
+   把品牌名降到 16px（Silkscreen 取 8 的倍数才不糊）、给底部状态栏留出安全区 */
+html[data-wd-layout="mobile"] .sp-login-stage {
+  padding: 20px 12px calc(28px + env(safe-area-inset-bottom));
+}
+html[data-wd-layout="mobile"] .sp-login-brand {
+  gap: 9px;
+  margin-bottom: 16px;
+}
+html[data-wd-layout="mobile"] .sp-login-brand-name { font-size: 16px; }
+html[data-wd-layout="mobile"] .sp-login-brand-tag { font-size: 10px; }
+html[data-wd-layout="mobile"] .sp-platinum-window {
+  width: 100%;
+  max-width: 380px;
+}
+html[data-wd-layout="mobile"] .sp-platinum-body { padding: 14px 14px 12px; }
+/* 输入框已由触屏通用规则提到 16px，这里同步加高，避免高瘦比例失衡 */
+html[data-wd-layout="mobile"] .sp-login-field input { height: 34px; }
+html[data-wd-layout="mobile"] .sp-login-actions > button { min-height: 34px; }
+html[data-wd-layout="mobile"] .sp-login-status { height: 26px; }
+html[data-wd-layout="mobile"] .sp-login-status-clock { font-size: 16px; }
+
+/* ---------- 减少动效偏好 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .sp-m-home { animation: none; }
+}

@@ -25,6 +25,7 @@ import { CodeEditor, EDITOR_FONTS, EDITOR_THEMES } from '../components/CodeEdito
 import type { EditorThemeId } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 import { fmtBytes } from '../format';
+import { useViewport } from '../responsive';
 import { EDITOR_APP_ID, EDITOR_APP_NAME, EDITOR_ICON, EDITOR_OPEN_EVENT, EDITOR_WIN_ID, takePendingEditorPath } from '../editorBridge';
 import { quitMenuItem } from '../quitMenuItem';
 
@@ -100,6 +101,10 @@ function fmtTime(ms: number): string {
 }
 
 export function EditorApp({ onLogout }: { onLogout: () => void }) {
+  // 分栏方向随视口：手机上左右双栏各自不足 200px（minPaneSize），改上下堆叠；
+  // ClassicySplitView 用内联 flex-basis 百分比排布，纯 CSS 无法可靠改轴，只能由 JS 传参
+  const { layout } = useViewport();
+  const splitDirection = layout === 'mobile' ? 'vertical' : 'horizontal';
   const [prefs, setPrefs] = useState<EditorPrefs>(loadPrefs);
   const [viewPrefs, setViewPrefs] = useState<EditorViewPrefs>(loadViewPrefs);
   const [path, setPath] = useState('');
@@ -424,7 +429,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
               </ClassicyButton>
             </div>
           ) : viewPrefs.showPreview ? (
-            <ClassicySplitView direction="horizontal" defaultSizes={[55, 45]} minPaneSize={200} className="sp-editor-body">
+            <ClassicySplitView direction={splitDirection} defaultSizes={[55, 45]} minPaneSize={200} className="sp-editor-body">
               {editorNode}
               <div className="sp-editor-preview">
                 {isMd ? (

@@ -555,6 +555,34 @@ def build_fm_fav(edge='N', tone='b', thickness=1):
     return face(g, edge=edge, fill=tone, thickness=thickness, core=(4, 5, 11, 8))
 
 
+def build_home(edge='N', tone='b', thickness=1):
+    """Home：小屋（斜屋顶 + 屋檐 + 屋身 + 门洞），14x13，四周 ≥1px 透明边。
+
+    手机端「返回首页」悬浮键的图标（16 档 1:1）：屋顶压成三角、屋檐比屋身宽 2px
+    形成投影感、门洞挖空（透明）作为唯一细节——16px 上再多细节就糊成一团。
+    门洞两侧的屋身仍有 ≥4px 宽度，face() 的距离场不会把它切成零碎面点。
+    """
+    g = blank()
+    blit(g, [
+        '................',
+        '.......KK.......',
+        '......KKKK......',
+        '.....KKKKKK.....',
+        '....KKKKKKKK....',
+        '...KKKKKKKKKK...',
+        '..KKKKKKKKKKKK..',
+        '.KKKKKKKKKKKKKK.',
+        '..KKKKKKKKKKKK..',
+        '..KKKKKKKKKKKK..',
+        '..KKKKK..KKKKK..',
+        '..KKKKK..KKKKK..',
+        '..KKKKK..KKKKK..',
+        '................',
+    ], 0, 0)
+    # core 只放屋身：屋顶每行都很薄，出面会碎；门洞把屋身分成左右两半，各自仍够宽
+    return face(g, edge=edge, fill=tone, thickness=thickness, core=(3, 8, 12, 12))
+
+
 # ---------------------------------------------------------------- SVG 输出
 def merge_rects(g):
     """贪心最大同色矩形合并，返回 [(x, y, w, h, ch)]。"""
@@ -794,6 +822,8 @@ if __name__ == '__main__':
     emit(build_fm_back(), 'fm-back')
     emit(build_fm_up(), 'fm-up')
     emit(build_fm_fav(), 'fm-fav')
+    # 16 档：移动外壳「返回首页」悬浮键（手机布局，见 docs/mobile-adaptation.md）
+    emit(build_home(), 'home')
     print('preview dir: %s' % PREVIEW_DIR)
 
     seen, problems = lint_imports()

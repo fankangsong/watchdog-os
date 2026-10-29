@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：让页面铺到 iPhone 刘海/圆角区域，安全区由 CSS env(safe-area-inset-*) 补内边距 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- 独立窗口（添加到主屏幕）时用黑色状态栏区，与黑色菜单栏连成一体 -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" type="image/png" href="./favicon.png" />
     <title>WatchDog OS</title>
     <!-- PWA 标签由 vite.config.ts 的 pwa 插件在构建末期注入到此占位处（manifest / theme-color / apple-touch-icon） -->

@@ -137,7 +137,7 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 
 | 能力 | 说明 |
 |---|---|
-| 构建 | `build_terminal()` / `build_chat()` / `build_docker()` / `build_runner()` / `build_blog()` / `build_audit()`（32 档）与 `build_fm_back()` / `build_fm_up()` / `build_fm_fav()`（16 档）—— 用 `fill` / `hline` / `roundbox` / `blit` 画网格；异形主体（鲸、三角、放大镜镜片）用 `sil_rect()` / 距离场搭形 + `bevel()` 上立体色 + `outline()` 描外框 |
+| 构建 | `build_terminal()` / `build_chat()` / `build_docker()` / `build_runner()` / `build_blog()` / `build_audit()`（32 档）与 `build_fm_back()` / `build_fm_up()` / `build_fm_fav()` / `build_home()`（16 档）—— 用 `fill` / `hline` / `roundbox` / `blit` 画网格；异形主体（鲸、三角、放大镜镜片）用 `sil_rect()` / 距离场搭形 + `bevel()` 上立体色 + `outline()` 描外框 |
 | 双色面 | `face(g, edge='C', fill='W', thickness=1, min_area=3, core=None)` —— 只画剪影，再由它上「描边色 + 面」（§1.2）：距离变换算外圈、`core` 收面范围、`'X'` 强制实心。16 档 `build_fm_*()` 传 `edge='N', fill='b'` |
 | 尺寸切换 | `set_size(32/16)` —— 全部绘制/输出函数调用时读全局 `W/H`，构建前切一次即可；`to_svg` / `verify` / `preview` 随之自适应 |
 | 合并 | `merge_rects()` 贪心最大同色矩形（先横向游程、再纵向扩展） |
