@@ -70,17 +70,31 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 | 画布 | **16×16**，`viewBox="0 0 16 16"` | design-spec §7.4「工具栏图标 16px 档」 |
 | 渲染 | **1:1** 渲染在 16px（`.sp-tb-icon` 宽高 16px） | 缩放即糊，16 档没有缩小空间 |
 | 尺寸依据 | 按钮 20px 高（`--hig-button-height`）− 边框 2px − 内边距 2px = 16px 内容盒，图标恰好填满并随按钮 flex 行垂直居中；文字 12px，图标 ≤ 文字盒 | §3.2.2 规则 5 |
-| 颜色 | **单色 `currentColor`**（调色板键 `C`） | 跟随宿主按钮文字色：启用黑 / 禁用灰（`sp-toolbar :disabled`）/ 按下白（classicy `:active`），三态零成本一致，禁用以滤镜模拟 |
+| 颜色 | **双色，固定**：`N` = `#1b3d72`（深蓝描边）+ `b` = `#4a86d8`（蓝面），与对话气泡同一支蓝 | 固定色不走 `currentColor`——启用态按钮底是白（`.sp-toolbar .classicyButton:enabled { background: var(--color-white) }`），白面会与底色融成一色；改用蓝面保住「两个颜色」。代价是三态不再自动跟随，由 CSS 补（见下方 filter） |
+| 三态 | 启用原色 / 按下反白 / 禁用压灰 | classicy 按下态按钮底是 `--color-system-05`（#808080），深蓝描边和中灰底几乎同明度 → `brightness(0) invert(1)` 反白成剪影，顺带对齐按下态白字；禁用态 `grayscale(1) opacity(.5)`，避免禁用按钮上还挂着一个亮着的彩色图标 |
 | 元素 | 同 32 档：仅 `<path>`、无 `<text>`、`crispEdges`、≥1px 透明边 | §7.4 / skills/pixelart |
 | 导入 | 同样必须 `?no-inline` | §6.2 |
 
 生成方式与 32 档同链路：`tools/pixel-icon.py` 里 `set_size(16)` 后新增 `build_xxx()`（用 `blit` 贴 16 列字符行），在 `__main__` 的 16 档区块加一行 `emit(build_xxx(), 'xxx')`。`verify` / `roundtrip` / `preview` 均按当前 `W/H` 自适应；16 档预览只出 `xxx-8x.png`（本身就是目标尺寸，不再缩 16px 观感）。
+
+双色字形**不手写两遍像素**，而是「只画剪影 + `face()` 上色」：剪影里统一写 `K`，`face()` 用 4 邻域 BFS 距离变换把外圈 `thickness` 圈刷成描边色、更内部刷成面。因为距离变换按形状算，最细处（1~2px 的臂、尖角）自然保持实心，不会出现 1px 面点把形状打碎。三个可调旋钮：
+
+| 旋钮 | 作用 | 本组取值 |
+|---|---|---|
+| `thickness` | 描边圈数 | `1`（16 档没有加粗的余地，`2` 会把面吃掉） |
+| `core=(x0,y0,x1,y1)` | 只允许该区间内出面 | 把面收进图形中央，尖端/横臂末端不出零碎面点 |
+| `'X'` 标记 | 该像素强制实心 | 星形双腿、箭头尖端等「必须实心」的细部 |
+
+`min_area`（默认 3）再把面积过小的面块并回描边色，避免麻点。
 
 接入样式（`src/styles.css`，与 `.sp-toolbar` 规则同址）：
 
 ```css
 .sp-toolbar .classicyButton:has(.sp-tb-icon) { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .sp-toolbar .classicyButton .sp-tb-icon { width: 16px; height: 16px; flex: 0 0 auto; image-rendering: pixelated; }
+/* 固定双色图标的三态补偿（见上表「三态」行） */
+.sp-toolbar .classicyButton:active .sp-tb-icon { filter: brightness(0) invert(1); }
+.sp-toolbar .classicyButton:disabled .sp-tb-icon { filter: grayscale(1); opacity: 0.5; }
 ```
 
 `:has()` 把影响面限制在带图标的按钮上，无图标按钮（如 WatchDog OS 的 Refresh Now）布局零变化。接入后仍需过 §4 检查清单（`npm run build` 后确认 dist 产物是独立 `.svg` 文件而非 data URI）。
@@ -111,7 +125,8 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 | `O` `w` `d` `g` | `#2b2b33` `#f4f4f8` `#dcdde7` `#71717f` | 白色气泡描边/基/暗/灰文本 |
 | `N` `b` `m` `h` | `#1b3d72` `#4a86d8` `#2a62b2` `#a8cff5` | Docker 鲸描边/基/暗/高光 |
 | `G` `P` `p` | `#2c6e31` `#46a049` `#7cc47f` | Runner 播放键暗/基/高光 |
-| `C` | `currentColor` | 16 档按钮字形专用：单色跟随宿主文字三态（§1.2），非固定色 |
+| `N` `b` | `#1b3d72` `#4a86d8` | 16 档按钮字形：深蓝描边 + 蓝面（与气泡同色，三态由 CSS filter 补，见 §1.2） |
+| `C` | `currentColor` | 预留给将来的单色字形；本组 16 档图标不使用 |
 
 ---
 
@@ -122,6 +137,7 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 | 能力 | 说明 |
 |---|---|
 | 构建 | `build_terminal()` / `build_chat()` / `build_docker()` / `build_runner()` / `build_blog()`（32 档）与 `build_fm_back()` / `build_fm_up()` / `build_fm_fav()`（16 档）—— 用 `fill` / `hline` / `roundbox` / `blit` 画网格；异形主体（鲸、三角）用 `sil_rect()` 搭剪影 + `bevel()` 上立体色 + `outline()` 描外框 |
+| 双色面 | `face(g, edge='C', fill='W', thickness=1, min_area=3, core=None)` —— 只画剪影，再由它上「描边色 + 面」（§1.2）：距离变换算外圈、`core` 收面范围、`'X'` 强制实心。16 档 `build_fm_*()` 传 `edge='N', fill='b'` |
 | 尺寸切换 | `set_size(32/16)` —— 全部绘制/输出函数调用时读全局 `W/H`，构建前切一次即可；`to_svg` / `verify` / `preview` 随之自适应 |
 | 合并 | `merge_rects()` 贪心最大同色矩形（先横向游程、再纵向扩展） |
 | 输出 | `to_svg()` 每色一个 `<path>`，`M x y h w v h h -w z`；浅色先画、深色后画 |

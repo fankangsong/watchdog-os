@@ -81,8 +81,11 @@ PALETTE = {
     'o': '#c09434',     # 铅笔杆暗部
     'A': '#d8a878',     # 木杆
     'a': '#b08050',     # 木杆暗部
-    # --- 按钮内嵌图标（16 档工具栏字形，单色）---
-    'C': 'currentColor',  # 跟随宿主元素文字色：按钮启用=黑、禁用=灰、按下=白（Platinum 三态一致）
+    # --- 按钮内嵌图标（16 档工具栏字形，双色：N 深蓝描边 + b 蓝面）---
+    'C': 'currentColor',  # 跟随宿主元素文字色（本组图标不用它，保留给将来的单色字形）
+    # 本组取 'N' + 'b'（与对话气泡同一支蓝）：固定色，不随按钮文字变化。
+    # 白面不可行——工具栏按钮启用态背景就是白色，白面会与底色融合成一色；
+    # 固定色带来的三态缺口由 styles.css 的 filter 补（按下反白 / 禁用压灰）。
 }
 
 # 换算成 RGB
@@ -172,6 +175,65 @@ def outline(g, sil, c):
             if ((y > 0 and sil[y - 1][x]) or (y < H - 1 and sil[y + 1][x]) or
                     (x > 0 and sil[y][x - 1]) or (x < W - 1 and sil[y][x + 1])):
                 g[y][x] = c
+
+
+def face(g, edge='C', fill='W', thickness=1, min_area=3, core=None):
+    """双色上色：剪影（非 '.' 像素）外侧 thickness 圈刷 edge，更内部刷 fill。
+
+    16 档工具栏图标走这条路：先按纯剪影画（全 'K'），再统一换成双色观感
+    （icon-pipeline.md §1.2）。厚度用 4 邻域 BFS 距离变换算，因此最细处
+    （1~2px 的臂、尖角）自然保持实心，不会出现 1px 白点把形状打碎。
+    剪影里写 'X' 的像素强制保持描边色，用于「这里必须实心」的细部（如星腿）。
+
+    core=(x0, y0, x1, y1) 只允许该闭区间内出面，用于把双色收进图形中央，
+    避免尖角/横臂末端出现零碎小灰点；min_area 再把小块并回描边色。
+    """
+    sil = [[c != '.' for c in row] for row in g]
+    force = [[c == 'X' for c in row] for row in g]
+    dist = [[0] * W for _ in range(H)]
+    frontier = []
+    for y in range(H):
+        for x in range(W):
+            if sil[y][x] and any(not (0 <= i < W and 0 <= j < H) or not sil[j][i]
+                                 for i, j in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))):
+                dist[y][x] = 1
+                frontier.append((x, y))
+    d = 1
+    while d < thickness and frontier:
+        nxt = []
+        for (x, y) in frontier:
+            for i, j in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if 0 <= i < W and 0 <= j < H and sil[j][i] and dist[j][i] == 0:
+                    dist[j][i] = d + 1
+                    nxt.append((i, j))
+        frontier = nxt
+        d += 1
+    for y in range(H):
+        for x in range(W):
+            if sil[y][x]:
+                solid = force[y][x] or 1 <= dist[y][x] <= thickness
+                if not solid and core and not (core[0] <= x <= core[2] and core[1] <= y <= core[3]):
+                    solid = True
+                g[y][x] = edge if solid else fill
+
+    seen = [[False] * W for _ in range(H)]
+    for y in range(H):
+        for x in range(W):
+            if g[y][x] != fill or seen[y][x]:
+                continue
+            blob, stack = [], [(x, y)]
+            seen[y][x] = True
+            while stack:
+                cx, cy = stack.pop()
+                blob.append((cx, cy))
+                for i, j in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
+                    if 0 <= i < W and 0 <= j < H and not seen[j][i] and g[j][i] == fill:
+                        seen[j][i] = True
+                        stack.append((i, j))
+            if len(blob) < min_area:
+                for (cx, cy) in blob:
+                    g[cy][cx] = edge
+    return g
 
 
 # ---------------------------------------------------------------- 图形
@@ -379,66 +441,54 @@ def build_blog():
 
 
 # ---------------------------------------------------------------- 16 档：窗口操作按钮带内嵌图标
-# 规格见 docs/icon-pipeline.md §1.2：16x16 网格 1:1 渲染（.sp-tb-icon），单色 'C'（currentColor）
-# 跟随按钮文字色——启用黑 / 禁用灰（.sp-toolbar :disabled 规则）/ 按下白（classicy :active），
-# 无需为每个状态备图，也不用 CSS 滤镜模拟。
-def build_fm_back():
-    """Back：左箭头（三角头 5x9 + 柄 6x2）。
+# 规格见 docs/icon-pipeline.md §1.2：16x16 网格 1:1 渲染（.sp-tb-icon）。
+# 双色：'N'（#1b3d72 深蓝描边）+ 'b'（#4a86d8 蓝面）——沿用水泡图标的同一支蓝。
+# 固定色（不走 currentColor），三态由 src/styles.css 的 filter 补：按下反白、禁用压灰。
+# 三个字形统一光源（左上）、描边厚度与留白，视觉上是一套：Back 左向、Up 上向、Favorites 五角星。
+def build_fm_back(edge='N', tone='b', thickness=1):
+    """Back：左向箭头（尖三角 + 矩形柄），12x11，四周 ≥2px 透明边。
 
-    Mac OS 9 导航字形：头为左尖三角（垂直基边在右、 apex 在左中），柄接基边向右伸出；
-    整体 10x9，四周 ≥1px 透明边。
+    三角形按 45° 张开（每列上下各扩 1px），尖在 x=2 / y=7，基边 x=7；
+    柄 x=7..13 / y=5..9，高度取三角中段。剪影完成后交给 face() 上双色。
     """
     g = blank()
-    blit(g, [
-        '.......C........',
-        '......CC........',
-        '.....CCC........',
-        '....CCCC........',
-        '...CCCCCCCCCC...',
-        '....CCCCCCCCC...',
-        '.....CCC........',
-        '......CC........',
-        '.......C........',
-    ], 0, 3)
-    return g
+    for x in range(2, 8):
+        for y in range(7 - (x - 2), 7 + (x - 2) + 1):
+            g[y][x] = 'K'
+    fill(g, 7, 5, 7, 5, 'K')
+    # core 收在三角中段与柄内：尖端只留 1px 的角，出不了面
+    return face(g, edge=edge, fill=tone, thickness=thickness, core=(5, 5, 13, 9))
 
 
-def build_fm_up():
-    """Up：上箭头（三角头 10x5 + 柄 2x6）——与 Back 同参数旋转 90° 的视觉效果。"""
+def build_fm_up(edge='N', tone='b', thickness=1):
+    """Up：上向箭头（尖三角 + 矩形柄），11x11，与 Back 同参数旋转 90°。"""
+    g = blank()
+    for y in range(2, 8):
+        for x in range(7 - (y - 2), 7 + (y - 2) + 1):
+            g[y][x] = 'K'
+    fill(g, 5, 7, 5, 6, 'K')
+    # core 收在三角中段与柄内：尖端只留 1px 的角，出不了面
+    return face(g, edge=edge, fill=tone, thickness=thickness, core=(5, 4, 10, 11))
+
+
+def build_fm_fav(edge='N', tone='b', thickness=1):
+    """Favorites：五角星（12x11，上尖 + 双臂 + 张开的双腿）。"""
     g = blank()
     blit(g, [
-        '.......CC.......',
-        '......CCCC......',
-        '.....CCCCCC.....',
-        '....CCCCCCCC....',
-        '...CCCCCCCCCC...',
-        '.......CC.......',
-        '.......CC.......',
-        '.......CC.......',
-        '.......CC.......',
-        '.......CC.......',
-    ], 0, 3)
-    return g
-
-
-def build_fm_fav():
-    """Favorites：五角星（12x12，上尖 + 双臂 + 张开的双腿）。"""
-    g = blank()
-    blit(g, [
-        '.....CC.....',
-        '.....CC.....',
-        '....CCCC....',
-        '....CCCC....',
-        'CCCCCCCCCCCC',
-        '.CCCCCCCCCC.',
-        '..CCCCCCCC..',
-        '...CCCCCC...',
-        '..CCCCCCCC..',
-        '.CCCC..CCCC.',
-        '.CCC....CCC.',
-        'CC........CC',
+        '.....KK.....',
+        '....KKKK....',
+        '....KKKK....',
+        '...KKKKKK...',
+        'KKKKKKKKKKKK',
+        'KKKKKKKKKKKK',
+        '.KKKKKKKKKK.',
+        '..KKKKKKKK..',
+        '..KKKKKKKK..',
+        '..XXX..XXX..',
+        '.XXX....XXX.',
+        '.XX......XX.',
     ], 2, 2)
-    return g
+    return face(g, edge=edge, fill=tone, thickness=thickness, core=(4, 5, 11, 8))
 
 
 # ---------------------------------------------------------------- SVG 输出

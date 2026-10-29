@@ -1,5 +1,23 @@
 /* 全局自定义样式（前缀 sp-，避免与 classicy 冲突） */
 
+/* 像素字体 Silkscreen（SIL OFL 1.1，许可证随字体放在 src/assets/fonts/OFL.txt）。
+   只用于登录页的品牌名与窗口标题：像素字形的横竖落在整数像素网格上才锐，
+   所以这几处字号一律取 8 的倍数（24 / 16 / 12），非整数倍会被插值糊掉。 */
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/silkscreen-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/silkscreen-700.woff2') format('woff2');
+}
+
 /* 去掉浏览器默认 body 边距，隐藏全局滚动条，桌面铺满视口 */
 html, body, #root {
   height: 100%;
@@ -38,9 +56,20 @@ html, body, #root {
   inset: 0;
   z-index: 99999;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, #8a97a5 0%, #55616e 100%);
+  overflow: auto;
+  font-family: var(--ui-font);
+  /* 五层叠加（自顶向下）：中心光斑 → 四角暗角 → 扫描线 → 半调点阵 → 钢蓝渐变。
+     background-attachment: fixed 让纹理在小屏滚动时不跟着内容跑。 */
+  background-color: #4c5765;
+  background-image:
+    radial-gradient(48% 40% at 50% 50%, rgba(208, 224, 240, 0.3), transparent 72%),
+    radial-gradient(120% 100% at 50% 46%, transparent 34%, rgba(0, 0, 0, 0.5) 100%),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 3px),
+    radial-gradient(rgba(0, 0, 0, 0.1) 1px, transparent 1px),
+    radial-gradient(140% 105% at 50% 0%, #a9b8c8 0%, #7d8b9b 34%, #55606c 70%, #2b333b 100%);
+  background-size: auto, auto, auto, 4px 4px, auto;
+  background-repeat: no-repeat, no-repeat, repeat, repeat, no-repeat;
+  background-attachment: fixed;
   --color-black: #000000;
   --color-white: #ffffff;
   --color-alert: #ffff00;
@@ -72,64 +101,240 @@ html, body, #root {
   --hig-button-height: 20px;
   --hig-button-min-width: 58px;
 }
-/* 登录窗口：参考 MacOS Platinum 对话框（固定像素，不依赖 Provider 变量） */
-.sp-platinum-window {
-  width: 340px;
-  background: #e3e0da;
-  border: 2px solid #fff;
-  outline: 1px solid #000;
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35);
-}
-/* 标题栏：浅灰横纹渐变 + 左侧应用图标 + 居中标题（无窗口控制按钮） */
-.sp-platinum-title {
+/* 舞台：品牌区 + 登录窗口纵向居中；margin:auto 保证小屏内容溢出时可滚动到顶部，
+   而不像 align-items:center 那样把上沿裁到视口外 */
+.sp-login-stage {
   position: relative;
-  height: 26px;
-  background: repeating-linear-gradient(
-    0deg,
-    #d9d5cd 0px,
-    #d9d5cd 1px,
-    #ece9e2 1px,
-    #ece9e2 2px
-  );
-  border-bottom: 1px solid #000;
-  text-align: center;
-  line-height: 26px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #000;
+  z-index: 1;
+  margin: auto;
+  /* 下内边距大于上：视觉重心略上移，避免整组元素在视口里显得下坠 */
+  padding: 32px 16px 56px;
+  box-sizing: border-box;
+  animation: sp-login-rise 0.42s cubic-bezier(0.22, 0.7, 0.3, 1) both;
 }
-.sp-platinum-icon {
-  position: absolute;
-  left: 6px;
-  top: 5px;
-  width: 16px;
-  height: 16px;
+/* 品牌区：窗口上方的产品标识（图标 + 名称 + 副标一行为一组） */
+.sp-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: max-content;
+  margin: 0 auto 20px;
+}
+.sp-login-brand-icon {
+  width: 32px;
+  height: 32px;
   image-rendering: pixelated;
+  /* 落影 + 冷光晕：图标在深背景上不显脏 */
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45))
+    drop-shadow(0 0 10px rgba(226, 238, 250, 0.25));
 }
-/* 主体：宽松内边距，元素垂直排布 */
+/* 品牌名：像素字形 24px（8 的倍数）。不加 text-shadow——投影落在像素格的半像素上，
+   会把锐利的方块边糊成灰边，像素字体的味道就没了；靠字色本身与深背景拉开对比 */
+.sp-login-brand-name {
+  margin: 0;
+  font-family: 'Silkscreen', var(--mono-font, monospace);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  color: #f3f0e8;
+}
+.sp-login-brand-tag {
+  margin: 5px 0 0;
+  font-family: 'Silkscreen', var(--mono-font, monospace);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  /* 无阴影托底，字色比之前略提亮以保住对比 */
+  color: rgba(243, 240, 232, 0.86);
+}
+/* 登录窗口：参考 MacOS Platinum 对话框（固定像素，不依赖 Provider 变量）。
+   内白高光 + 内侧灰斜面还原立体边框，外部「3px 硬投影 + 大范围柔影」做出胶片层次 */
+.sp-platinum-window {
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  margin: 0 auto;
+  background: #e3e0da;
+  border: 1px solid #000;
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset 2px 2px 0 #cecac2,
+    3px 3px 0 rgba(0, 0, 0, 0.32),
+    0 30px 60px -18px rgba(0, 0, 0, 0.62);
+}
+/* 标题栏：浅灰横纹渐变 + 居中标题（不带关闭/缩放方块——登录窗不可拖动、不可缩放，
+   画出来只会误导成可点的窗口控件）。标题用像素字体 16px（8 的倍数），无文字阴影 */
+.sp-platinum-title {
+  height: 26px;
+  line-height: 26px;
+  background: repeating-linear-gradient(0deg, #d8d4cc 0 1px, #efede6 1px 2px);
+  border-bottom: 1px solid #000;
+  box-shadow: inset 0 1px 0 #ffffff;
+  text-align: center;
+  font-family: 'Silkscreen', var(--mono-font, monospace);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #000;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 主体：说明文字 + 表单 + 默认动作提示，垂直排布 */
 .sp-platinum-body {
-  padding: 22px 18px 24px;
+  padding: 18px 22px 15px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 10px;
+  background: linear-gradient(180deg, #e8e5df 0%, #dcd8d1 100%);
 }
-/* 标签 + 输入框左右布局 */
-.sp-login-field {
+/* 提示 / 错误共用一行：正常显示操作说明，出错切换为红字并抖动（不占两行，表单不跳动） */
+.sp-login-hint {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 5px;
+  min-height: 16px;
+  margin: 0 0 2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #3f3b35;
+  text-align: center;
+}
+/* 抖动只挂在错误态上：说明文字不参与动画，key 变化时错误行重放 */
+.sp-login-hint-err {
+  font-weight: 700;
+  color: #b3140c;
+  animation: sp-login-shake 0.26s ease-in-out;
+}
+.sp-login-hint-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+/* 标签在输入框上方（classicyLabelAbove 已是 column，这里补间距并抵消左侧缩进） */
+.sp-login-field .classicyInputHolder {
+  width: 100%;
+}
+.sp-login-field .classicyLabelAbove {
+  gap: 4px;
+}
+.sp-login-field .classicyControlLabel {
+  margin-left: 0;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: #2a2621;
+}
+/* classicy 自带 @media(max-width:480px){.classicyControlLabelHolder{display:none}}，
+   登录页的小屏仍需要 label（口令框没有 label 就只剩占位文字），此处按更高特异性恢复 */
+@media (max-width: 480px) {
+  .sp-login-field .classicyControlLabelHolder {
+    display: flex;
+  }
 }
 .sp-login-field input {
-  flex: 1;
+  height: 26px;
+  padding: 2px 7px;
   box-sizing: border-box;
+  font-size: 13px;
 }
-.sp-login-actions { display: flex; justify-content: center; }
-.sp-login-err {
-  color: #c00;
+.sp-login-actions {
+  display: flex;
+  justify-content: center;
+}
+/* 默认动作的「黑环」：Mac OS 9 的默认按钮在斜面外还有一圈实线（outline 不占布局） */
+.sp-login-actions > button {
+  min-width: 140px;
+  padding: 4px 20px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  outline: 1px solid #000;
+  outline-offset: 2px;
+}
+.sp-login-actions > button:disabled {
+  cursor: progress;
+}
+/* 底部状态栏：后端连通性指示灯 + 时间（纯展示，不拦截登录）。
+   字号取 design-spec §7.2 的 UI 正文 12px——状态栏虽是最次要信息，
+   但 10px 在 12/13px 的登录表单旁明显糊，宁可牺牲一档层次也要可读 */
+.sp-login-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 22px;
+  padding: 0 9px;
+  border-top: 1px solid #000;
+  box-shadow: inset 0 1px 0 #ffffff;
+  background: #d9d5cd;
   font-size: 12px;
-  margin: 0 0 0 58px;
-  height: 18px;
+  color: #3c3831;
+}
+.sp-login-status-text {
+  letter-spacing: 0.02em;
+}
+.sp-login-status-clock {
+  margin-left: auto;
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: #3c3831;
+  font-size: 20px;
+}
+.sp-login-led {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  background: #8b857c;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+.sp-login-led-online {
+  background: #2fbf4a;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 0 5px rgba(47, 191, 74, 0.8);
+}
+.sp-login-led-offline {
+  background: #d0342c;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4), 0 0 5px rgba(208, 52, 44, 0.7);
+}
+.sp-login-led-checking {
+  background: #e0a72c;
+  animation: sp-login-blink 1s steps(2, end) infinite;
+}
+@keyframes sp-login-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes sp-login-shake {
+  20% {
+    transform: translateX(-2px);
+  }
+  40% {
+    transform: translateX(2px);
+  }
+  60% {
+    transform: translateX(-1px);
+  }
+  80% {
+    transform: translateX(1px);
+  }
+}
+@keyframes sp-login-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sp-login-stage,
+  .sp-login-hint-err,
+  .sp-login-led-checking {
+    animation: none;
+  }
 }
 
 /* ---------- imcolin.fan 网页查看器 ---------- */
@@ -310,11 +515,19 @@ html, body, #root {
 .sp-toolbar .classicyButton:enabled:not(:active) { background-color: var(--color-white); }
 .sp-toolbar .classicyButton:disabled { background-color: var(--color-system-01); border-color: var(--color-black); color: var(--color-system-05); }
 /* 按钮内嵌前置图标（Back/Up/Favorites，16x16 工具栏档，icon-pipeline.md §1.2）：
-   图标在文本左侧、随按钮 flex 行垂直居中；currentColor 让图标跟随文字三态
-   （启用黑 / 禁用随 :disabled 变灰 / 按下随 :active 变白），无需按态备图。
+   图标在文本左侧、随按钮 flex 行垂直居中。双色像素画，配色固定为深蓝 #1b3d72 描边
+   + 蓝 #4a86d8 面（与对话气泡同一支蓝），因此不跟随 currentColor 三态——
+   按下/禁用两态由下面两条 filter 补齐。
    :has() 限定仅影响带图标的按钮，无图标按钮（如 WatchDog OS）布局零变化。 */
 .sp-toolbar .classicyButton:has(.sp-tb-icon) { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .sp-toolbar .classicyButton .sp-tb-icon { width: 16px; height: 16px; flex: 0 0 auto; image-rendering: pixelated; }
+/* 固定双色图标的三态补偿：
+   按下 → 反白成纯白剪影：classicy 按下态按钮底是 --color-system-05（中灰），
+          深蓝描边和中灰底几乎同明度，不提亮就糊成一团；同时与按下态的白字一致。
+   禁用 → 灰度 + 淡化：禁用按钮底是浅灰、字是 --color-system-05，留着彩色图标
+          会让「不可用」看起来仍然亮着。 */
+.sp-toolbar .classicyButton:active .sp-tb-icon { filter: brightness(0) invert(1); }
+.sp-toolbar .classicyButton:disabled .sp-tb-icon { filter: grayscale(1); opacity: 0.5; }
 .sp-toolbar .classicyPopUpMenuWrapper { width: auto; }
 .sp-toolbar .classicyPopUpMenu { flex-grow: 0; width: 72px; height: var(--hig-button-height); }
 /* 带内右端状态信息（规则 9）：推到最右 */
