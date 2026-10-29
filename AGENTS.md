@@ -20,11 +20,13 @@ npm run preview   # 预览构建产物
 npm start         # 启动生产后端（node server/index.js，默认端口 3000；需先配好 PASSWORD 与 JWT_SECRET）
 node test/test-fs-api.js            # 文件管理 API 冒烟测试（自起自停 server 子进程）
 node test/test-runner-api.js        # Runner API 冒烟测试（自起自停 server 子进程，无 bash 时跳过）
+node test/test-audit-log-api.js      # 登录审计 API 冒烟测试（临时 LOGIN_LOG_DIR：埋点/脱敏/401 去重/统计/CSV/保留期清理）
 node test/test-chat-api.js          # Hermes 聊天代理 API 冒烟测试（自起 mock 上游）
 node test/test-chat-sessions-api.js # Hermes 会话 API 冒烟测试
 node test/test-terminal-ws.js [port]# 终端链路验证（直连 ttyd 端口：/token、WS 握手、ttyd 帧协议、输入回显；零依赖，默认 7681）
 node test/test-favorites-store.mjs   # 收藏夹 store 竞态回归（esbuild 转译 TS + mock fetch；esbuild 缺失时 SKIP）
 node test/test-shared-poll.mjs       # 页面级共享轮询回归（同上；覆盖零订阅者续轮/暂停/401 重启/慢接口防叠加）
+node test/test-session-store.mjs      # 退出登录收尾回归（本地会话存储清理 / 单次导航 / 401 同路径 / 存储被禁仍收尾）
 # 以下两个连接「已在运行的服务」，需带 PASSWORD 环境变量
 $env:PASSWORD='<访问密码>'; node test/test-smoke.js       # 端到端冒烟（默认 BASE_HOST=http://localhost:3000）
 $env:PASSWORD='<访问密码>'; node test/test-basepath.js    # basePath 子路径冒烟（默认 BASE_HOST=http://localhost:3001）
@@ -85,6 +87,7 @@ node server/index.js
 | 服务     | `PORT` / `HOST` / `BASE_PATH`                                                                                                  | `3000` / `0.0.0.0` / `/`                                                         |
 | 采样     | `DISK_MOUNTS`(JSON 数组) / `COLLECT_INTERVAL` / `DOCKER_INTERVAL` / `PROCESS_INTERVAL` / `PROCESS_TOP_N`                       | `[]` / `2000` / `5000` / `10000` / `50`                                          |
 | 会话     | `JWT_EXPIRES_IN`（收敛到 `300~2592000`）/ `COOKIE_SECURE`（`auto`/`always`/`never`）/ `PUBLIC_ORIGIN`（逗号分隔，留空=仅同源） | `86400` / `auto` / 空                                                            |
+| 登录审计 | `LOGIN_LOG_ENABLED` / `LOGIN_LOG_DIR` / `LOGIN_LOG_RETENTION_DAYS` / `LOGIN_LOG_MAX_ENTRIES` / `LOGIN_LOG_BRUTE_THRESHOLD` / `LOGIN_LOG_BRUTE_WINDOW_MIN` / `LOGIN_LOG_401_DEDUPE_SEC` | `true` / 空（= `~/.watchdog-os/login-log`）/ `30` / `20000` / `5` / `10` / `60` |
 | 文件管理 | `FS_ROOTS`（`path.delimiter` 分隔；**与 `DISK_MOUNTS` 语义不同**：前者是文件管理器权限白名单，后者是监控采样目标）             | 按平台默认                                                                       |
 | 终端     | `TERMINAL_ENABLED` / `TTYD_PATH` / `TTYD_PORT` / `TTYD_ARGS`(JSON 数组) / `TTYD_WSL`                                           | `false` / `ttyd` / `7681` / `["bash"]` / `false`                                 |
 | Runner   | `RUNNER_ENABLED` / `RUNNER_SCRIPT`（必配绝对路径）/ `RUNNER_SHELL` / `RUNNER_MAX_LOG_BYTES`                                    | `false` / `''` / `bash` / `5242880`                                              |
@@ -100,6 +103,8 @@ node server/index.js
 
 Runner（脚本任务构建）：由 `RUNNER_ENABLED` / `RUNNER_SCRIPT` / `RUNNER_SHELL` / `RUNNER_MAX_LOG_BYTES` 控制，`RUNNER_SCRIPT` 为必配的脚本绝对路径且只接受服务端配置（客户端不可传路径）；日志写 `data/runner.log`（超过 `RUNNER_MAX_LOG_BYTES` 归档为 `.old`）。
 
+登录审计日志：`server/api/audit.js` 把登录成功/失败、登出、受保护接口 401 按**本地日期**分文件写 `~/.watchdog-os/login-log/YYYY-MM-DD.jsonl`，保留 `LOGIN_LOG_RETENTION_DAYS` 天（启动时 + 跨天首次写入时清理）。三条硬约束：① 只记请求元信息，**绝不记录密码 / 哈希 / Cookie / Authorization**；② 写入 fire-and-forget，落盘失败只 `[warn]`，不得影响登录结果；③ 同 IP + 同路径 401 在 `LOGIN_LOG_401_DEDUPE_SEC` 窗口内合并为一条（登录失败不合并），否则前端页面级轮询在会话失效后会把日志刷爆并淹没真实撞墙信号。审查入口是桌面应用 `Audit Log`（`src/apps/AuditApp.tsx`，数据源 `GET /api/audit/login-log`，导出 `GET /api/audit/login-log.csv`）。完整字段、统计口径与异常判定见 `docs/login-audit-log.md`。
+
 ## 会话鉴权安全约定
 
 - **无默认口令**：`PASSWORD` 未配置时进程直接退出（内置默认口令会让「以为改了配置」的部署直接暴露在局域网）。
@@ -108,6 +113,10 @@ Runner（脚本任务构建）：由 `RUNNER_ENABLED` / `RUNNER_SCRIPT` / `RUNNE
 - **WS 来源校验**：终端 WS 升级在鉴权之后额外校验 `Origin`（缺 `Origin` 放行以兼容 curl / 脚本；跨站来源一律拒绝）。反向代理或跨协议访问时显式配置 `PUBLIC_ORIGIN`（逗号分隔多域名）。**升级被拒时返回明确 HTTP 状态（401/403/503）而非静默断开**——静默 destroy 会被反代翻成 502 Bad Gateway，把「Origin 不匹配」掩盖成“连接失败”，是排障第一手线索；浏览器 Network 面板可直接看到被拒的状态码
 - **签名校验固定 HS256**：`verifyJwt` 不读取 `header.alg`（`alg:none` 与 RS256→HS256 混淆攻击因此不成立），签名用 `timingSafeEqual` 常数时间比较，`exp` 必须为有限数字。
 - **会话不可吊销**（已知取舍）：`/api/logout` 只清 Cookie，服务端无会话表，泄露的 token 在 `JWT_EXPIRES_IN` 内始终有效。缩短有效期是当前唯一的缓解手段。
+- **登录审计不成为新的泄露面**：审计记录只含时间 / 事件类型 / 结果 / IP / UA / 路径 / 状态码 / 耗时，**永不写入密码、密码哈希、JWT、Cookie 值**（`test/test-audit-log-api.js` 有对应断言）；`/api/audit/*` 与其它接口一样先过 `checkAuth`（只认 Cookie），客户端不能传路径参数；CSV 导出对 `= + - @` 开头的值加 `'` 前缀防公式注入。
+- **登出必须幂等**：`/api/logout` 刻意**不要求有效会话**，恒返回 `200` 并清 `Set-Cookie`（`Max-Age=0`）。若像普通接口那样先鉴权，过期 Cookie 就永远清不掉——浏览器每次轮询都 401，用户被卡在「桌面 ↔ 401」之间。仅在会话有效时写审计（避免未授权登出伪造日志）。
+- **退出登录必须两端同时收口**（`src/session.ts`）：① 服务端清 Cookie；② 前端删除与会话相关的 localStorage（`classicyDesktopState` / `classicyStorage` / `classicyStorage:seq` / `srv-editor-recent` / `watchdog-chat-*`，纯外观偏好保留），再置一次性 `wd-signed-out` 标记并 `location.replace` 整页重载（只有重载才能清掉模块级单例里的上一会话数据）。**任一接口 401 走同一条路径**（`api.ts` 的 `unauthorized()` 统一通知，App 启动探测 `probeAuth()` 例外——它的 401 表示「未登录」，若也触发会 401↔重载死循环）。
+- ⚠️ **classicy 持久化菜单项没有处理函数**：`classicyDesktopState` 会把 `systemMenu` / `appMenu` 序列化进 localStorage，而函数无法序列化——刷新后残留的 `Sign Out` 项只有 `{ id, title }`，点击毫无反应（历史 BUG）。因此 `Desktop.tsx` 的 `AppleMenuLogoutItem` **每次挂载都先剔除同 id 旧项再用新的 `onClickFunc` 重建**，不能写成「已存在就跳过」。
 - ✅ **终端端口的网络隔离（已评估，当前接受）**：ttyd 以 `-i 127.0.0.1` 启动，只监听回环地址（实测确认，不绑 `0.0.0.0`），且对外只暴露面板端口、经反向代理 /端口转发访问。**走面板的 WS 路径必须先过 JWT 校验**（实测：无 Cookie / 伪造 `Authorization` / 伪造 `x-auth-token` 一律被拒，正确 Cookie 才升级），因此互联网与局域网攻击者都无法触达终端。
 - ⚠️ **已知风险（已评估为可接受，暂缓修复）**：ttyd 未配置 `-c` 凭据时，**直连 `127.0.0.1:<ttydPort>/ws` 连 token 都不需要**即可握手成功（ttyd 1.7.7 实测：无凭据 `GET /token` 返回 `{"token":""}`，`/ws` 直接 `101 Switching Protocols`）——即本机进程可绕过面板口令取得终端 shell。当前部署为**单机单用户**，无本机恶意进程、面板自身也不存在可利用的 SSRF（`/api/fs/*` 有允许根白名单、`/api/chat/*` 目标地址写死在服务端配置），故判定为可接受。
   - **结论失效的条件（出现任一即需修复）**：① 机器上运行其他不可信/多用户服务；② 出现可对 `127.0.0.1` 发请求的 SSRF 面；③ ttyd 改为监听非回环地址或被反向代理直接暴露 `/ws`；④ 部署从单机变为多用户或容器共享 host 网络。
@@ -126,14 +135,15 @@ config.js # 配置加载（.env，唯一来源）+ basePath 规范化
 router.js # API 路由分发与 WS 升级处理
 static.js # 静态资源服务（只服务 dist/：serveIndex 返回 SPA 入口，dist 缺失时 503 提示构建）
 lib/ # http.js 基础工具 / auth.js JWT 鉴权 / userdata.js 用户数据文件（~/.watchdog-os/data.json）读写
-api/ # metrics / printer / terminal / runner / chat / fs
+api/ # metrics / printer / terminal / runner / chat / fs / audit（登录审计：JSONL 落盘 + 统计 + CSV）
 src/ # React 前端源码
-apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Macintosh HD，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）
-components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板
+apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Macintosh HD，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）、AuditApp（登录审计日志）
+components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板、AuditPanels / AuditTrendChart（审计表格与趋势图）
 hooks/ # usePolling —— 数据轮询 Hook
-api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理）
+api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理、/api/audit/\* 登录审计）
 editorBridge.ts # Finder → 文本编辑器 跨应用打开文件的联动桥
 hostFsAdapter.ts # classicy FS Adapter：内置 Finder（Finder.app / Macintosh HD）接入宿主机文件系统（见下节）
+session.ts # 会话收尾：退出登录 / 任一接口 401 → 清本地会话存储 + 整页重载回登录页
 Desktop.tsx # 桌面布局
 LoginApp.tsx # 登录（标题固定 WatchDog OS：未登录不展示主机名；登录后由 MonitorApp 把文档标题同步为「WatchDog OS · 主机名」）
 format.ts # 格式化工具
@@ -362,6 +372,8 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（401/默认读取/单字段 PUT/合并语义/布尔白名单/400/落盘 `~/.watchdog-os/data.json`/与 favorites 键互不破坏等 17 项；测试前后快照恢复真实 data.json，零残留）。
 - 收藏夹 store 竞态：`node test/test-favorites-store.mjs` 全部 PASS（8 项：加载响应晚于提交 / 未加载即变更 / 并发添加乱序 / 加载失败不破坏性盲写 / 正常增删切换回归；经 esbuild 转译真实 TS store + mock fetch 驱动，esbuild 缺失时 SKIP）。
 - 页面级共享轮询：`node test/test-shared-poll.mjs` 全部 PASS（16 项：零订阅者续轮 / 订阅即首拉 / 暂停恢复 / 改间隔 / 401 停止与重登重启 / 慢接口防叠加 / 快照引用稳定 / reload 语义 / polls.ts 端点接线）。
+- 退出登录收尾：`node test/test-session-store.mjs` 全部 PASS（11 项：会话相关 storage 清理且保留纯外观偏好 / 并发 401 只导航一次 / `wd-signed-out` 一次性标记 / 401 与主动退出同路径 / storage 被禁仍完成收尾；优先直接 import `.ts`，旧 Node 回退 esbuild）。
+- 登录审计：`node test/test-audit-log-api.js` 全部 PASS（28 项：登录成功/失败/坏 body/登出落盘、日志不含凭据、401 去重合并、审计接口 401、统计与筛选、CSV 的 BOM/表头/不受 limit 限制、疑似暴力破解命中、保留期清理、重启后可读；临时 `LOGIN_LOG_DIR`，零残留）。
 - 用量 Dashboard：`node test/test-usage-api.js` 全部 PASS（401 / 503 未启用 / key 未配置 503 / 200 转发透传 / 上游 401→502 / key 留空时经 USAGE_SSH_CMD 读取 hermes 配置并作为上游 Bearer；自起 mock 上游）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。
 - 桌面图标：改桌面应用（新增/改名/换图标）或触碰 `Desktop.tsx` 的图标清理逻辑后，用浏览器实测 `document.querySelectorAll('.classicyDesktopIcon')` 的数量与 `id`（`id` 即 appId），确认没有多余图标（如 classicy 示例的 `Finder.app.shortcut`）。

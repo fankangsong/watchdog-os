@@ -37,3 +37,22 @@ export function tempColor(t: number): string {
 // 固定区分色：CPU 蓝 / 内存 绿
 export const CPU_COLOR = '#2563eb';
 export const MEM_COLOR = '#16a34a';
+
+/** 审计日志时间列：固定 YYYY-MM-DD HH:mm:ss（不用 toLocaleString，避免各 locale 下宽度抖动） */
+export function fmtDateTime(ms: number): string {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** 只到秒的时钟（状态栏「最后更新」等紧凑位置） */
+export function fmtClock(ms: number): string {
+  if (!ms) return '—';
+  return new Date(ms).toTimeString().slice(0, 8);
+}
+
+// 审计语义色：成功 / 失败 / 未授权（仅用于结果列与图表，chrome 一律走 classicy 主题变量）
+export const AUDIT_OK_COLOR = '#1f9d55';
+export const AUDIT_FAIL_COLOR = '#dc2626';
+export const AUDIT_UNAUTH_COLOR = '#2563eb';

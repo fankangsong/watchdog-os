@@ -21,6 +21,7 @@ const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { getDeepseekUsage, getZaiUsage } = require('./api/usage');
 const { fsRoute } = require('./api/fs');
 const { prefsRoute } = require('./api/prefs');
+const audit = require('./api/audit');
 
 /**
  * 本次登录响应是否为会话 Cookie 附加 Secure 属性（COOKIE_SECURE 三态：auto / always / never）。
@@ -52,6 +53,16 @@ function originAllowed(req) {
   return o === `http://${host}` || o === `https://${host}`;
 }
 
+/**
+ * 统一 401 出口：先落审计日志再回响应。
+ * 响应体与 WWW-Authenticate 头保持原样（既有测试与前端依赖此契约）；
+ * 日志写入是 fire-and-forget，任何失败都不可能改变 401 的结果。
+ */
+function unauthorized(req, res) {
+  audit.logUnauthorized(req);
+  return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+}
+
 async function route(req, res, url) {
   let p = url.pathname;
   // 剥离 basePath 前缀
@@ -66,10 +77,14 @@ async function route(req, res, url) {
   if (p === '/api/health') return send(res, 200, { ok: true, basePath: BASE });
 
   if (p === '/api/login' && req.method === 'POST') {
+    const startedAt = Date.now();
+    // 注意：失败分支含 600ms 防爆破延迟，durationMs 会偏大——这是刻意保留的人工耗时，便于识别撞库节奏
+    const elapsed = () => Date.now() - startedAt;
     let body;
     try {
       body = JSON.parse((await readBody(req)) || '{}');
     } catch {
+      audit.logLogin(req, { ok: false, reason: 'bad-body', status: 400, durationMs: elapsed() });
       return send(res, 400, { error: 'Invalid request body' });
     }
     const pass = String(body.password || '');
@@ -79,6 +94,7 @@ async function route(req, res, url) {
     );
     if (!ok) {
       await new Promise((r) => setTimeout(r, 600)); // 简单防爆破
+      audit.logLogin(req, { ok: false, reason: 'bad-password', status: 401, durationMs: elapsed() });
       return send(res, 401, { error: 'Incorrect password' });
     }
     const jwt = signJwt({
@@ -96,6 +112,7 @@ async function route(req, res, url) {
     // Secure 让会话 Cookie 只走 HTTPS；auto 模式下仅 HTTPS 请求附加（见 cookieSecureFor）
     if (cookieSecureFor(req)) attrs.push('Secure');
     const cookie = attrs.join('; ');
+    audit.logLogin(req, { ok: true, reason: 'ok', status: 200, durationMs: elapsed() });
     // 不回传 token：会话凭据只存在于 HttpOnly Cookie，避免落入响应体 / 代理日志
     return send(res, 200, { ok: true, expiresIn: JWT_EXPIRES }, { 'Set-Cookie': cookie });
   }
@@ -103,7 +120,7 @@ async function route(req, res, url) {
   /* ---- Printer API（GET 状态 / POST 测试页，统一 JWT 鉴权）---- */
   if (p === '/api/printer' || p === '/api/printer/test-page') {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     // 未启用时 503；已启用但 CUPS 不可用时仍返回 200 + available=false（与 docker 一致）
     if (p === '/api/printer') {
@@ -127,10 +144,21 @@ async function route(req, res, url) {
     return send(res, 200, r);
   }
 
+  /* ---- 登出（幂等，刻意不要求有效会话）----
+     过期 / 伪造 / 缺失的会话也返回 200 并清 Cookie：否则浏览器会一直带着失效 Cookie，
+     前端每次轮询都 401、用户只能在「登录页 ↔ 401」之间打转（退出登录必须能兜住这种状态）。
+     审计只在会话有效时记录——未授权的登出请求可能只是撞库噪声，不该污染登录审计。 */
+  if (p === '/api/logout') {
+    if (checkAuth(req)) audit.logLogout(req);
+    const attrs = [`${COOKIE_NAME}=`, `Path=${BASE}`, 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+    if (cookieSecureFor(req)) attrs.push('Secure');
+    return send(res, 200, { ok: true }, { 'Set-Cookie': attrs.join('; ') });
+  }
+
   /* ---- 需要鉴权的接口 ---- */
-  if (p === '/api/metrics' || p === '/api/docker' || p === '/api/processes' || p === '/api/logout') {
+  if (p === '/api/metrics' || p === '/api/docker' || p === '/api/processes') {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     if (p === '/api/metrics') {
       state.host.uptime = os.uptime();
@@ -138,16 +166,12 @@ async function route(req, res, url) {
     }
     if (p === '/api/docker') return send(res, 200, state.docker);
     if (p === '/api/processes') return send(res, 200, state.processes);
-    if (p === '/api/logout') {
-      const clear = `${COOKIE_NAME}=; Path=${BASE}; HttpOnly; SameSite=Lax; Max-Age=0`;
-      return send(res, 200, { ok: true }, { 'Set-Cookie': clear });
-    }
   }
 
   /* ---- 终端代理（ttyd，复用 JWT 鉴权）---- */
   if (p.startsWith('/api/terminal/')) {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     if (!cfg.terminal.enabled) return send(res, 503, { error: 'Terminal disabled' });
     // 终端已启用但 ttyd 尚未就绪（未安装 / 端口被占用 / 正在重试）：明确区分于“未启用”
@@ -161,7 +185,7 @@ async function route(req, res, url) {
   /* ---- 文件管理 API（零依赖 fs 操作，统一 JWT 鉴权）---- */
   if (p.startsWith('/api/fs/')) {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     return fsRoute(req, res, p, url);
   }
@@ -169,15 +193,23 @@ async function route(req, res, url) {
   /* ---- 用户偏好 API（Editor 视图选项，落盘 ~/.watchdog-os/data.json，统一 JWT 鉴权）---- */
   if (p.startsWith('/api/prefs/')) {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     return prefsRoute(req, res, p);
+  }
+
+  /* ---- 登录审计日志 API（审查 + 统计 + CSV 导出，统一 JWT 鉴权）---- */
+  if (p.startsWith('/api/audit/')) {
+    if (!checkAuth(req)) {
+      return unauthorized(req, res);
+    }
+    return audit.auditRoute(req, res, p, url);
   }
 
   /* ---- Runner API（脚本任务触发，统一 JWT 鉴权）---- */
   if (p.startsWith('/api/runner/')) {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     // status 是信息性接口：未启用时也返回 200 + enabled=false，便于前端区分"未配置"与"服务异常"
     if (p === '/api/runner/status' && req.method === 'GET') {
@@ -207,7 +239,7 @@ async function route(req, res, url) {
   /* ---- Blog API（static-gallary-generator 构建触发，统一 JWT 鉴权，与 Runner 同构）---- */
   if (p.startsWith('/api/blog/')) {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     // status 是信息性接口：未启用时也返回 200 + enabled=false，便于前端区分"未配置"与"服务异常"
     if (p === '/api/blog/status' && req.method === 'GET') {
@@ -241,7 +273,7 @@ async function route(req, res, url) {
     p.startsWith('/api/chat/sessions')
   ) {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     // status 是信息性接口：未启用时也返回 200 + enabled=false，便于前端区分"未配置"与"服务异常"（不含 apiKey）
     if (p === '/api/chat/status' && req.method === 'GET') {
@@ -289,7 +321,7 @@ async function route(req, res, url) {
   /* ---- 大模型用量 Dashboard 代理（余额/配额，统一 JWT 鉴权）---- */
   if (p === '/api/usage/deepseek' || p === '/api/usage/zai') {
     if (!checkAuth(req)) {
-      return send(res, 401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
+      return unauthorized(req, res);
     }
     if (!cfg.usage.enabled) return send(res, 503, { error: 'Usage dashboard disabled' });
     if (req.method !== 'GET') return send(res, 404, { error: 'not found' });
@@ -343,7 +375,10 @@ function handleUpgrade(req, socket) {
     }
     if (p !== '/api/terminal/ws') return rejectUpgrade(socket, 404, 'Not Found');
     // 鉴权在前、来源校验在后：未通过鉴权者无法据此探测 Origin 配置
-    if (!checkAuth(req)) return rejectUpgrade(socket, 401, 'Unauthorized');
+    if (!checkAuth(req)) {
+      audit.logUnauthorized(req);
+      return rejectUpgrade(socket, 401, 'Unauthorized');
+    }
     if (!cfg.terminal.enabled) return rejectUpgrade(socket, 503, 'Terminal disabled');
     if (!terminal.ttydReady()) return rejectUpgrade(socket, 503, 'Terminal unavailable');
     if (!originAllowed(req)) return rejectUpgrade(socket, 403, 'Origin not allowed');

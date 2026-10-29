@@ -56,6 +56,16 @@ function envBool(name, def) {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
 
+/** 取整数并收敛到 [min, max]；超出范围时 [warn]（审计日志保留期 / 阈值等参数不允许多少都行） */
+function envClampedInt(name, def, min, max) {
+  const n = envInt(name, def);
+  const clamped = Math.min(Math.max(n, min), max);
+  if (clamped !== n) {
+    console.warn(`[warn] ${name}=${n} 超出允许范围，已收敛为 ${clamped}（${min}~${max}）`);
+  }
+  return clamped;
+}
+
 /** 取 JSON 字符串数组（用于 TTYD_ARGS / DISK_MOUNTS）；解析失败 [warn] 并回退默认值 */
 function envJsonArray(name, def) {
   const raw = process.env[name];
@@ -106,6 +116,17 @@ const cfg = {
     scriptPath: envStr('BLOG_SCRIPT', '~/workspace/static-gallary-generator/build.sh'), // 支持 ~ 前缀（引擎内展开为用户主目录）
     shell: envStr('BLOG_SHELL', 'bash'),
     maxLogBytes: envInt('BLOG_MAX_LOG_BYTES', 5 * 1024 * 1024), // 超过则归档为 .old
+  },
+
+  /* 登录审计日志：登录成功/失败、登出、受保护接口 401 按本地日期分文件落盘（JSONL） */
+  audit: {
+    enabled: envBool('LOGIN_LOG_ENABLED', true),
+    dir: envStr('LOGIN_LOG_DIR', ''), // 留空 = ~/.watchdog-os/login-log（与 data.json 同目录）
+    retentionDays: envClampedInt('LOGIN_LOG_RETENTION_DAYS', 30, 1, 3650),
+    maxEntries: envClampedInt('LOGIN_LOG_MAX_ENTRIES', 20000, 100, 200000), // 单次读取解析上限
+    bruteThreshold: envClampedInt('LOGIN_LOG_BRUTE_THRESHOLD', 5, 2, 100), // 窗口内失败次数 → 疑似暴力破解
+    bruteWindowMinutes: envClampedInt('LOGIN_LOG_BRUTE_WINDOW_MIN', 10, 1, 1440),
+    dedupeSec: envClampedInt('LOGIN_LOG_401_DEDUPE_SEC', 60, 0, 3600), // 同 IP + 同路径 401 合并窗口，0 = 关闭去重
   },
 
   /* Printer：CUPS 打印机与任务监控（依赖 ipptool / lpinfo，命令缺失时 available=false） */

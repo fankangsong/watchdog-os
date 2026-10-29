@@ -1,4 +1,5 @@
 // 后端 API 封装：全部使用相对路径，兼容任意 basePath 部署
+import { notifyUnauthorized } from './session';
 
 export interface HealthInfo {
   ok: boolean;
@@ -18,11 +19,35 @@ export class Unauthorized extends Error {
   }
 }
 
+/**
+ * 构造 401 异常并**同时通知会话失效**（清本地会话存储 + 回登录页）。
+ * 所有鉴权接口的 401 都必须走这里，否则会出现「某个应用 401 了、界面却停在桌面」的半死状态。
+ * 例外：`login()` 的 401 是「密码错误」，不是会话失效，不得调用本函数。
+ */
+function unauthorized(): Unauthorized {
+  notifyUnauthorized();
+  return new Unauthorized();
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
-  if (r.status === 401) throw new Unauthorized();
+  if (r.status === 401) throw unauthorized();
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json() as Promise<T>;
+}
+
+/**
+ * 静默鉴权探测（App 启动时判断是否已登录）。
+ * 不走 request()：401 是「当前未登录」的正常结果，若触发全局登出会变成
+ * 「401 → 重载 → 再探测 401」的死循环。网络异常按「已登录」处理，交由后续接口报错。
+ */
+export async function probeAuth(): Promise<boolean> {
+  try {
+    const r = await fetch('./api/metrics');
+    return r.status !== 401;
+  } catch {
+    return true;
+  }
 }
 
 export interface HostInfo {
@@ -103,7 +128,7 @@ export const fetchDocker = () => request<DockerState>('./api/docker');
 /** 获取终端（ttyd）访问令牌；503 + Terminal disabled 表示后端未启用终端功能 */
 export async function getTerminalToken(): Promise<string> {
   const r = await fetch('./api/terminal/token');
-  if (r.status === 401) throw new Unauthorized();
+  if (r.status === 401) throw unauthorized();
   if (r.status === 503) {
     const data = (await r.json().catch(() => null)) as { error?: string; detail?: string } | null;
     if (data?.error === 'Terminal disabled') throw new Error('Terminal disabled');
@@ -263,7 +288,7 @@ export function fsUpload(
       if (e.lengthComputable) onProgress?.(e.loaded, e.total);
     };
     xhr.onload = () => {
-      if (xhr.status === 401) return reject(new Unauthorized());
+      if (xhr.status === 401) return reject(unauthorized());
       const data = xhr.response as { ok?: boolean; error?: string; path?: string; name?: string; size?: number } | null;
       if (xhr.status >= 200 && xhr.status < 300 && data?.ok) {
         return resolve({ ok: true, path: data.path || '', name: data.name || file.name, size: data.size || file.size });
@@ -386,7 +411,7 @@ export async function printTestPage(printer: string): Promise<PrinterTestPageRes
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ printer }),
   });
-  if (r.status === 401) throw new Unauthorized();
+  if (r.status === 401) throw unauthorized();
   const data = (await r.json().catch(() => null)) as
     | (PrinterTestPageResult & { error?: string; detail?: string })
     | null;
@@ -436,7 +461,7 @@ export async function sendChatMessage(messages: ChatMessage[], signal?: AbortSig
     body: JSON.stringify({ messages, stream: false }),
     signal,
   });
-  if (r.status === 401) throw new Unauthorized();
+  if (r.status === 401) throw unauthorized();
   if (!r.ok) throw new Error(await chatHttpError(r));
   const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
   return data?.choices?.[0]?.message?.content ?? '';
@@ -509,7 +534,7 @@ export async function streamChat({
       body: JSON.stringify({ messages, stream: true }),
       signal,
     });
-    if (r.status === 401) throw new Unauthorized();
+    if (r.status === 401) throw unauthorized();
     if (!r.ok) throw new Error(await chatHttpError(r));
     const sid = r.headers.get('X-Hermes-Session-Id');
     if (sid) onSessionId?.(sid);
@@ -782,7 +807,7 @@ export type UsageResult<T> = { ok: true; data: T } | { ok: false; error: string;
 async function fetchUsage<T>(path: string): Promise<UsageResult<T>> {
   try {
     const r = await fetch(path);
-    if (r.status === 401) throw new Unauthorized();
+    if (r.status === 401) throw unauthorized();
     const body = (await r.json().catch(() => null)) as (T & { error?: string }) | null;
     if (!r.ok) {
       const err = body && typeof body.error === 'string' ? body.error : `HTTP ${r.status}`;
@@ -797,3 +822,147 @@ async function fetchUsage<T>(path: string): Promise<UsageResult<T>> {
 
 export const fetchDeepseekUsage = () => fetchUsage<DeepseekBalance>('./api/usage/deepseek');
 export const fetchZaiUsage = () => fetchUsage<ZaiQuota>('./api/usage/zai');
+
+/* ---------- 登录审计日志（/api/audit/*，AuditApp）---------- */
+
+export type AuditEventType = 'login' | 'logout' | 'unauthorized';
+export type AuditTypeFilter = 'all' | AuditEventType;
+export type AuditResultFilter = 'all' | 'success' | 'failure';
+
+/** 一条审计事件（服务端 JSONL 一行的读取视图；字段全部容错，缺失即空） */
+export interface AuditEvent {
+  /** 事件时间（ms） */
+  t: number;
+  type: AuditEventType;
+  ok: boolean;
+  /** 失败原因：bad-password / bad-body / unauthorized / logout / ok */
+  reason: string;
+  /** 客户端 IP（反代下取 X-Forwarded-For 首段） */
+  ip: string;
+  /** 直连地址（未过代理时为同一值） */
+  remoteIp: string;
+  ua: string;
+  path: string;
+  status: number;
+  durationMs?: number;
+  /** 401 去重窗口内合并的次数（登录事件恒为 1） */
+  count: number;
+  /** 合并窗口内最后一次出现时间（登录事件与 t 相同） */
+  lastSeen: number;
+}
+
+export interface AuditSource {
+  ip: string;
+  total: number;
+  failures: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+export interface AuditBruteForce {
+  ip: string;
+  /** 窗口内命中次数 */
+  count: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+export interface AuditNewSource {
+  ip: string;
+  firstSeen: number;
+}
+
+export interface AuditStats {
+  total: number;
+  success: number;
+  failures: number;
+  /** 失败率（百分比，一位小数） */
+  failureRate: number;
+  unauthorized: number;
+  sources: number;
+  byDay: Array<{ day: string; success: number; failures: number }>;
+  byHour: Array<{ hour: number; success: number; failures: number }>;
+  topSources: AuditSource[];
+  recentFailures: AuditEvent[];
+  anomalies: {
+    bruteForce: AuditBruteForce[];
+    newSources: AuditNewSource[];
+  };
+}
+
+export interface AuditMeta {
+  retentionDays: number;
+  /** 查询范围天数，0 = 全部保留期 */
+  days: number;
+  limit: number;
+  /** 命中服务端解析条数上限（更早的数据被截断） */
+  truncated: boolean;
+  dir: string;
+  generatedAt: number;
+  /** 疑似暴力破解判定窗口（分钟）与阈值：用于异常条目文案（服务端配置下发） */
+  bruteWindowMinutes?: number;
+  bruteThreshold?: number;
+}
+
+export interface AuditLogResponse {
+  enabled: boolean;
+  /** 目录不可写等原因（enabled 仍为 true 时也会带上） */
+  error?: string;
+  entries: AuditEvent[];
+  stats: AuditStats;
+  meta: AuditMeta;
+}
+
+export interface AuditQuery {
+  days: number;
+  type?: AuditTypeFilter;
+  ok?: AuditResultFilter;
+  ip?: string;
+  limit?: number;
+}
+
+function auditQs(q: AuditQuery): string {
+  const p = new URLSearchParams({
+    days: String(q.days),
+    type: q.type || 'all',
+    ok: q.ok || 'all',
+    limit: String(q.limit ?? 200),
+  });
+  const ip = (q.ip || '').trim();
+  if (ip) p.set('ip', ip);
+  return p.toString();
+}
+
+export const fetchAuditLog = (q: AuditQuery) =>
+  request<AuditLogResponse>(`./api/audit/login-log?${auditQs(q)}`);
+
+/** 从 Content-Disposition 取文件名（服务端保证带引号；解析失败回退本地日期名） */
+function csvFileName(cd: string): string {
+  const m = /filename="([^"]+)"/.exec(cd || '');
+  return m ? m[1] : `login-log-${new Date().toISOString().slice(0, 10)}.csv`;
+}
+
+/**
+ * 导出当前筛选的完整日志（CSV，不受列表 limit 限制）。
+ * 用 fetch + Blob 而非 `a[href]` 直链：会话只在 HttpOnly Cookie 里，直链无法区分 401 与其它错误；
+ * 与其它接口一致，401 抛 Unauthorized 交给调用方登出。
+ */
+export async function downloadAuditCsv(q: AuditQuery): Promise<void> {
+  const r = await fetch(`./api/audit/login-log.csv?${auditQs(q)}`);
+  if (r.status === 401) throw unauthorized();
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = csvFileName(r.headers.get('content-disposition') || '');
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  // 立即移除锚点 / revoke 会让部分浏览器把下载中断成「Download canceled」，
+  // 等下载真正开始后再释放（4s 足够，内存占用可忽略）
+  window.setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 4000);
+}

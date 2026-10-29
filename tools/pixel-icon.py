@@ -12,6 +12,7 @@
   src/assets/icons/docker.svg     同上
   src/assets/icons/runner.svg     同上
   src/assets/icons/blog.svg       同上（窗口 + 白纸文本行 + 铅笔）
+  src/assets/icons/audit.svg      同上（窗口 + 日志纸 + 结果标记 + 放大镜）
   src/assets/icons/fm-back.svg    16x16, viewBox="0 0 16 16"（窗口操作按钮带内嵌图标）
   src/assets/icons/fm-up.svg      同上
   src/assets/icons/fm-fav.svg     同上
@@ -81,6 +82,8 @@ PALETTE = {
     'o': '#c09434',     # 铅笔杆暗部
     'A': '#d8a878',     # 木杆
     'a': '#b08050',     # 木杆暗部
+    # --- Audit（登录审计：成功点复用 Runner 的 P 绿，失败点用红）---
+    'r': '#cf3b2f',     # 失败标记（登录失败的行首小方块）
     # --- 按钮内嵌图标（16 档工具栏字形，双色：N 深蓝描边 + b 蓝面）---
     'C': 'currentColor',  # 跟随宿主元素文字色（本组图标不用它，保留给将来的单色字形）
     # 本组取 'N' + 'b'（与对话气泡同一支蓝）：固定色，不随按钮文字变化。
@@ -440,6 +443,67 @@ def build_blog():
     return g
 
 
+def build_audit():
+    """Audit Log：Mac OS 9 窗口 + 日志纸（绿/红行首标记 = 登录成功/失败）+ 放大镜（审查与分析）。
+
+    与 terminal / runner / blog 同构的窗口外框保证桌面观感统一；纸面承接记录行，
+    放大镜后画并压在纸面右下角——「把日志逐条看清」即审查。行首 2px 彩色标记是
+    本图标相对 blog（纸 + 铅笔）的语义区分点：审计关心的是每条记录的**结果**。
+    """
+    g = blank()
+
+    # 窗口外框 x2..x29 / y2..y29（与 terminal/runner/blog 同构）
+    fill(g, 2, 2, 28, 28, 'L')
+    hline(g, 2, 2, 28, 'K')
+    hline(g, 2, 29, 28, 'K')
+    vline(g, 2, 2, 28, 'K')
+    vline(g, 29, 2, 28, 'K')
+
+    # 标题栏 y3..y8：顶高光 -> 基色(+标题短横) -> 条纹 -> 底暗边
+    fill(g, 3, 3, 26, 6, 'L')
+    fill(g, 3, 3, 26, 1, 'W')
+    fill(g, 3, 5, 26, 1, 'M')
+    fill(g, 3, 8, 26, 1, 'D')
+    fill(g, 13, 4, 5, 1, 'M')          # 标题居中短横
+
+    # 内容区：右侧与底部压暗边（光源左上）
+    fill(g, 3, 9, 26, 19, 'L')
+    fill(g, 28, 9, 1, 19, 'M')
+    fill(g, 3, 27, 26, 1, 'M')
+    fill(g, 3, 28, 26, 1, 'D')
+    fill(g, 28, 26, 1, 2, 'D')
+
+    # 日志纸 x4..x16 / y11..y26：底/右压暗边，纸面 W
+    fill(g, 4, 11, 13, 16, 'W')
+    fill(g, 4, 26, 13, 1, 'd')         # 纸底暗部
+    fill(g, 16, 11, 1, 16, 'd')        # 纸右暗部
+
+    # 记录行：行首 2px 结果标记（P 成功 / r 失败）+ 灰文本线（宽度递减，像被截断）
+    for y, dot, w in ((13, 'P', 7), (16, 'r', 6), (19, 'P', 7), (22, 'r', 5), (25, 'P', 6)):
+        fill(g, 5, y, 2, 1, dot)
+        hline(g, 8, y, w, 'g')
+
+    # 放大镜：镜片 9x9（外圈 K + 玻璃 h + 左上 W 高光），压在纸面右下角
+    cx, cy = 20.5, 17.5   # 镜片中心（以像素中心计）
+    for y in range(12, 24):
+        for x in range(15, 27):
+            d = ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2) ** 0.5
+            if d <= 3.2:
+                g[y][x] = 'h'          # 玻璃
+            elif d <= 4.4:
+                g[y][x] = 'K'          # 镜圈
+    g[15][18] = 'W'                    # 高光（左上光源）
+    g[16][18] = 'W'
+    g[15][19] = 'W'
+
+    # 镜柄：45° 向右下，2px 宽（外 K 内 M，保持立体感）
+    for i in range(4):
+        x, y = 24 + i, 21 + i
+        g[y][x] = 'K'
+        g[y][x + 1] = 'M'
+    return g
+
+
 # ---------------------------------------------------------------- 16 档：窗口操作按钮带内嵌图标
 # 规格见 docs/icon-pipeline.md §1.2：16x16 网格 1:1 渲染（.sp-tb-icon）。
 # 双色：'N'（#1b3d72 深蓝描边）+ 'b'（#4a86d8 蓝面）——沿用水泡图标的同一支蓝。
@@ -724,6 +788,7 @@ if __name__ == '__main__':
     emit(build_docker(), 'docker')
     emit(build_runner(), 'runner')
     emit(build_blog(), 'blog')
+    emit(build_audit(), 'audit')
     # 16 档：窗口操作按钮带内嵌图标（Back / Up / Favorites，见 icon-pipeline.md §1.2）
     set_size(16)
     emit(build_fm_back(), 'fm-back')

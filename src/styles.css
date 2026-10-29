@@ -906,3 +906,46 @@ ul.classicySubMenu li[id^="cv-"],
 ul.classicyContextMenu li[id^="cv-"] { flex-wrap: nowrap; }
 ul.classicySubMenu li[id^="cv-"] > p,
 ul.classicyContextMenu li[id^="cv-"] > p { white-space: nowrap; }
+
+/* ---------- 登录审计（Audit Log）----------
+   窗口三段式：按钮带（筛选/导出）/ 可滚动内容区（概览-趋势-来源-异常-事件）/ 状态栏。
+   高度链同 Monitor 模式：禁窗口级滚动，ContentsInner 钉为 flex column，只有内容区滚动。 */
+#srv-audit\.app_audit-main > .classicyWindowContents { overflow: hidden; }
+#srv-audit\.app_audit-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
+/* 按钮带内的下拉需要比 72px 更宽（"Unauthorized" 等长文案不换行、不截断） */
+.sp-audit-toolbar .classicyPopUpMenuWrapper { width: auto; }
+.sp-audit-toolbar .classicyPopUpMenu { flex-grow: 0; height: var(--hig-button-height); }
+.sp-audit-toolbar .sp-audit-sel-range { width: 88px; }
+.sp-audit-toolbar .sp-audit-sel-type { width: 118px; }
+.sp-audit-toolbar .sp-audit-sel-result { width: 104px; }
+/* 带内右端上下文（规则 9）：小一号等宽字体，不做可交互控件 */
+.sp-audit-retention { font-family: Menlo, Consolas, monospace; font-size: 11px; color: var(--color-system-04, #666); }
+/* 内容区：唯一滚动容器 */
+.sp-audit-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.sp-audit-pad { padding: 8px 12px; }
+/* 概览指标卡：大号数值 + 小号灰标签，窄窗口自动折行 */
+.sp-audit-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; padding: 8px 12px; }
+.sp-audit-card { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; background: var(--color-white); border: 1px solid var(--color-system-05); }
+.sp-audit-card-value { font-size: 18px; font-weight: 700; line-height: 1.1; }
+.sp-audit-card-label { font-size: 11px; color: var(--color-system-04, #666); text-transform: uppercase; letter-spacing: 0.03em; }
+/* 图例 / 趋势图 */
+.sp-audit-legend { display: flex; gap: 14px; font-size: 11px; color: #444; padding: 2px 12px 4px; }
+.sp-audit-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }
+.sp-audit-trend { padding: 2px 12px 10px; }
+.sp-audit-trend canvas { display: block; width: 100%; height: 132px; background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(0, 0, 0, 0.25); }
+/* 异常条目：徽标 + 等宽来源 + 说明 */
+.sp-audit-anomalies { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; font-size: 12px; }
+.sp-audit-anomaly { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.sp-audit-badge { flex: 0 0 auto; padding: 0 5px; font-size: 10px; font-weight: 700; text-transform: uppercase; border: 1px solid; }
+.sp-audit-badge.danger { color: var(--color-white); background: #dc2626; border-color: #a00000; }
+.sp-audit-badge.note { color: var(--color-black); background: #ffff00; border-color: #808000; }
+/* 事件表：来源 IP 筛选行 + 内部滚动的表格（表头 sticky 由 ClassicyTable 保证） */
+.sp-audit-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 4px; flex-wrap: wrap; }
+.sp-audit-filter .classicyInputHolder { max-width: 220px; }
+.sp-audit-table { max-height: 320px; overflow: auto; }
+.sp-audit-mono { font-family: Menlo, Consolas, monospace; font-size: 11px; }
+.sp-audit-ellipsis { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.sp-audit-count { color: #2563eb; }
+/* 状态栏（双区）：左上下文 / 右全局 */
+.sp-audit-status { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 10px; font-size: 11px; color: #444; background: var(--color-system-01); border-top: var(--window-border-size) solid var(--color-system-05); }
+.sp-audit-status-err { color: #c00000; }

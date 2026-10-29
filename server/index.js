@@ -29,6 +29,7 @@ const { startPrinterTimer } = require('./api/printer');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const blog = require('./api/blog');
+const audit = require('./api/audit');
 const { route, handleUpgrade } = require('./router');
 
 const server = http.createServer(async (req, res) => {
@@ -67,6 +68,12 @@ server.listen(cfg.port, cfg.host, () => {
    不得阻止监听或波及其他接口（终端不可用时 /api/terminal/* 返回 503，其余接口照常）。 */
 startCollectTimers();
 startPrinterTimer(state);
+// 登录审计：建目录 + 清理过期日文件；失败只 warn（日志不可写时登录照常，只是没有审计记录）
+try {
+  audit.startAudit();
+} catch (e) {
+  console.warn('[warn] 登录审计日志初始化失败（不影响其他接口）:', (e && e.message) || e);
+}
 // ttyd 再延后一个 tick 并包 try/catch：即使 spawn 同步抛错也只记 warn，不影响已开始的监听
 setImmediate(() => {
   try {
@@ -115,4 +122,6 @@ process.on('exit', () => {
   terminal.cleanupSync();
   try { runner.stopRunnerJob(); } catch { /* 已退出忽略 */ }
   try { blog.stopJob(); } catch { /* 已退出忽略 */ }
+  // 审计日志：把 401 去重窗口里未落盘的计数同步写出（异步队列此时已来不及）
+  try { audit.flushPending(true); } catch { /* 落盘失败不影响退出 */ }
 });

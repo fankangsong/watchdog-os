@@ -19,6 +19,7 @@ import { BlogApp } from './apps/BlogApp';
 import { PrinterApp } from './apps/PrinterApp';
 import { ChatApp } from './apps/ChatApp';
 import { ConverterApp } from './apps/ConverterApp';
+import { AuditApp } from './apps/AuditApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 
@@ -43,16 +44,21 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
     try {
       await logout();
     } catch {
-      // 登出接口失败也照常回到登录页（如 token 已过期）
+      // 登出接口失败也照常收尾（如 token 已过期 / 后端不可达）：本地会话必须清干净
     }
+    // onLogout = endSession：清本地会话存储 + 整页重载回登录页
     onLogout();
   }, [onLogout]);
 
   useEffect(() => {
     setAppleMenuState.setState((s) => {
-      if (s.System.Manager.Desktop.systemMenu.some((i) => i.id === APPLE_MENU_LOGOUT_ID)) {
-        return s;
-      }
+      const menu = s.System.Manager.Desktop.systemMenu;
+      // ⚠️ 这里**不能**写成「已存在同 id 项就跳过」：classicy 会把 systemMenu 持久化进
+      // localStorage（classicyDesktopState），而函数无法被 JSON 序列化——刷新后残留项只剩
+      // { id, title }，点击没有任何处理函数（表现为「点 Sign Out 没反应」）。
+      // 因此每次挂载都先剔除旧项（连同尾部的分隔线），再用带 onClickFunc 的新项重建。
+      const cleaned = menu.filter((i) => i.id !== APPLE_MENU_LOGOUT_ID);
+      while (cleaned.length > 0 && cleaned[cleaned.length - 1].id === 'spacer') cleaned.pop();
       return {
         System: {
           ...s.System,
@@ -61,7 +67,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
             Desktop: {
               ...s.System.Manager.Desktop,
               systemMenu: [
-                ...s.System.Manager.Desktop.systemMenu,
+                ...cleaned,
                 { id: 'spacer' },
                 { id: APPLE_MENU_LOGOUT_ID, title: 'Sign Out', onClickFunc: handleLogout },
               ],
@@ -75,7 +81,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
   return null;
 }
 
-// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Macintosh HD（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器
+// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Macintosh HD（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器 / 登录审计
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   return (
     <ClassicyAppManagerProvider
@@ -100,6 +106,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
         <PrinterApp onLogout={onLogout} />
         <ChatApp onLogout={onLogout} />
         <ConverterApp onLogout={onLogout} />
+        <AuditApp onLogout={onLogout} />
       </ClassicyDesktop>
       <AppleMenuLogoutItem onLogout={onLogout} />
     </ClassicyAppManagerProvider>
