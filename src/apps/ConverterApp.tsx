@@ -21,7 +21,7 @@ import {
   useClassicyHelpMenu,
 } from 'classicy';
 import type { ClassicyMenuItem } from 'classicy';
-import { fsRawUrl, fsUpload, logout, Unauthorized } from '../api';
+import { fsRawUrl, fsUpload, Unauthorized } from '../api';
 import type { FsEntry } from '../api';
 import { fmtBytes } from '../format';
 import { quitMenuItem } from '../quitMenuItem';
@@ -218,14 +218,8 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
     });
   }, []);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await logout();
-    } catch {
-      // 登出接口失败也照常回到登录页（如 token 已过期）
-    }
-    onLogout();
-  }, [onLogout]);
+  // 401 只做本地收尾（清会话存储 + 回登录页），**不再**发 /api/logout（见 src/session.ts）
+  const handleLogout = useCallback(() => onLogout(), [onLogout]);
 
   const stopAlert = useCallback((label: string, message: string) => {
     setAlert({ alertType: 'stop', label, message, buttons: [{ id: 'ok', label: 'OK', role: 'default' }] });

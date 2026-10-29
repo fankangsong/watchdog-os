@@ -84,6 +84,12 @@ export function createSharedPoll<T>(
     subscribe(onStoreChange) {
       listeners.add(onStoreChange);
       stopped = false; // 新订阅（如重新登录后的桌面重建）重置停止标记
+      // 新订阅 = 新会话：清掉上一会话遗留的 401。
+      // 否则组件挂载时读到旧的 Unauthorized 会立刻触发「登出」副作用
+      // （表现为「刚登录就被踢出 / 登录后自动调一次 logout」）。
+      // 这里直接改状态而不 emit：订阅者紧接着就会 getSnapshot 读到新值，
+      // 在 subscribe 期间通知监听器反而会引发重入渲染。
+      if (state.error) state = { ...state, error: null };
       ensureRunning();
       return () => {
         listeners.delete(onStoreChange);

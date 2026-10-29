@@ -20,7 +20,7 @@ import {
 import type { ClassicyMenuItem, ClassicyTableColumn } from 'classicy';
 import { baseName, FAVORITES_WIN_ID, FinderBrowser, folderWinId, requestMainNavigate, APP_NAME, ICON, MAIN_WIN_ID } from './FinderBrowser';
 import { removeFavorites, useFavorites } from '../favoritesStore';
-import { logout } from '../api';
+
 import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-finder.app';
@@ -51,14 +51,8 @@ export function FinderApp({ onLogout }: { onLogout: () => void }) {
   const { showContextMenu } = useClassicyContextualMenu();
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await logout();
-    } catch {
-      // 登出接口失败也照常回到登录页（如 token 已过期）
-    }
-    onLogout();
-  }, [onLogout]);
+  // 401 只做本地收尾（清会话存储 + 回登录页），**不再**发 /api/logout（见 src/session.ts）
+  const handleLogout = useCallback(() => onLogout(), [onLogout]);
 
   /** 在新窗口打开收藏的文件夹：注册窗口 + Open + Focus（已打开则仅聚焦）。
    *  仅浏览窗口内 Favorites 菜单「直达各收藏」使用 */

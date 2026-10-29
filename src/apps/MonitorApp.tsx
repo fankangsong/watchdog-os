@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { ClassicyApp, ClassicyButton, ClassicyIcons, ClassicyPopUpMenu, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
-import { logout, Unauthorized } from '../api';
+import { Unauthorized } from '../api';
 import { monitorPoll } from '../polls';
 import { useSharedPoll } from '../sharedPoll';
 import { SystemInfoPanel } from '../components/SystemInfoPanel';
@@ -23,16 +23,12 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
   const m = poll.data?.metrics ?? null;
   const procs = poll.data?.processes ?? null;
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await logout();
-    } catch {
-      // 登出接口失败也照常回到登录页（如 token 已过期）
-    }
-    onLogout();
-  }, [onLogout]);
+  // 会话失效（401）→ 本地收尾（清会话存储 + 回登录页）。
+  // ⚠️ 这里**不得**再调 logout() 发 /api/logout：401 已经说明会话无效，再 POST 一次
+  // 只会把「谁主动退出」的审计写脏，并在并发 401 时把一次过期放大成整轮接口雪崩。
+  // 主动退出（需要服务端清 Cookie）只由苹果菜单的 Sign Out 负责。
+  const handleLogout = useCallback(() => onLogout(), [onLogout]);
 
-  // 会话失效（401）→ 回到登录
   useEffect(() => {
     if (poll.error instanceof Unauthorized) {
       handleLogout();

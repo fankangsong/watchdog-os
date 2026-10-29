@@ -19,7 +19,7 @@
 | `login`（成功） | `POST /api/login` 口令正确 | `status=200`，`durationMs` 记录签发耗时 |
 | `login`（失败） | 同上，口令错误 | `reason=bad-password`，`status=401`；**逐条记录，不做任何合并** |
 | `login`（失败） | 请求体不是合法 JSON | `reason=bad-body`，`status=400` |
-| `logout` | `POST /api/logout`（且已通过鉴权） | 主动退出会话。接口本身**幂等**（无效会话也 200 + 清 Cookie），但只有会话有效时才记审计——未授权的登出可能只是撞库噪声 |
+| `logout` | `POST /api/logout`（且已通过鉴权） | **只记用户主动退出**。接口本身幂等（无效会话也 200 + 清 Cookie），只有会话有效时才记审计——未授权的登出可能只是撞库噪声。前端保证「401 → 本地收尾」不触发该接口（否则审计会把过期事件误记成主动退出，见 AGENTS.md 安全约定） |
 | `unauthorized` | 任一受保护接口鉴权失败 401 | 覆盖 printer / metrics / docker / processes / terminal / fs / prefs / runner / blog / chat / usage / audit |
 | `unauthorized` | 终端 WS 升级鉴权失败（401） | 与 HTTP 路径同一套埋点 |
 

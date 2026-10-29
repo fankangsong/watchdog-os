@@ -38,7 +38,6 @@ import {
   fsRename,
   fsUpload,
   fsWrite,
-  logout,
   Unauthorized,
 } from '../api';
 import type { FsEntry } from '../api';
@@ -368,14 +367,9 @@ export function FinderBrowser({
     }
   }, []);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await logout();
-    } catch {
-      // 登出接口失败也照常回到登录页（如 token 已过期）
-    }
-    onLogout();
-  }, [onLogout]);
+  // 401 只做本地收尾（清会话存储 + 回登录页），**不再**发 /api/logout：
+  // 会话已失效时再 POST 一次只会污染审计日志，并让并发 401 雪崩（见 src/session.ts）
+  const handleLogout = useCallback(() => onLogout(), [onLogout]);
 
   const stopAlert = useCallback((label: string, message: string) => {
     setAlert({ alertType: 'stop', label, message, buttons: [{ id: 'ok', label: 'OK', role: 'default' }] });

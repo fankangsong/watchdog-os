@@ -19,7 +19,7 @@ import {
 } from 'classicy';
 import type { ClassicyMenuItem } from 'classicy';
 import { classicyToHost } from '../hostFsAdapter';
-import { fsRead, fsWrite, logout, prefsGetEditor, prefsSetEditor, Unauthorized } from '../api';
+import { fsRead, fsWrite, prefsGetEditor, prefsSetEditor, Unauthorized } from '../api';
 import type { EditorServerPrefs } from '../api';
 import { CodeEditor, EDITOR_FONTS, EDITOR_THEMES } from '../components/CodeEditor';
 import type { EditorThemeId } from '../components/CodeEditor';
@@ -125,14 +125,8 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(EDITOR_APP_ID, EDITOR_APP_NAME, EDITOR_ICON);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await logout();
-    } catch {
-      // 登出接口失败也照常回到登录页（如 token 已过期）
-    }
-    onLogout();
-  }, [onLogout]);
+  // 401 只做本地收尾（清会话存储 + 回登录页），**不再**发 /api/logout（见 src/session.ts）
+  const handleLogout = useCallback(() => onLogout(), [onLogout]);
 
   /* 视图偏好变更入口：标记本地已变更（hydration 不再覆盖）+ 合并更新 */
   const updateViewPrefs = useCallback((patch: Partial<EditorViewPrefs>) => {
