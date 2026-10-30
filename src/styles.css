@@ -1090,6 +1090,20 @@ html[data-wd-layout="mobile"] .classicyDesktopMenu > li {
   white-space: nowrap;
 }
 
+/* 关键修复：移动端下拉子菜单被首页遮罩(.sp-m-home, z-index:400)与全屏窗口(z-index:300)
+   压在下面，导致菜单项点不到、「应用菜单点击无响应」。
+   classicy 的 .classicyDesktopMenuBar 默认是 position:static（z-index:500 被忽略），
+   其下拉 ul.classicySubMenu 为 z-index:auto 的绝对定位；首页是 fixed+z-index:400，
+   于是子菜单被首页覆盖。这里把菜单栏及其下拉整体抬到覆盖层之上
+   （context menu 同为 z-index:900，保持一致）。 */
+html[data-wd-layout="mobile"] .classicyDesktopMenuBar {
+  position: relative !important;
+  z-index: 900 !important;
+}
+html[data-wd-layout="mobile"] .classicySubMenu {
+  z-index: 901 !important;
+}
+
 /* 文件浏览器（图标视图 / 表格视图）：双击打开在触屏上是「快速点两次」。
    不加 touch-action:manipulation 时，第二次点击会触发 iOS 的双击缩放——
    页面被放大而 dblclick/tapOpen 都收不到第二次点击 */
