@@ -111,7 +111,7 @@ body {
   --ui-font-size: 14px;
   --header-font: "AppleGaramond", serif;
   --body-font: "Geneva", serif;
-  --mono-font: "Monaco", monospace;
+  --mono-font: "Courier New", "Monaco", monospace;
   --hig-button-height: 20px;
   --hig-button-min-width: 58px;
 }
@@ -740,14 +740,18 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-md-preview h4 { font-size: 13px; }
 .sp-md-preview p { margin: 6px 0; }
 .sp-md-preview a { color: #0969da; }
-.sp-md-preview code { padding: 1px 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.07); font-family: var(--mono-font, monospace); font-size: 14px; }
-.sp-md-preview pre { position: relative; padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
+.sp-md-preview code {
+  font-family: var(--mono-font);
+  font-size: 14px;
+}
+.sp-md-preview pre { font-family: var(--mono-font); position: relative; padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
 .sp-md-preview pre code { padding: 0; background: none; }
 /* 代码块右上角复制按钮：MarkdownPreview 经 DOM API 挂进每个 pre */
 .sp-md-preview .sp-md-copy {
-  position: absolute;
+  position: sticky;
   top: 3px;
   right: 3px;
+  float: right;
   padding: 1px 6px;
   font-size: 11px;
   line-height: 1.4;
