@@ -1,8 +1,11 @@
 // Markdown 渲染预览：marked 解析 + DOMPurify 净化（防 XSS）+ 相对路径图片改写（经 /api/fs/raw 内联）
-import { useMemo } from 'react';
+// 代码块右上角附加「复制」按钮：经 DOM API 挂载（不经 dangerouslySetInnerHTML，
+// 无净化旁路风险），点击走事件委托；流式输出时 html 变化触发 effect 重新挂载
+import { useEffect, useMemo, useRef } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { fsRawUrl } from '../api';
+import { copyText } from '../clipboard';
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -55,5 +58,44 @@ export function MarkdownPreview({ source, docPath }: { source: string; docPath?:
     // docPath 缺省（如聊天气泡）无文件上下文，保持原行为
     return docPath ? rewriteImages(sanitized, docPath) : sanitized;
   }, [source, docPath]);
-  return <div className="sp-md-preview" dangerouslySetInnerHTML={{ __html: html }} />;
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // 每次渲染后给所有 pre 挂复制按钮（流式输出会反复重渲染，按标记去重）
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.querySelectorAll('pre').forEach((pre) => {
+      if (pre.dataset.copyBtn === '1') return;
+      pre.dataset.copyBtn = '1';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sp-md-copy';
+      btn.textContent = '复制';
+      btn.setAttribute('aria-label', '复制代码');
+      pre.appendChild(btn);
+    });
+  }, [html]);
+
+  const handleClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const btn = target.closest('button.sp-md-copy') as HTMLButtonElement | null;
+    if (!btn) return;
+    const pre = btn.closest('pre');
+    const code = pre?.querySelector('code')?.textContent ?? pre?.textContent ?? '';
+    void copyText(code).then((ok) => {
+      btn.textContent = ok ? '已复制' : '复制失败';
+      setTimeout(() => {
+        btn.textContent = '复制';
+      }, 1500);
+    });
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className="sp-md-preview"
+      onClick={handleClick}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
