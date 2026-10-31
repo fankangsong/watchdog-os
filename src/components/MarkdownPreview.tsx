@@ -67,12 +67,18 @@ export function MarkdownPreview({ source, docPath }: { source: string; docPath?:
     root.querySelectorAll('pre').forEach((pre) => {
       if (pre.dataset.copyBtn === '1') return;
       pre.dataset.copyBtn = '1';
+      // 按钮挂在 pre 外层的 relative wrapper 上：pre 自身是滚动容器，
+      // 绝对定位在 pre 内会跟随内容滚动
+      const wrap = document.createElement('div');
+      wrap.className = 'sp-md-code-wrap';
+      pre.replaceWith(wrap);
+      wrap.appendChild(pre);
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'sp-md-copy';
-      btn.textContent = '复制';
-      btn.setAttribute('aria-label', '复制代码');
-      pre.appendChild(btn);
+      btn.textContent = 'Copy';
+      btn.setAttribute('aria-label', 'Copy code');
+      wrap.appendChild(btn);
     });
   }, [html]);
 
@@ -80,12 +86,12 @@ export function MarkdownPreview({ source, docPath }: { source: string; docPath?:
     const target = e.target as HTMLElement;
     const btn = target.closest('button.sp-md-copy') as HTMLButtonElement | null;
     if (!btn) return;
-    const pre = btn.closest('pre');
+    const pre = btn.parentElement?.querySelector('pre');
     const code = pre?.querySelector('code')?.textContent ?? pre?.textContent ?? '';
     void copyText(code).then((ok) => {
-      btn.textContent = ok ? '已复制' : '复制失败';
+      btn.textContent = ok ? 'Copied' : 'Copy failed';
       setTimeout(() => {
-        btn.textContent = '复制';
+        btn.textContent = 'Copy';
       }, 1500);
     });
   };

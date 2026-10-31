@@ -741,17 +741,18 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-md-preview p { margin: 6px 0; }
 .sp-md-preview a { color: #0969da; }
 .sp-md-preview code {
-  font-family: var(--mono-font);
+  font-family: "Courier New", "consolas", "Menlo", monospace;
   font-size: 14px;
 }
-.sp-md-preview pre { font-family: var(--mono-font); position: relative; padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
-.sp-md-preview pre code { padding: 0; background: none; }
-/* 代码块右上角复制按钮：MarkdownPreview 经 DOM API 挂进每个 pre */
+.sp-md-preview pre { font-family: var(--mono-font); padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
+.sp-md-preview pre code { padding: 0; background: none; position: relative;}
+/* 代码块右上角复制按钮：MarkdownPreview 经 DOM API 给每个 pre 包 relative wrapper（.sp-md-code-wrap）后挂进去，
+   定位在 wrapper 上，不随 pre 滚动条滚动 */
+.sp-md-preview .sp-md-code-wrap { position: relative; }
 .sp-md-preview .sp-md-copy {
-  position: sticky;
+  position: absolute;
   top: 3px;
   right: 3px;
-  float: right;
   padding: 1px 6px;
   font-size: 11px;
   line-height: 1.4;
