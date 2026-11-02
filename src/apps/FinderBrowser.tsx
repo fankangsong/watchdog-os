@@ -4,13 +4,14 @@
 // View 菜单可切换列表视图。无状态栏；主窗口可弹出收藏夹侧栏（工具栏 Favorites 按钮
 // 或 Favorites 菜单切换显隐：点开在左侧展示收藏夹列表，再次点击收起）。
 // 目录导航经双击进入 + Go 菜单（Back ⌘[ / Open Parent Folder ⌘↑）。
-// 支持上传（进度/取消/覆盖确认）、新建文件夹、新建文本文件、重命名（可改扩展名）、删除、
+// 支持上传（从系统拖入窗口 / Upload File…，进度/取消/覆盖确认）、新建文件夹、新建文本文件、
+// 重命名（可改扩展名）、删除、
 // 复制/剪切/粘贴（服务端递归复制，同名自动追加 copy 后缀）、Get Info、
 // 收藏夹（右键文件夹 Add/Remove from Favorites、工具栏按钮、菜单栏 Favorites 菜单）：
 // 以及图片/文本/Markdown 预览窗口。文件选择类命令走 Edit 菜单（Cut/Copy/Paste/Select All/Delete…）
 // 与快捷键（⌘C/⌘X/⌘V/⌘A/⌘⌫），与右键菜单三路等价。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react';
 import {
   ClassicyAlert,
   ClassicyBalloonHelp,
@@ -284,6 +285,17 @@ interface UploadTask {
   name: string;
   loaded: number;
   total: number;
+}
+
+/**
+ * 拖拽载荷是否含「文件」（而非选区文本 / 链接）。
+ * dragenter / dragover 阶段拿不到 files，只能看 types；个别浏览器在 dragenter 时
+ * types 尚为空但 items 已就绪，故用 items 兜底——首个事件若被放过，后续 dragover
+ * 不 preventDefault 就永远等不到 drop。
+ */
+function hasFilePayload(dt: DataTransfer | null): boolean {
+  if (!dt) return false;
+  return Array.from(dt.types).includes('Files') || (dt.types.length === 0 && dt.items.length > 0);
 }
 
 interface FmAlert {
@@ -681,6 +693,63 @@ export function FinderBrowser({
       await fetchDir(current);
     },
     [current, fetchDir, uploadOne]
+  );
+
+  // ---- 从系统拖拽文件上传（HTML5 DnD）----
+  // 浏览器对文件拖放的默认行为是「导航并打开该文件」，整个面板会被替换；因此必须在
+  // dragover 上 preventDefault 才会派发 drop，drop 里也要吞掉默认行为。
+  // dragenter/dragleave 会在子元素之间反复触发，用计数器判定是否真的离开了投递区，
+  // 否则鼠标在图标/表格格子上移动时提示层就会闪。目录不参与上传：浏览器不给目录内文件。
+  const dragDepthRef = useRef(0);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDragEnter = useCallback((e: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e.dataTransfer)) return; // 文本/链接拖拽放行给浏览器默认
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    if (dragDepthRef.current === 1) setDragOver(true);
+  }, []);
+
+  const handleDragOver = useCallback((e: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e.dataTransfer)) return;
+    e.preventDefault(); // 必需：不拦截则浏览器接管，drop 事件不会派发
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  // 离开时不看 types：个别浏览器在 dragleave 阶段已清空 dataTransfer，再判定一次就
+  // 减不下去，提示层会卡到下一次 drop 才复位
+  const handleDragLeave = useCallback(() => {
+    if (dragDepthRef.current === 0) return;
+    dragDepthRef.current -= 1;
+    if (dragDepthRef.current === 0) setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: ReactDragEvent<HTMLDivElement>) => {
+      // drop 阶段以 files 兜底：types 判定失败时也不能把文件交给浏览器去打开
+      if (!hasFilePayload(e.dataTransfer) && e.dataTransfer.files.length === 0) return;
+      e.preventDefault(); // 吞掉默认行为：不让浏览器把拖入文件当页面打开
+      dragDepthRef.current = 0;
+      setDragOver(false);
+      // 用 items 而非 files：只有 DataTransferItem 能查 webkitGetAsEntry，据此剔除目录
+      const files: File[] = [];
+      let dirCount = 0;
+      for (const item of Array.from(e.dataTransfer.items)) {
+        if (item.kind !== 'file') continue;
+        const entry = (item as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntry | null }).webkitGetAsEntry?.();
+        if (entry?.isDirectory) {
+          dirCount += 1;
+          continue;
+        }
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+      // 无当前目录（根列表）时由 uploadFiles 统一提示，与「Upload File…」同一出口
+      if (files.length) void uploadFiles(files);
+      else if (dirCount)
+        stopAlert('Cannot Upload Folder', 'Folders cannot be uploaded. Upload the files inside instead.');
+    },
+    [stopAlert, uploadFiles]
   );
 
   const submitDialog = useCallback(async () => {
@@ -1451,7 +1520,15 @@ export function FinderBrowser({
         }}
       >
       <ClassicyContextualMenuTarget menuItems={menuItems} className="sp-fm-ctx">
-        <div className="sp-fm-main">
+        {/* 拖拽上传挂在窗口主体：工具栏/侧栏/内容区都可投放，整窗即投递区；
+            仅拦截含文件的拖拽，选中文本/链接的拖放照常交给浏览器 */}
+        <div
+          className="sp-fm-main"
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           {/* 窗口内工具栏带（规范 §3.2，与 WatchDog OS 共用 .sp-toolbar）：
               浅色容器带，与标题栏（窗口框线）、内容区（底部分隔线）均分开；
               按钮不属于内容流，不随内容滚动。按钮带 16px 前置图标（文本左侧垂直居中，
@@ -1522,6 +1599,10 @@ export function FinderBrowser({
               </div>
             )}
             <div className="sp-fm-content">
+          {/* 拖入提示层（pointer-events:none，不抢 drop；根列表先提示进入目录） */}
+          {dragOver && (
+            <div className="sp-fm-drop-hint">{current ? 'Drop files to upload' : 'Open a folder to upload'}</div>
+          )}
           {loading && entries.length === 0 ? (
             <div className="sp-fm-empty sp-fm-empty-dir">Loading…</div>
           ) : visibleEntries.length === 0 ? (

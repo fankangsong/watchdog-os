@@ -604,6 +604,10 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 /* 主窗口横向布局：收藏夹侧栏（可收起）+ 内容区；侧栏不随内容滚动 */
 .sp-fm-body { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
 .sp-fm-content { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+/* 拖拽上传提示层需要定位上下文（只加 position，不改上面的 flex 声明） */
+.sp-fm-content { position: relative; }
+/* 从系统拖入文件的投放提示：覆盖内容区虚线框；pointer-events:none 保证 drop 仍落在窗口主体 */
+.sp-fm-drop-hint { position: absolute; inset: 3px; z-index: 5; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--color-system-07); background: rgba(255, 255, 255, 0.72); border: 1px dashed var(--color-system-07); pointer-events: none; }
 /* 收藏夹侧栏：固定宽度窄栏，右缘与工具栏底边共用窗口分隔线；点击条目在主窗口内导航 */
 .sp-fm-favside { flex: 0 0 170px; box-sizing: border-box; overflow: auto; padding: 2px 6px 8px; background: var(--color-system-01); border-right: var(--window-border-size) solid var(--color-system-05); }
 .sp-fm-favside-empty { padding: 8px 4px; font-size: 12px; line-height: 1.5; color: var(--color-system-05); }
