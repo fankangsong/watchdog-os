@@ -1,4 +1,4 @@
-// Finder 浏览主体（Macintosh HD 应用的窗口内容，按 winId + initialPath 支持多实例）：
+// Finder 浏览主体（Files 应用的窗口内容，按 winId + initialPath 支持多实例）：
 // 主窗口（根列表起步）、收藏夹双击新开的文件夹窗口共用本组件，各自持有独立的
 // 当前目录/选中/历史/预览等状态。默认图标视图（大图标 + 下方名称，OS8 选中高亮），
 // View 菜单可切换列表视图。无状态栏；主窗口可弹出收藏夹侧栏（工具栏 Favorites 按钮
@@ -62,11 +62,16 @@ import { DocxPreview } from '../components/DocxPreview';
 import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
 import fmUpIcon from '../assets/icons/fm-up.svg?no-inline';
 import fmFavIcon from '../assets/icons/fm-fav.svg?no-inline';
+// 应用图标：自绘 32x32 像素画（Mac OS 9 窗口 + 蓝色文件夹 + 探出的白纸），
+// 由 tools/pixel-icon.py 的 build_files() 生成
+import filesIcon from '../assets/icons/files.svg?no-inline';
 
 const APP_ID = 'srv-finder.app';
-export const APP_NAME = 'Macintosh HD';
-/** 应用图标：classicy 的磁盘图标（与 macOS 的 Macintosh HD 卷图标一致），应用/窗口/根行共用 */
-export const ICON = ClassicyIcons.system.drives.disk;
+export const APP_NAME = 'Files';
+/** 应用图标：自绘像素画（与 terminal / converter 等同一套窗口外框），应用/窗口/对话框共用 */
+export const ICON = filesIcon;
+/** 根列表行的图标仍用 classicy 磁盘图标——根条目是真实的磁盘卷（C: / D:），不是文件夹 */
+const ROOT_ICON = ClassicyIcons.system.drives.disk;
 /** 收藏夹侧栏行图标（classicy 内建 Favorites 文件夹图标） */
 const FAV_ICON = ClassicyIcons.system.folders.favorites;
 /** 主窗口 id（根列表视图起步） */
@@ -761,7 +766,7 @@ export function FinderBrowser({
   );
 
   /** 根列表视图（未进入任何目录）用磁盘图标，其余按扩展名细分 */
-  const displayIcon = useCallback((e: FsEntry) => (!current && e.type === 'dir' ? ICON : iconFor(e)), [current]);
+  const displayIcon = useCallback((e: FsEntry) => (!current && e.type === 'dir' ? ROOT_ICON : iconFor(e)), [current]);
 
   const goBack = useCallback(() => {
     setBackStack((s) => {

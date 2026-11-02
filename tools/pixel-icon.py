@@ -14,7 +14,8 @@
   src/assets/icons/blog.svg       同上（窗口 + 白纸文本行 + 铅笔）
   src/assets/icons/audit.svg      同上（窗口 + 日志纸 + 结果标记 + 放大镜）
   src/assets/icons/disk.svg       同上（窗口 + 硬盘盘片 + 容量条）
-  src/assets/icons/converter.svg  同上（窗口 + 两张照片卡 + 右向箭头）
+  src/assets/icons/converter.svg  同上（窗口 + 两张竖幅照片 + 琥珀色右向箭头）
+  src/assets/icons/files.svg      同上（窗口 + 打开的蓝色文件夹 + 露出的白纸）
   src/assets/icons/fm-back.svg    16x16, viewBox="0 0 16 16"（窗口操作按钮带内嵌图标）
   src/assets/icons/fm-up.svg      同上
   src/assets/icons/fm-fav.svg     同上
@@ -569,16 +570,23 @@ def build_disk():
 
 
 def build_converter():
-    """Converter（HEIC → JPEG）：Mac OS 9 窗口 + 左右两张照片卡 + 中间右向箭头。
+    """Converter（HEIC → JPEG）：Mac OS 9 窗口 + 左右两张竖幅照片 + 中间琥珀色右向箭头。
 
     与 terminal / runner / blog / audit / disk 同构的窗口外框保证桌面观感统一。
     两张卡外形完全一致——换格式不改变构图，语义差异全交给中间的箭头承担：
     卡是「照片」，箭头是「转换」，方向即数据流（左进右出）。
 
-    卡片 7x12（x4..x10 / x20..x26，y12..y23）：K 外框 + 5x10 风景 ——
-    天空 h、太阳 Y（左上 y 高光）、山体 p 亮坡 + P 暗坡（光源左上）、
-    底部 G 压深收边。箭头 7x7 骑在 x12..x18 / y14..y20：轴 3px 粗，
-    头是「底 7 高 / 5 / 3 / 尖 1」的右向三角（每列上下各缩 1px，45° 收尖）。
+    相对旧版（7x12 小卡 + 纯 K 黑箭头）的两处改动，都是为了 16px 档缩略可读：
+      1. 卡改竖幅 7x16（内部 5x14 风景）——竖幅既像 iPhone 拍的 HEIC 原片，
+         又把彩色面积拉高约 40%，缩到 16px 后仍是明显的蓝绿照片块而非灰条；
+      2. 箭头由纯 K 改成琥珀立体（bevel y/Y/o，与 blog 铅笔同一支黄）——
+         灰内容区上唯一的高饱和焦点，缩到 16px 也不会和窗口描边混成一块黑疙瘩
+         （旧版黑箭头缩小后是哑铃状，正是它最先糊掉的部分）。
+
+    照片 7x16 占 x4..x10 / x20..x26、y10..y25，内部 5x14 风景：天空 h 6 行、
+    淡黄太阳 y 2x2、山体 p 亮坡 + P 暗坡（光源左上）、草地 G 2 行收底。
+    箭头 7x9 骑在 x12..x18 / y13..y21：轴 3 行高、头是「尖 1 / 2 / 3 / 底 7」
+    逐行张开的右向三角（45° 边）。两卡之间与内容区左右各留 1px 呼吸。
     """
     g = blank()
 
@@ -603,34 +611,99 @@ def build_converter():
     fill(g, 3, 28, 26, 1, 'D')
     fill(g, 28, 26, 1, 2, 'D')
 
-    # 照片卡（7x12）：K 外框 + 天空 / 太阳 / 山 / 地平线
+    # 竖幅照片（7x16，内部 5x14 风景）：K 外框 + 天空 / 淡黄太阳 / 山 / 草地
     photo = [
-        'KKKKKKK',
-        'KhhhyYK',
-        'KhhhYYK',
-        'KhhhhhK',
-        'KhhhhhK',
-        'KhhhhhK',
-        'KhhphhK',
-        'KhppPhK',
-        'KpppPPK',
-        'KpppPPK',
-        'KGGGGGK',
-        'KKKKKKK',
+        'hhhhh',
+        'hhyyh',
+        'hhyyh',
+        'hhhhh',
+        'hhhhh',
+        'hhhhh',
+        'hhhph',
+        'hhpPh',
+        'hpppP',
+        'pppPP',
+        'pppPP',
+        'pppPP',
+        'GGGGG',
+        'GGGGG',
     ]
-    blit(g, photo, 4, 12)              # 源照片
-    blit(g, photo, 20, 12)             # 输出照片
+    for px in (4, 20):
+        fill(g, px, 10, 7, 16, 'K')    # 照片外框
+        blit(g, photo, px + 1, 11)     # 画面（源 / 输出两张完全一致）
 
-    # 箭头 x12..x18 / y14..y20：轴 3px 粗，右向三角头（底 7 高 -> 尖 1）
-    blit(g, [
-        '...K...',
-        '...KK..',
-        'KKKKKK.',
-        'KKKKKKK',
-        'KKKKKK.',
-        '...KK..',
-        '...K...',
-    ], 12, 14)
+    # 右向箭头 x12..x18 / y13..y21：轴 3 行高，头逐行张开的 45° 三角（尖在中行）
+    arrow = ((18, 18), (17, 18), (16, 18),
+             (12, 18), (12, 18), (12, 18),
+             (16, 18), (17, 18), (18, 18))
+    sil = [[False] * W for _ in range(H)]
+    for i, (x0, x1) in enumerate(arrow):
+        sil_rect(sil, x0, 13 + i, x1, 13 + i)
+    bevel(g, sil, 'Y', 'y', 'o')
+    return g
+
+
+def build_files():
+    """Files（文件管理器）：Mac OS 9 窗口 + 蓝色文件夹（左上 tab + 横纹前片）+ 探出的白纸。
+
+    与 terminal / runner / blog / audit / disk / converter 同构的窗口外框保证桌面观感统一。
+
+    只画「一个」文件夹主体，不做「背板 + 前板」两块——32px 上两块蓝之间那条分界线
+    会跟外框糊成一片，缩到 16px 更是三条蓝杠。改为一个整体色块，靠 tab（左上凸角）、
+    前片横纹、以及从顶部探出的白纸三处细节交代「这是个文件夹、里面有文件」。
+
+    配色刻意与其它应用区分：blog / audit 的主体是「白纸」（灰窗口里一片浅色），
+    Files 反过来——主体是一整块饱和的蓝（b/h/m 与对话气泡同一支蓝，即 macOS 文件夹的蓝），
+    白纸只在顶端露出 4 行。桌面上扫一眼，蓝块 = 文件夹，浅色块 = 文档类应用，不必读标题。
+
+    结构（文件夹外框 y12..y25，内容区上留 2 / 下留 1）：
+      纸    白面 x11..x23 / y11..y19 —— 先画，文件夹盖住 y15 以下，只露顶端 4 行；
+      文件夹 L 形剪影：tab x5..x10 / y13..y16 + 主体 x4..x27 / y16..y24，
+            bevel 左上高光 + outline 深蓝外框；
+      横纹  y20 / y22 两条 m 暗线（Mac OS 9 前片的凹槽），是它区别于「下载/归档」图标的细节。
+    绘制顺序：纸 → 文件夹 → 横纹（后画的盖住先画的）。
+    """
+    g = blank()
+
+    # 窗口外框 x2..x29 / y2..y29（与 terminal/runner/blog/audit/disk/converter 同构）
+    fill(g, 2, 2, 28, 28, 'L')
+    hline(g, 2, 2, 28, 'K')
+    hline(g, 2, 29, 28, 'K')
+    vline(g, 2, 2, 28, 'K')
+    vline(g, 29, 2, 28, 'K')
+
+    # 标题栏 y3..y8：顶高光 -> 基色(+标题短横) -> 条纹 -> 底暗边
+    fill(g, 3, 3, 26, 6, 'L')
+    fill(g, 3, 3, 26, 1, 'W')
+    fill(g, 3, 5, 26, 1, 'M')
+    fill(g, 3, 8, 26, 1, 'D')
+    fill(g, 13, 4, 5, 1, 'M')          # 标题居中短横
+
+    # 内容区：右侧与底部压暗边（光源左上）
+    fill(g, 3, 9, 26, 19, 'L')
+    fill(g, 28, 9, 1, 19, 'M')
+    fill(g, 3, 27, 26, 1, 'M')
+    fill(g, 3, 28, 26, 1, 'D')
+    fill(g, 28, 26, 1, 2, 'D')
+
+    # 纸：先画，下半会被文件夹压住。两张错开 2px 叠在一起（顶行窄 2px 即台阶），
+    # 一张平齐的白条更像「贴了张便签」，错落才有「一叠文件」的意思。
+    fill(g, 13, 11, 11, 9, 'W')        # 后张（窄 2px，只露顶端一条）
+    fill(g, 11, 12, 13, 8, 'W')        # 前张
+    fill(g, 23, 11, 1, 9, 'd')         # 右沿压暗（两张共用）
+    hline(g, 13, 13, 9, 'g')           # 灰字线
+    hline(g, 13, 14, 6, 'g')
+
+    # 文件夹：tab（左上凸角）+ 主体，左上光源立体蓝 + 深蓝外框
+    folder = [[False] * W for _ in range(H)]
+    sil_rect(folder, 5, 13, 10, 16)    # tab（4 行高，够看出「凸起的一角」）
+    sil_rect(folder, 4, 16, 27, 24)    # 主体（y16 与 tab 重叠，连成一整块）
+    bevel(g, folder, 'b', 'h', 'm')
+    outline(g, folder, 'N')
+
+    # 前片横纹（Mac OS 9 文件夹的凹槽）：两条 m 暗线，别画太满
+    hline(g, 7, 20, 18, 'm')
+    hline(g, 7, 22, 18, 'm')
     return g
 
 
@@ -949,6 +1022,7 @@ if __name__ == '__main__':
     emit(build_audit(), 'audit')
     emit(build_disk(), 'disk')
     emit(build_converter(), 'converter')
+    emit(build_files(), 'files')
     # 16 档：窗口操作按钮带内嵌图标（Back / Up / Favorites，见 icon-pipeline.md §1.2）
     set_size(16)
     emit(build_fm_back(), 'fm-back')

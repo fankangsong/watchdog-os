@@ -1,5 +1,5 @@
 // HEIC 转换器（Converter）：启动仅提供 Choose File 按钮，点击后经 converterBridge
-// 调起 Macintosh HD（Finder）选文件模式——用户在 Finder 中双击 .heic/.heif 文件确认，
+// 调起 Files（Finder）选文件模式——用户在 Finder 中双击 .heic/.heif 文件确认，
 // Finder 窗口自动关闭回到本窗口，转换结果 JPEG 保存到原文件所在目录。
 // 数据源与 Finder 一致（/api/fs/*，Cookie 鉴权）；解码在浏览器端完成：
 // heic-to（libheif WASM，动态 import 按需加载 ~2MB chunk），EXIF orientation 经
@@ -37,7 +37,7 @@ import exifr from 'exifr';
 
 const APP_ID = 'srv-converter.app';
 const APP_NAME = 'Converter';
-/** 应用图标：自绘 32×32 像素图标（Mac OS 9 窗口 + 两张照片卡 + 右向箭头），
+/** 应用图标：自绘 32×32 像素图标（Mac OS 9 窗口 + 两张竖幅照片 + 琥珀色右向箭头），
  *  由 tools/pixel-icon.py 的 build_converter() 生成，见 src/assets/icons/converter.svg */
 const ICON = converterIcon;
 const MAIN_WIN_ID = 'converter-main';
@@ -189,7 +189,7 @@ async function convertOne(entry: FsEntry, quality: number, signal?: AbortSignal)
 
 /** 应用：启动仅 Choose File 按钮；选中文件后显示文件卡 + Convert（HEIC → JPEG） */
 export function ConverterApp({ onLogout }: { onLogout: () => void }) {
-  /** 经 Macintosh HD 选定的待转换文件（null 为空闲/取消） */
+  /** 经 Files 选定的待转换文件（null 为空闲/取消） */
   const [picked, setPicked] = useState<FsEntry | null>(null);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   /** 转换进行中的文件名（null 表示空闲） */
@@ -226,7 +226,7 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
     setAlert({ alertType: 'stop', label, message, buttons: [{ id: 'ok', label: 'OK', role: 'default' }] });
   }, []);
 
-  // 消费 Macintosh HD 的选择结果：entry=确认选择；null=取消（含关窗/Esc）
+  // 消费 Files 的选择结果：entry=确认选择；null=取消（含关窗/Esc）
   useEffect(() => {
     const onPick = (e: Event) => {
       const entry = (e as CustomEvent<{ entry: FsEntry | null }>).detail?.entry ?? null;
@@ -237,7 +237,7 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
     return () => window.removeEventListener(CONVERTER_PICK_EVENT, onPick);
   }, []);
 
-  /** 调起 Macintosh HD 选文件（空闲与已选状态均可再次发起，换选文件） */
+  /** 调起 Files 选文件（空闲与已选状态均可再次发起，换选文件） */
   const startPick = useCallback(() => {
     startConverterPick();
   }, []);
@@ -419,12 +419,12 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
         )}
 
         {!picked ? (
-          /* 启动落地页：仅一个 Choose File 按钮（点击调起 Macintosh HD 选文件） */
+          /* 启动落地页：仅一个 Choose File 按钮（点击调起 Files 选文件） */
           <div className="sp-conv-landing">
             <img className="sp-conv-landing-icon" src={ICON} alt="" draggable={false} />
             <div className="sp-conv-landing-title">Convert HEIC Pictures to JPEG</div>
             <div className="sp-conv-landing-text">
-              Pick a .heic / .heif picture in Macintosh HD.
+              Pick a .heic / .heif picture in Files.
               <br />
               Each JPEG is saved next to its original file.
             </div>
@@ -518,7 +518,7 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
           <div className="sp-conv-help-title">How to Convert</div>
           <ol className="sp-conv-help-steps">
             <li>
-              Click <b>Choose File…</b> — the Macintosh HD window opens.
+              Click <b>Choose File…</b> — the Files window opens.
             </li>
             <li>
               Browse to a folder and double-click a <b>.heic</b> / <b>.heif</b> file to choose it
@@ -544,10 +544,10 @@ export function ConverterApp({ onLogout }: { onLogout: () => void }) {
               <ClassicyKbd variant="keycaps" shortcut="⌘E" /> Convert
             </span>
             <span>
-              <ClassicyKbd variant="keycaps" shortcut="↩" /> Confirm file in Macintosh HD
+              <ClassicyKbd variant="keycaps" shortcut="↩" /> Confirm file in Files
             </span>
             <span>
-              <ClassicyKbd variant="keycaps" shortcut="Esc" /> Cancel choosing (in Macintosh HD)
+              <ClassicyKbd variant="keycaps" shortcut="Esc" /> Cancel choosing (in Files)
             </span>
           </div>
         </div>

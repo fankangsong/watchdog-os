@@ -1,4 +1,4 @@
-// Macintosh HD 应用外壳：主浏览窗口 + 收藏目标文件夹窗口注册表。
+// Files 应用外壳（原 Macintosh HD）：主浏览窗口 + 收藏目标文件夹窗口注册表。
 // 浏览主体为 FinderBrowser（按 winId + initialPath 多实例，各自独立导航状态）；
 // 收藏夹数据经 favoritesStore（服务端 ~/.watchdog-os/data.json 持久化）在各实例间共享——
 // 收藏夹列表改为主窗口内的可收起侧栏（工具栏 Favorites 按钮 / Favorites 菜单切换显隐，

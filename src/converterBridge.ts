@@ -1,16 +1,17 @@
-// Converter（HEIC 转换器）→ Macintosh HD（Finder）选文件联动桥：
-// Converter 点击 Select File 进入「选文件模式」并打开/聚焦 Macintosh HD 主窗口；
+// Converter（HEIC 转换器）→ Files（Finder）选文件联动桥：
+// Converter 点击 Select File 进入「选文件模式」并打开/聚焦 Files 主窗口；
 // 用户在任意浏览窗口双击文件确认选择（Esc 或关闭窗口取消），选择结果经
-// window CustomEvent 广播回 Converter，同时关闭 Macintosh HD 主窗口回到 Converter。
+// window CustomEvent 广播回 Converter，同时关闭 Files 主窗口回到 Converter。
 // 结构对齐 editorBridge.ts：pending 状态 + 双路径通知（事件即时 / 挂载时读取），
 // 避免与 FinderBrowser 相互 import 造成初始化环，Finder 常量在此处独立声明。
-import { ClassicyIcons, dispatch } from 'classicy';
+import { dispatch } from 'classicy';
 import type { FsEntry } from './api';
+import filesIcon from './assets/icons/files.svg?no-inline';
 
 /** Finder 应用常量（与 FinderBrowser.tsx 保持一致；独立声明避免 import 环） */
 export const FINDER_APP_ID = 'srv-finder.app';
-export const FINDER_APP_NAME = 'Macintosh HD';
-export const FINDER_ICON = ClassicyIcons.system.drives.disk;
+export const FINDER_APP_NAME = 'Files';
+export const FINDER_ICON = filesIcon;
 export const FINDER_MAIN_WIN_ID = 'fm-main';
 
 /** 选中结果事件（detail: { entry: FsEntry | null }，null 表示取消） */
@@ -44,7 +45,7 @@ function setPicking(v: boolean) {
   window.dispatchEvent(new CustomEvent(CONVERTER_PICKING_EVENT, { detail: { picking: v } }));
 }
 
-/** Converter 侧发起：进入选文件模式并打开（或聚焦）Macintosh HD 主窗口 */
+/** Converter 侧发起：进入选文件模式并打开（或聚焦）Files 主窗口 */
 export function startConverterPick(): void {
   setPicking(true);
   dispatch({ type: 'ClassicyAppOpen', app: { id: FINDER_APP_ID, name: FINDER_APP_NAME, icon: FINDER_ICON } });

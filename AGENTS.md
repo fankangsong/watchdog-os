@@ -142,7 +142,7 @@ static.js # 静态资源服务（只服务 dist/：serveIndex 返回 SPA 入口�
 lib/ # http.js 基础工具 / auth.js JWT 鉴权 / userdata.js 用户数据文件（~/.watchdog-os/data.json）读写
 api/ # metrics / printer / terminal / runner / chat / fs / audit（登录审计：JSONL 落盘 + 统计 + CSV）
 src/ # React 前端源码
-apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Macintosh HD，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）、AuditApp（登录审计日志）
+apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Files，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）、AuditApp（登录审计日志）
 components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板、AuditPanels / AuditTrendChart（审计表格与趋势图）
 hooks/ # usePolling —— 数据轮询 Hook
 mobile/ # 移动外壳（仅 <768px 挂载）：shellModel.ts 纯逻辑 / MobileShell 组合 / MobileHome 首页网格 / MobileHomeBar 返回首页（见下节「移动端 / 小屏适配」）
@@ -206,7 +206,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - 回归测试 `node test/test-shared-poll.mjs`（零订阅者续轮 / 立即首拉 / 暂停恢复 / 改间隔 / 401 停止与重启 / 慢接口防叠加 / 快照稳定性 / reload 语义 / 端点接线）
 - ⚠️ classicy 0.79 实测（读 dist 源码）：`ClassicyDesktop` 无条件渲染全部 App 子组件，`ClassicyApp` 仅在 `open` 时渲染其窗口子树——即「关窗口 / 退应用」本就不卸载 App 组件本身；共享 store 化之后该行为不再是轮询连续性的依赖项，后续换 classicy 版本或改桌面装配都不会 reintroduce 该问题
 
-### Macintosh HD（文件管理器）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`)
+### Files（文件管理器，原 Macintosh HD）/ 文本编辑器（FinderApp / EditorApp + `/api/fs/*`)
 
 - 后端 `server/api/fs.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`copy`（POST `{ path, dir }` 递归复制文件/目录：同名**不覆盖**，按 Finder 惯例自动追加 ` copy` / ` copy 2` 后缀——扩展名前插入；目标目录位于源目录内部（含自身）时 400 防递归；根目录禁止复制；符号链接按链接本身复制，Windows 无权限时回退复制目标内容；失败清理半截副本）、`favorites`（GET/PUT，持久化到用户目录 `~/.watchdog-os/data.json`——与项目目录解耦，同步脚本/重部署不丢收藏；经 `server/lib/userdata.js` 合并写：保留文件内其它键，临时文件 + rename 原子写）
 - 安全约定：所有路径经 `path.resolve` 规范化并校验在允许根内（`FS_ROOTS` 环境变量可覆盖，默认 Windows 为项目盘符 + C 盘、POSIX 为 `/`）；根目录禁止删除/重命名/复制；文件名清洗只取 basename
@@ -247,7 +247,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 ### 移动端 / 小屏适配（src/responsive.ts + src/mobile/）
 
 - **三档断点**（`src/responsive.ts` 的 `layoutForWidth`）：`<768px` → `mobile`（手机 + iPad 1/3 分屏）、`768~1024px` → `tablet`、`>1024px` → `desktop` 与改造前完全一致。判定写在 `<html data-wd-layout>` 上，`main.tsx` 在 `createRoot` 前 `initViewport()` 保证首帧即正确档位；`useViewport()` 是 `matchMedia` 单例订阅，只在跨断点时重渲染。**不要在组件里各自监听 resize**。
-- **mobile 档是「移动外壳」**（`src/mobile/`）：原生桌面图标 `display:none`，改由 `MobileHome` 读同一份 store（`System.Manager.Desktop.icons`）排成 3 列网格；点开 app 后窗口被 CSS 全屏化，右下角 `MobileHomeBar` 逐个 `ClassicyWindowClose` 回首页。首页只收自研 app（`appId` 以 `srv-` 开头）与磁盘卷（`kind==='drive'`），classicy 内置 app / 废纸篓 / `hidden` 一律不出现；同名项按显示名去重且 app 优先（内置 Finder 与自研 Finder 都叫 Macintosh HD）。
+- **mobile 档是「移动外壳」**（`src/mobile/`）：原生桌面图标 `display:none`，改由 `MobileHome` 读同一份 store（`System.Manager.Desktop.icons`）排成 3 列网格；点开 app 后窗口被 CSS 全屏化，右下角 `MobileHomeBar` 逐个 `ClassicyWindowClose` 回首页。首页只收自研 app（`appId` 以 `srv-` 开头）与磁盘卷（`kind==='drive'`），classicy 内置 app / 废纸篓 / `hidden` 一律不出现；同名项按显示名去重且 app 优先（历史上内置 Finder 与自研 Finder 都叫 Macintosh HD；自研应用改名 Files 后两者不再同名，手机首页会同时出现 Files 与 Macintosh HD 两个文件入口）。
 - ⚠️ **移动端不得写窗口几何**：全屏化只走 CSS `!important` 覆盖内联 style；一旦 `dispatch ClassicyWindowResize/Position`，尺寸会被持久化进 `classicyDesktopState`，桌面端多窗口布局就毁了。
 - ⚠️ **`ClassicyAppOpen` 会把该 app 所有已注册窗口一起打开并逐个聚焦**（srv-finder 的收藏夹窗口是常驻树，会盖住主窗口），因此首页打开 app 后必须补一次 `ClassicyWindowFocus` 到 `primaryWindowId()`。
 - ⚠️ **首页可见性只看「是否有未关闭窗口」**，不看 `focusedAppId`（返回首页后 classicy 不清它，用它判定会永远回不到首页）。
@@ -272,7 +272,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
    - 外代是否放行 WS 升级（Nginx/openresty 需 `proxy_http_version 1.1` + `proxy_set_header Upgrade $http_upgrade` + `proxy_set_header Connection "upgrade"`）；
    - 外代多会改写 `Host` 头，watchdog 的 `originAllowed()` 按 Host 推导同源白名单，匹配不上浏览器 `Origin` → 升级被拒（返回 403）。**修复：`.env` 的 `PUBLIC_ORIGIN` 显式加入外部访问域名（逗号分隔多域名）后 `./run.sh restart`**；
    - 判别技巧：不带 `Origin` 头的脚本请求走外代能 101、带则失败，即可锁定是 Origin 校验而非代理本身。
-10. **桌面上的 `Finder.app` 图标要手动移除**：classicy 启动时会自行往桌面塞一个虚拟磁盘图标（`appId: 'Finder.app'` / 名称 `Macintosh HD` / DOM id `#Finder.app.shortcut`），与本项目的文件管理器图标同名并排出现（清缓存、刷新、重登都会复现）。⚠️ classicy 当前版本**不把桌面状态持久化到 localStorage**（实测无 `classicyDesktopState` 键），所以这不是脏数据、无法靠清缓存解决，只能运行时 dispatch `ClassicyDesktopIconRemove`。`src/Desktop.tsx` 的 `RemoveClassicySampleFinderIcon` 用 **store 订阅**（`useAppManager(selector)` + `useEffect`）实现，**不要改成固定 setTimeout** —— 子组件 effect 先于父组件执行，与 classicy 内部的添加时机有竞态。排查桌面图标问题时，先用 `document.querySelectorAll('.classicyDesktopIcon')` 读 DOM 上的 `id`（即 appId）确认归属。
+10. **桌面上的 `Finder.app` 图标要手动移除**：classicy 启动时会自行往桌面塞一个虚拟磁盘图标（`appId: 'Finder.app'` / 名称 `Macintosh HD` / DOM id `#Finder.app.shortcut`），与本项目的文件管理器图标同名并排出现（后者已改名 Files，两者不再同名；清缓存、刷新、重登都会复现该内置图标）。⚠️ classicy 当前版本**不把桌面状态持久化到 localStorage**（实测无 `classicyDesktopState` 键），所以这不是脏数据、无法靠清缓存解决，只能运行时 dispatch `ClassicyDesktopIconRemove`。`src/Desktop.tsx` 的 `RemoveClassicySampleFinderIcon` 用 **store 订阅**（`useAppManager(selector)` + `useEffect`）实现，**不要改成固定 setTimeout** —— 子组件 effect 先于父组件执行，与 classicy 内部的添加时机有竞态。排查桌面图标问题时，先用 `document.querySelectorAll('.classicyDesktopIcon')` 读 DOM 上的 `id`（即 appId）确认归属。
 11. ⚠️ **classicy 0.79 的次窗口显隐机制（2026-10-16 实测，读 dist 源码 + 无头浏览器实证）**：`ClassicyWindow` **挂载即自发 dispatch `ClassicyWindowOpen`**（reducer 把窗口推入 app 的 store `windows` 且 `closed:false`），且 app 被打开（`ClassicyAppOpen`）时会把该 app **所有 store 窗口的 `closed` 置 false**。因此「常驻渲染树 + dispatch Open/Focus 控制显隐」的模式（Finder 收藏夹窗 `fm-favorites`、Chat 会话窗 `chat-sessions` 现用此法）在**每次打开 app 时次窗都会一并可见并抢焦点**（ConverterApp 开发时实测复现：帮助窗盖住主窗拦截点击）。**新应用需要隐藏次窗时一律用条件渲染**（`{open && <ClassicyWindow … onCloseFunc={() => setOpen(false)}>`，TerminalApp 快捷键窗模式）——挂载自注册会自动入 store 并聚焦，无需手动 Open/Focus 双发。既有的 Finder/Chat 两个常驻次窗受同一机制影响（代码级证据确凿），修复前先确认产品侧是否可接受。
 
 ## 菜单设计规范（macOS / classicy）

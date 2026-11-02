@@ -83,7 +83,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
   return null;
 }
 
-// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Macintosh HD（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器 / 登录审计 / 磁盘容量
+// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Files（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器 / 登录审计 / 磁盘容量
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   return (
     <ClassicyAppManagerProvider

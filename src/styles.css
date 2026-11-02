@@ -460,7 +460,7 @@ body {
 /* 各模块（分组框）之间统一垂直间距，跟随 classicy 的 --window-padding-size */
 .sp-block + .sp-block { margin-top: calc(var(--window-padding-size) * 2); }
 /* WatchDog OS 主窗口：工具栏带钉在顶部不随内容滚动——禁窗口级滚动，
-   ContentsInner 钉为 flex column，内容区自滚动（同 Macintosh HD 高度链模式） */
+   ContentsInner 钉为 flex column，内容区自滚动（同 Files 高度链模式） */
 #srv-monitor\.app_monitor-main > .classicyWindowContents { overflow: hidden; }
 #srv-monitor\.app_monitor-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
 .sp-monitor-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
@@ -528,7 +528,7 @@ body {
 .sp-cellres-bar span { display: block; height: 100%; border-radius: 3px; }
 .sp-cmd { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 
-/* ---------- 窗口操作按钮带（规范 §3.2，Macintosh HD / WatchDog OS 共用） ----------
+/* ---------- 窗口操作按钮带（规范 §3.2，Files / WatchDog OS 共用） ----------
    浅色容器带与标题栏（窗口框线）、内容区（底部分隔线）均分开；按钮在带内不属于内容流。
    带色 system-01 浅灰，按钮面提亮为白色（亮于带），黑色边框 + bevel 保证轮廓；
    间距用 HIG 令牌 12px；margin:0 必须（classicy 按钮默认 6px 外边距会与 gap 叠加成 18px）；
@@ -563,7 +563,7 @@ body {
 .sp-toolbar-status { margin-left: auto; }
 
 /* ---------- 文件管理器 / 文本编辑器 ---------- */
-/* Macintosh HD 菜单（菜单栏 / 右键 / 预览窗，项 id 均以 fm- 开头）防折行：
+/* Files 菜单（菜单栏 / 右键 / 预览窗，项 id 均以 fm- 开头）防折行：
    classicy 菜单项默认 flex-wrap:wrap + 标题可折行，下拉宽度受顶级项宽度约束
    （仅 min-width:180px 兜底），长标题/快捷键超出即折行 —— Mac 菜单从不折行，只应变宽。
    ⚠️ 必须限定在下拉 / 右键菜单上下文内，不能写成裸的 li[id^="fm-"]：
@@ -583,7 +583,7 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-fm-ctx { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 .sp-fm-main { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
 
-/* Macintosh HD 主窗口：钉死内容区高度链。窗口 contents 为 block + overflow:auto，
+/* Files 主窗口：钉死内容区高度链。窗口 contents 为 block + overflow:auto，
    会与 height:100% 的内容区叠加溢出。改为 flex column 并禁用窗口级滚动，
    让内容区恒占剩余高度：表格横向滚动条始终贴窗口底部 */
 #srv-finder\.app_fm-main > .classicyWindowContents { overflow: hidden; }
@@ -716,7 +716,7 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-dialog-recent { max-height: 160px; overflow: auto; border: 1px solid rgba(0, 0, 0, 0.2); background: var(--color-white); padding: 2px; }
 .sp-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
 /* ClassicyInput（classicyInputHolder）左置 label：input 是 width:100% 的 flex 项，
-   会挤压 label 造成逐字换行（Macintosh HD 新建文件夹/新建文本文件等窄对话框最为明显）；
+   会挤压 label 造成逐字换行（Files 新建文件夹/新建文本文件等窄对话框最为明显）；
    统一禁止 label 收缩与换行，保持单行展示 */
 .classicyInputHolder.classicyLabelLeft .classicyControlLabelHolder { flex: 0 0 auto; }
 .classicyInputHolder.classicyLabelLeft .classicyControlLabel { white-space: nowrap; }
@@ -902,7 +902,7 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 }
 
 /* ---------- HEIC 转换器（Converter） ---------- */
-/* 主窗口内容高度链（同 Macintosh HD 模式）：禁窗口级滚动 + ContentsInner 钉为 flex column，
+/* 主窗口内容高度链（同 Files 模式）：禁窗口级滚动 + ContentsInner 钉为 flex column，
    让表格区恒占剩余高度、横向滚动条贴窗口底部 */
 #srv-converter\.app_converter-main > .classicyWindowContents { overflow: hidden; }
 #srv-converter\.app_converter-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
@@ -917,7 +917,7 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-conv-table .sp-conv-row-selected .sp-conv-name img { filter: contrast(0.75) brightness(0.5); }
 /* 空目录/加载占位：区域内居中（规范 §4.3 空态一句陈述） */
 .sp-conv-empty { display: flex; align-items: center; justify-content: center; flex: 1 1 auto; padding: 0; color: var(--color-system-05); font-size: 12px; }
-/* 启动落地页：仅 Choose File 按钮（点击经 converterBridge 调起 Macintosh HD 选文件） */
+/* 启动落地页：仅 Choose File 按钮（点击经 converterBridge 调起 Files 选文件） */
 .sp-conv-landing { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; text-align: center; }
 .sp-conv-landing-icon { width: 48px; height: 48px; image-rendering: pixelated; }
 .sp-conv-landing-title { font-weight: 700; font-size: 14px; }
@@ -934,7 +934,7 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 /* 非 HEIC 文件提示条 */
 .sp-conv-warn { flex: 0 0 auto; margin: 0 10px 6px; padding: 4px 8px; font-size: 12px; color: #8a5a00; background: #fdf3d0; border: 1px solid #e6d089; }
 .sp-conv-progress-label { flex: 1 1 auto; color: var(--color-system-04, #666); }
-/* 转换进度区（任务进行中）：贴在状态栏上方，与 Macintosh HD 上传进度行同模式 */
+/* 转换进度区（任务进行中）：贴在状态栏上方，与 Files 上传进度行同模式 */
 .sp-conv-progress { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; }
 .sp-conv-progress-name { width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }
 .sp-conv-progress .classicyButton { min-width: 0; padding: 0 6px; line-height: 1.4; }

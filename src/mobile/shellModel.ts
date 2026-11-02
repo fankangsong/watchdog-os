@@ -62,10 +62,10 @@ export function openActionFor(icon: WdDesktopIcon): HomeOpenAction {
 /**
  * 桌面图标数据 → 首页网格条目（保持 store 顺序，与桌面上的排列一致）。
  *
- * 按**显示名**去重：磁盘卷与自研文件管理器都叫 "Macintosh HD"（`srv-finder.app` 的
- * APP_NAME 就是 Macintosh HD，桌面端同名并存是预期行为——靠位置区分）。手机首页是
- * 网格、没有位置线索，两个同名图标只会让人点错，因此同名只留一个，且**优先自研 app**
- * （磁盘卷背后是深度受限的内置 Finder 门面，自研文件管理器功能完整）。
+ * 按**显示名**去重：同名只留一个，且**优先自研 app**（磁盘卷背后是功能受限的内置
+ * Finder 门面）。这条规则原本是为「自研文件管理器与内置 Finder 的卷图标都叫 Macintosh HD」
+ * 而写（桌面端同名并存靠位置区分，手机首页是网格、没有位置线索，同名只会让人点错）；
+ * 自研应用改名 Files 后两者不再同名，首页会同时出现两个文件入口，规则保留给其他同名场景。
  * 不同名的磁盘（如 C: / D:）不受影响，仍会各自出现。
  */
 export function homeIcons(icons: readonly WdDesktopIcon[] | undefined | null): HomeEntry[] {
@@ -105,7 +105,7 @@ interface WindowLike {
  *
  * 为什么需要：classicy 的 `ClassicyAppOpen` 会把该 app **所有已注册窗口**的 `closed`
  * 置 false 并逐个聚焦，最后聚焦的那个胜出。srv-finder 的收藏夹窗口是常驻渲染树
- * （见 FinderApp 注释），于是「从首页点 Macintosh HD」会以 Favorites 空窗口盖住主浏览
+ * （见 FinderApp 注释），于是「从首页点 Files」会以 Favorites 空窗口盖住主浏览
  * 窗口。这里取注册顺序上的第一个窗口（各 app 都是主窗口先挂载）作为主窗口，
  * 缺 `default` 标记时的兜底顺序也一致。
  */
