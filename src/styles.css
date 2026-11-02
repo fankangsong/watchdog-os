@@ -111,7 +111,7 @@ body {
   --ui-font-size: 14px;
   --header-font: "AppleGaramond", serif;
   --body-font: "Geneva", serif;
-  --mono-font: monospace;
+  --mono-font: "Monaco", monospace;
   --hig-button-height: 20px;
   --hig-button-min-width: 58px;
 }
@@ -281,17 +281,18 @@ body {
   background: #d9d5cd;
   font-size: 12px;
   color: #3c3831;
+  font-family: 'Silkscreen', var(--mono-font);
 }
 .sp-login-status-text {
   letter-spacing: 0.02em;
 }
 .sp-login-status-clock {
   margin-left: auto;
-  font-family: var(--mono-font);
+  font-family: 'Silkscreen', var(--mono-font);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: #3c3831;
-  font-size: 20px;
+  /* font-size: 20px; */
 }
 .sp-login-led {
   width: 8px;
@@ -753,9 +754,31 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-md-preview h4 { font-size: 13px; }
 .sp-md-preview p { margin: 6px 0; }
 .sp-md-preview a { color: #0969da; }
-.sp-md-preview code { padding: 1px 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.07); font-family: var(--mono-font, monospace); font-size: 12px; }
-.sp-md-preview pre { padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
-.sp-md-preview pre code { padding: 0; background: none; }
+.sp-md-preview code {
+  font-family: "Courier New", "consolas", "Menlo", monospace;
+  font-size: 14px;
+}
+.sp-md-preview pre { font-family: var(--mono-font); padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
+.sp-md-preview pre code { padding: 0; background: none; position: relative;}
+/* 代码块右上角复制按钮：MarkdownPreview 经 DOM API 给每个 pre 包 relative wrapper（.sp-md-code-wrap）后挂进去，
+   定位在 wrapper 上，不随 pre 滚动条滚动 */
+.sp-md-preview .sp-md-code-wrap { position: relative; }
+.sp-md-preview .sp-md-copy {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #1d1d1f;
+  background: var(--color-system-02, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 3px;
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  user-select: none;
+}
+.sp-md-preview .sp-md-copy:active { background: rgba(0, 0, 0, 0.1); }
 .sp-md-preview blockquote { margin: 6px 0; padding: 2px 12px; border-left: 3px solid rgba(0, 0, 0, 0.25); color: #555; }
 .sp-md-preview ul, .sp-md-preview ol { margin: 6px 0; padding-left: 22px; }
 .sp-md-preview table { border-collapse: collapse; margin: 8px 0; }
@@ -1094,6 +1117,15 @@ html[data-wd-layout="mobile"] .classicyDesktopMenu {
   scrollbar-width: none;
 }
 html[data-wd-layout="mobile"] .classicyDesktopMenu::-webkit-scrollbar { display: none; }
+/* ⚠️ 上面的滚动容器会裁掉下拉菜单：ul.classicySubMenu 是本 ul 的绝对定位后代，
+   任何 overflow 非 visible 的祖先都会把它整块裁剪（z-index 再高也无济于事）——
+   表现为「点击菜单栏有响应、顶级项也高亮，但下拉面板不可见」。classicy 展开
+   顶级菜单时会给对应 li 加 .classicyMenuItemOpen，借此用 :has() 把容器临时切回
+   visible，让下拉逃出裁剪；菜单关闭后恢复横向滚动。（副作用：展开瞬间
+   scrollLeft 归零、菜单栏跳回最左，可接受。） */
+html[data-wd-layout="mobile"] .classicyDesktopMenu:has(> li.classicyMenuItemOpen) {
+  overflow: visible;
+}
 html[data-wd-layout="mobile"] .classicyDesktopMenu > li {
   flex: 0 0 auto;
   float: none;

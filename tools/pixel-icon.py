@@ -13,6 +13,8 @@
   src/assets/icons/runner.svg     同上
   src/assets/icons/blog.svg       同上（窗口 + 白纸文本行 + 铅笔）
   src/assets/icons/audit.svg      同上（窗口 + 日志纸 + 结果标记 + 放大镜）
+  src/assets/icons/disk.svg       同上（窗口 + 硬盘盘片 + 容量条）
+  src/assets/icons/converter.svg  同上（窗口 + 两张照片卡 + 右向箭头）
   src/assets/icons/fm-back.svg    16x16, viewBox="0 0 16 16"（窗口操作按钮带内嵌图标）
   src/assets/icons/fm-up.svg      同上
   src/assets/icons/fm-fav.svg     同上
@@ -566,6 +568,72 @@ def build_disk():
     return g
 
 
+def build_converter():
+    """Converter（HEIC → JPEG）：Mac OS 9 窗口 + 左右两张照片卡 + 中间右向箭头。
+
+    与 terminal / runner / blog / audit / disk 同构的窗口外框保证桌面观感统一。
+    两张卡外形完全一致——换格式不改变构图，语义差异全交给中间的箭头承担：
+    卡是「照片」，箭头是「转换」，方向即数据流（左进右出）。
+
+    卡片 8x12（x4..x11 / x19..x26，y12..y23）：K 外框 + 7x10 风景 ——
+    天空 h、太阳 Y（左上 y 高光）、山体 p 亮坡 + P 暗坡（光源左上）、
+    地平线绿带 P、底部 G 压深收边。箭头 5x5 骑在 y15..y19：
+    轴 3px 粗，头是「底 5 高 / 中 3 / 尖 1」的右向三角。
+    """
+    g = blank()
+
+    # 窗口外框 x2..x29 / y2..y29（与 terminal/runner/blog/audit/disk 同构）
+    fill(g, 2, 2, 28, 28, 'L')
+    hline(g, 2, 2, 28, 'K')
+    hline(g, 2, 29, 28, 'K')
+    vline(g, 2, 2, 28, 'K')
+    vline(g, 29, 2, 28, 'K')
+
+    # 标题栏 y3..y8：顶高光 -> 基色(+标题短横) -> 条纹 -> 底暗边
+    fill(g, 3, 3, 26, 6, 'L')
+    fill(g, 3, 3, 26, 1, 'W')
+    fill(g, 3, 5, 26, 1, 'M')
+    fill(g, 3, 8, 26, 1, 'D')
+    fill(g, 13, 4, 5, 1, 'M')          # 标题居中短横
+
+    # 内容区：右侧与底部压暗边（光源左上）
+    fill(g, 3, 9, 26, 19, 'L')
+    fill(g, 28, 9, 1, 19, 'M')
+    fill(g, 3, 27, 26, 1, 'M')
+    fill(g, 3, 28, 26, 1, 'D')
+    fill(g, 28, 26, 1, 2, 'D')
+
+    # 照片卡（7x12）：K 外框 + 天空 / 太阳 / 山 / 地平线
+    photo = [
+        'KKKKKKK',
+        'KhhhyYK',
+        'KhhhYYK',
+        'KhhhhhK',
+        'KhhhhhK',
+        'KhhhhhK',
+        'KhhphhK',
+        'KhppPhK',
+        'KpppPPK',
+        'KpppPPK',
+        'KGGGGGK',
+        'KKKKKKK',
+    ]
+    blit(g, photo, 4, 12)              # 源照片
+    blit(g, photo, 20, 12)             # 输出照片
+
+    # 箭头 x12..x18 / y14..y20：轴 3px 粗，右向三角头（底 7 高 -> 尖 1）
+    blit(g, [
+        '...K...',
+        '...KK..',
+        'KKKKKK.',
+        'KKKKKKK',
+        'KKKKKK.',
+        '...KK..',
+        '...K...',
+    ], 12, 14)
+    return g
+
+
 # ---------------------------------------------------------------- 16 档：窗口操作按钮带内嵌图标
 # 规格见 docs/icon-pipeline.md §1.2：16x16 网格 1:1 渲染（.sp-tb-icon）。
 # 双色：'N'（#1b3d72 深蓝描边）+ 'b'（#4a86d8 蓝面）——沿用水泡图标的同一支蓝。
@@ -880,6 +948,7 @@ if __name__ == '__main__':
     emit(build_blog(), 'blog')
     emit(build_audit(), 'audit')
     emit(build_disk(), 'disk')
+    emit(build_converter(), 'converter')
     # 16 档：窗口操作按钮带内嵌图标（Back / Up / Favorites，见 icon-pipeline.md §1.2）
     set_size(16)
     emit(build_fm_back(), 'fm-back')
