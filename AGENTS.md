@@ -18,6 +18,8 @@ npm run dev       # 启动 Vite 开发服务器（端口 5173，/api 代理到 1
 npm run build     # 构建产物到 dist/
 npm run preview   # 预览构建产物
 npm start         # 启动生产后端（node server/index.js，默认端口 3000；需先配好 PASSWORD 与 JWT_SECRET）
+npm run secret:rotate                 # 生成新 JWT_SECRET 并写回 .env（-- --dry-run 只生成不写；轮换后所有会话失效，需重启服务）
+node scripts/check-commit-env.mjs     # 提交前检查 .env 中的值 / 硬编码密钥（.githooks/pre-commit 自动调用）
 node test/test-fs-api.js            # 文件管理 API 冒烟测试（自起自停 server 子进程）
 node test/test-runner-api.js        # Runner API 冒烟测试（自起自停 server 子进程，无 bash 时跳过）
 node test/test-audit-log-api.js      # 登录审计 API 冒烟测试（临时 LOGIN_LOG_DIR：埋点/脱敏/401 去重/统计/CSV/保留期清理）

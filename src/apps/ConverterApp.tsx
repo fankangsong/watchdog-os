@@ -37,7 +37,8 @@ import exifr from 'exifr';
 
 const APP_ID = 'srv-converter.app';
 const APP_NAME = 'Converter';
-/** 应用图标：自绘 SVG（双照片 + 箭头，表示图片格式转换），见 src/assets/icons/converter.svg */
+/** 应用图标：自绘 32×32 像素图标（Mac OS 9 窗口 + 两张照片卡 + 右向箭头），
+ *  由 tools/pixel-icon.py 的 build_converter() 生成，见 src/assets/icons/converter.svg */
 const ICON = converterIcon;
 const MAIN_WIN_ID = 'converter-main';
 const HELP_WIN_ID = 'converter-help';

@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "check:commit": "node scripts/check-commit-env.mjs"
+    "check:commit": "node scripts/check-commit-env.mjs",
+    "secret:rotate": "node scripts/rotate-jwt-secret.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
