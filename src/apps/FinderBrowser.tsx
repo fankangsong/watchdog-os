@@ -1,11 +1,12 @@
 // Finder 浏览主体（Macintosh HD 应用的窗口内容，按 winId + initialPath 支持多实例）：
 // 主窗口（根列表起步）、收藏夹双击新开的文件夹窗口共用本组件，各自持有独立的
 // 当前目录/选中/历史/预览等状态。默认图标视图（大图标 + 下方名称，OS8 选中高亮），
-// View 菜单可切换列表视图。无侧栏/状态栏（对齐 docs/design 参考图 Workspace）：
+// View 菜单可切换列表视图。无状态栏；主窗口可弹出收藏夹侧栏（工具栏 Favorites 按钮
+// 或 Favorites 菜单切换显隐：点开在左侧展示收藏夹列表，再次点击收起）。
 // 目录导航经双击进入 + Go 菜单（Back ⌘[ / Open Parent Folder ⌘↑）。
 // 支持上传（进度/取消/覆盖确认）、新建文件夹、新建文本文件、重命名（可改扩展名）、删除、
 // 复制/剪切/粘贴（服务端递归复制，同名自动追加 copy 后缀）、Get Info、
-// 收藏夹（右键文件夹 Add/Remove from Favorites、工具栏按钮、菜单栏 Favorites 菜单），
+// 收藏夹（右键文件夹 Add/Remove from Favorites、工具栏按钮、菜单栏 Favorites 菜单）：
 // 以及图片/文本/Markdown 预览窗口。文件选择类命令走 Edit 菜单（Cut/Copy/Paste/Select All/Delete…）
 // 与快捷键（⌘C/⌘X/⌘V/⌘A/⌘⌫），与右键菜单三路等价。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -66,10 +67,10 @@ const APP_ID = 'srv-finder.app';
 export const APP_NAME = 'Macintosh HD';
 /** 应用图标：classicy 的磁盘图标（与 macOS 的 Macintosh HD 卷图标一致），应用/窗口/根行共用 */
 export const ICON = ClassicyIcons.system.drives.disk;
+/** 收藏夹侧栏行图标（classicy 内建 Favorites 文件夹图标） */
+const FAV_ICON = ClassicyIcons.system.folders.favorites;
 /** 主窗口 id（根列表视图起步） */
 export const MAIN_WIN_ID = 'fm-main';
-/** 收藏夹列表窗口 id（由 FinderApp 渲染，各浏览窗口派发打开） */
-export const FAVORITES_WIN_ID = 'fm-favorites';
 const MAX_PREVIEWS = 3;
 /** 新建文本文件的默认名（对话框内可改，含扩展名） */
 const DEFAULT_NEW_FILE = 'untitled.txt';
@@ -330,6 +331,8 @@ export function FinderBrowser({
   const [picking, setPicking] = useState(isConverterPicking);
   // 视图模式：默认图标视图（对齐参考图 Workspace），View 菜单切换并持久化
   const [viewMode, setViewModeState] = useState<ViewMode>(loadViewMode);
+  // 收藏夹侧栏显隐（仅主窗口渲染；工具栏 Favorites 按钮 / Favorites 菜单切换）
+  const [showFavs, setShowFavs] = useState(false);
   // 非主窗口的级联偏移（挂载时取一次，重开同 id 窗口时由 store 记录保留原位）
   const [cascade] = useState(() => (folderCascade++ % 6) * 26);
 
@@ -341,8 +344,9 @@ export function FinderBrowser({
   const [dialog, setDialog] = useState<FmDialog | null>(null);
   const [dialogValue, setDialogValue] = useState('');
   const [treeVersion, setTreeVersion] = useState(0);
-  // 收藏夹（外部 store，与收藏夹列表窗口等其它实例共享）
+  // 收藏夹（外部 store，与收藏夹侧栏等其它实例共享）
   const favorites = useFavorites();
+  const isMain = winId === MAIN_WIN_ID;
 
   const childrenCache = useRef(new Map<string, FsEntry[]>());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -839,21 +843,35 @@ export function FinderBrowser({
     setDialog({ kind: 'rename', value: t.name, target: t });
   }, []);
 
-  // ---- 收藏夹 ----
+  // ---- 收藏夹侧栏 ----
 
-  /** 打开收藏夹列表窗口：Open + Focus 双发，保证重开已关闭窗口时置顶聚焦 */
-  const openFavoritesWindow = useCallback(() => {
-    dispatch({
-      type: 'ClassicyWindowOpen',
-      app: { id: APP_ID },
-      window: { id: FAVORITES_WIN_ID, minimumSize: [380, 260], size: [540, 400], position: ['center', 'center'] },
+  /** 移出收藏夹确认（破坏性命令以 … 结尾 + 默认按钮为安全项 Cancel），目录本身不受影响 */
+  const requestRemoveFavorite = useCallback((path: string) => {
+    setAlert({
+      alertType: 'caution',
+      label: 'Remove from Favorites?',
+      message: `“${baseName(path) || path}” will be removed from the favorites list. The folder itself is not affected.`,
+      defaultButtonId: 'cancel',
+      buttons: [
+        { id: 'cancel', label: 'Cancel', role: 'cancel' },
+        {
+          id: 'ok',
+          label: 'Remove',
+          role: 'normal',
+          onClick: () => void removeFavorites([path]).catch((e) => stopAlert('Favorites Update Failed', (e as Error).message)),
+        },
+      ],
     });
-    dispatch({
-      type: 'ClassicyWindowFocus',
-      app: { id: APP_ID },
-      window: { id: FAVORITES_WIN_ID },
-    });
-  }, []);
+  }, [stopAlert]);
+
+  /** 侧栏条目右键菜单：进入目录 / 移出收藏夹 */
+  const sideFavMenu = useCallback(
+    (p: string): ClassicyMenuItem[] => [
+      { id: 'fm-favside-open', title: 'Open', onClickFunc: () => navigate(p) },
+      { id: 'fm-favside-remove', title: 'Remove from Favorites…', onClickFunc: () => requestRemoveFavorite(p) },
+    ],
+    [navigate, requestRemoveFavorite]
+  );
 
   /** 右键菜单收藏夹切换：选中目录全部已收藏则整体移出，否则整体加入 */
   const toggleFavoritesFor = useCallback(
@@ -1226,10 +1244,16 @@ export function FinderBrowser({
     [selectedEntries, clipboard, current, visibleEntries.length, setClipboardFor, doPaste, selectAllVisible, requestDelete]
   );
 
-  /** Favorites 菜单组（Go 之后、Help 之前）：打开列表窗口 + 直达各收藏 + 当前目录收藏切换 */
+  /** Favorites 菜单组（Go 之后、Help 之前）：侧栏开关 + 直达各收藏 + 当前目录收藏切换 */
   const favoritesMenuItems: ClassicyMenuItem[] = useMemo(() => {
     const items: ClassicyMenuItem[] = [
-      { id: 'fm-m-fav-open', title: 'Open Favorites', onClickFunc: openFavoritesWindow },
+      {
+        id: 'fm-m-fav-open',
+        title: showFavs ? 'Hide Favorites Sidebar' : 'Show Favorites Sidebar',
+        // 侧栏仅在主窗口渲染；次窗口保留菜单项置灰（保留项不隐藏）
+        disabled: !isMain,
+        onClickFunc: () => setShowFavs((v) => !v),
+      },
     ];
     if (favorites.length > 0) {
       items.push({ id: 'spacer' });
@@ -1255,7 +1279,7 @@ export function FinderBrowser({
       }
     );
     return items;
-  }, [favorites, current, openFavoritesWindow, onOpenFolder, toggleCurrentFavorite]);
+  }, [favorites, current, showFavs, isMain, onOpenFolder, toggleCurrentFavorite]);
 
   const appMenu = useMemo(
     () => [
@@ -1398,8 +1422,6 @@ export function FinderBrowser({
     });
   }, [infoEntry, stopAlert]);
 
-  const isMain = winId === MAIN_WIN_ID;
-
   return (
     <>
       <ClassicyWindow
@@ -1438,11 +1460,14 @@ export function FinderBrowser({
               <img className="sp-tb-icon" src={fmUpIcon} alt="" />
               Up
             </ClassicyButton>
-            {/* 选文件模式禁用收藏夹入口，避免把选择流程分散到多个窗口 */}
-            <ClassicyButton disabled={picking} onClickFunc={openFavoritesWindow}>
-              <img className="sp-tb-icon" src={fmFavIcon} alt="" />
-              Favorites
-            </ClassicyButton>
+            {/* 收藏夹侧栏开关（仅主窗口）：点开在左侧展示收藏列表，再次点击收起；
+                选文件模式禁用收藏夹入口，避免把选择流程分散到多个窗口 */}
+            {isMain && (
+              <ClassicyButton disabled={picking} onClickFunc={() => setShowFavs((v) => !v)}>
+                <img className="sp-tb-icon" src={fmFavIcon} alt="" />
+                Favorites
+              </ClassicyButton>
+            )}
             {/* 地址栏（靠右弹性占满）：显示当前目录路径，回车跳转；
                 Windows（C:\…）与 Linux（/…）路径原样提交，由后端 resolve + FS_ROOTS 校验 */}
             <div className="sp-fm-addr">
@@ -1460,6 +1485,38 @@ export function FinderBrowser({
               Double-click a file to choose it. Press Esc to cancel.
             </div>
           )}
+          {/* 主体横向布局：收藏夹侧栏（可收起，仅主窗口）+ 内容区 */}
+          <div className="sp-fm-body">
+            {isMain && showFavs && (
+              <div className="sp-fm-favside">
+                <div className="sp-fm-side-title">Favorites</div>
+                {favorites.length === 0 ? (
+                  <div className="sp-fm-favside-empty">
+                    No favorites yet.
+                    <br />
+                    Right-click a folder and choose “Add to Favorites”.
+                  </div>
+                ) : (
+                  favorites.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className="sp-fm-fav-btn"
+                      title={p}
+                      onClick={() => navigate(p)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        showContextMenu(sideFavMenu(p), [e.clientX, e.clientY]);
+                      }}
+                    >
+                      <img src={FAV_ICON} alt="" />
+                      <span>{baseName(p) || p}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+            <div className="sp-fm-content">
           {loading && entries.length === 0 ? (
             <div className="sp-fm-empty sp-fm-empty-dir">Loading…</div>
           ) : visibleEntries.length === 0 ? (
@@ -1568,6 +1625,8 @@ export function FinderBrowser({
               ))}
             </div>
           )}
+            </div>
+          </div>
         </div>
       </ClassicyContextualMenuTarget>
 

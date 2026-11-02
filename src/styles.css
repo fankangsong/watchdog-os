@@ -111,7 +111,7 @@ body {
   --ui-font-size: 14px;
   --header-font: "AppleGaramond", serif;
   --body-font: "Geneva", serif;
-  --mono-font: "Monaco", monospace;
+  --mono-font: monospace;
   --hig-button-height: 20px;
   --hig-button-min-width: 58px;
 }
@@ -507,6 +507,20 @@ body {
 /* Swap / 磁盘（ClassicyMeter） */
 .sp-meters { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 
+/* ---------- 磁盘容量（DiskApp / DiskPanel） ---------- */
+.sp-disk-body { display: flex; flex-direction: column; gap: 8px; }
+/* 顶部汇总行：挂载点数 + 峰值使用率（着色）+ 不可读数 */
+.sp-disk-summary { margin: 0; font-size: 12px; color: #444; }
+.sp-disk-list { display: flex; flex-direction: column; gap: 10px; }
+.sp-disk-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-width: 0; }
+/* 挂载路径：等宽贴近路径语义；超长单行省略（title 悬停看全路径） */
+.sp-disk-mount { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; }
+.sp-disk-pct { flex-shrink: 0; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sp-disk-detail { margin-top: 2px; font-size: 11px; color: var(--color-system-05, #666); font-variant-numeric: tabular-nums; }
+/* statfs 失败的挂载点：整行降级为红字错误行（与 audit 失败标记同一支红） */
+.sp-disk-row-error .sp-disk-mount { color: inherit; }
+.sp-disk-err-text { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #cf3b2f; }
+
 /* ---------- 表格单元格迷你条（ClassicyTable 内） ---------- */
 .sp-cellres { display: inline-flex; align-items: center; gap: 6px; }
 .sp-cellres-bar { width: 44px; height: 6px; background: rgba(0, 0, 0, 0.15); border-radius: 3px; overflow: hidden; flex-shrink: 0; }
@@ -579,12 +593,20 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-fm-empty { padding: 2px 4px 6px; font-size: 12px; color: var(--color-system-05); }
 /* 主内容区空目录/加载占位：在区域内居中 */
 .sp-fm-empty-dir { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0; }
-/* 收藏夹/最近文件行按钮（EditorApp「最近打开」仍在用） */
+/* 收藏夹/最近文件行按钮（Finder 收藏夹侧栏 + EditorApp「最近打开」共用） */
 .sp-fm-side-title { margin: 6px 0 3px; font-size: 12px; font-weight: 700; color: var(--color-system-06); }
 .sp-fm-fav-btn { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; border: none; background: none; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .sp-fm-fav-btn:hover { background: rgba(0, 0, 0, 0.08); }
 .sp-fm-fav-btn img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
 .sp-fm-fav-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 主窗口横向布局：收藏夹侧栏（可收起）+ 内容区；侧栏不随内容滚动 */
+.sp-fm-body { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.sp-fm-content { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+/* 收藏夹侧栏：固定宽度窄栏，右缘与工具栏底边共用窗口分隔线；点击条目在主窗口内导航 */
+.sp-fm-favside { flex: 0 0 170px; box-sizing: border-box; overflow: auto; padding: 2px 6px 8px; background: var(--color-system-01); border-right: var(--window-border-size) solid var(--color-system-05); }
+.sp-fm-favside-empty { padding: 8px 4px; font-size: 12px; line-height: 1.5; color: var(--color-system-05); }
+
 
 /* 图标视图（默认）：大图标 + 下方名称（参考图 Workspace），单元格网格排布 */
 /* position:relative 供拖拽框选矩形绝对定位；名称标签属界面文本，不参与原生选择 */
@@ -621,15 +643,6 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-fm-upload-bar { flex: 1 1 auto; }
 /* 上传取消按钮：小号命令按钮，收紧内边距与最小宽度，与进度行协调 */
 .sp-fm-upload-row .classicyButton { min-width: 0; padding: 0 6px; line-height: 1.4; }
-
-/* 收藏夹列表窗口（fm-favorites）：ClassicyTable 列表 + 空态引导 */
-.sp-fm-fav { height: 100%; box-sizing: border-box; overflow: auto; }
-.sp-fm-fav > .classicyTableContainer { height: 100%; }
-.sp-fm-fav-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-.sp-fm-fav-name img { width: 16px; height: 16px; image-rendering: pixelated; flex: 0 0 auto; }
-/* 路径列：单行省略 + title 提示全路径（长路径下保持列表可读） */
-.sp-fm-fav-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-system-04, #666); }
-.sp-fm-fav-empty { height: 100%; display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; padding: 16px; text-align: center; color: #777; font-size: 13px; }
 
 /* 预览窗口（工具栏已移除，编辑/下载/视图切换迁入窗口菜单栏） */
 .sp-fm-preview { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }

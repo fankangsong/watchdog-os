@@ -21,6 +21,7 @@ import { PrinterApp } from './apps/PrinterApp';
 import { ChatApp } from './apps/ChatApp';
 import { ConverterApp } from './apps/ConverterApp';
 import { AuditApp } from './apps/AuditApp';
+import { DiskApp } from './apps/DiskApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 
@@ -82,7 +83,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
   return null;
 }
 
-// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Macintosh HD（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器 / 登录审计
+// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Macintosh HD（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器 / 登录审计 / 磁盘容量
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   return (
     <ClassicyAppManagerProvider
@@ -111,6 +112,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
         <ChatApp onLogout={onLogout} />
         <ConverterApp onLogout={onLogout} />
         <AuditApp onLogout={onLogout} />
+        <DiskApp onLogout={onLogout} />
       </ClassicyDesktop>
       <AppleMenuLogoutItem onLogout={onLogout} />
     </ClassicyAppManagerProvider>

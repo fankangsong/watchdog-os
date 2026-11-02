@@ -68,12 +68,15 @@ export interface TempItem {
   temp: number;
 }
 
+/** 对齐后端 server/api/metrics.js readDisks()：{ mount, total, free, used, usagePct, error? } */
 export interface DiskItem {
-  fs: string;
   mount: string;
-  size: number;
+  total: number;
+  free: number;
   used: number;
   usagePct: number;
+  /** statfs 读取失败时的降级标记（此时容量字段全为 0） */
+  error?: string;
 }
 
 export interface Metrics {

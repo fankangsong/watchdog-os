@@ -504,6 +504,68 @@ def build_audit():
     return g
 
 
+def build_disk():
+    """Disk：Mac OS 9 窗口 + 硬盘（盘片 + 主轴）+ 容量条（磁盘容量查看）。
+
+    与 terminal / runner / blog / audit 同构的窗口外框保证桌面观感统一；
+    盘体内左侧是圆形盘片（外圈 K / 盘面 B / 主轴 W），右侧三条绿色容量条
+    （M 轨道 + P 已用，长度递减表示不同挂载点的使用率）——「看盘还剩多少」
+    即磁盘容量。条形复用 Runner 播放键的同一支绿，桌面色调不跳。
+    """
+    g = blank()
+
+    # 窗口外框 x2..x29 / y2..y29（与 terminal/runner/blog/audit 同构）
+    fill(g, 2, 2, 28, 28, 'L')
+    hline(g, 2, 2, 28, 'K')
+    hline(g, 2, 29, 28, 'K')
+    vline(g, 2, 2, 28, 'K')
+    vline(g, 29, 2, 28, 'K')
+
+    # 标题栏 y3..y8：顶高光 -> 基色(+标题短横) -> 条纹 -> 底暗边
+    fill(g, 3, 3, 26, 6, 'L')
+    fill(g, 3, 3, 26, 1, 'W')
+    fill(g, 3, 5, 26, 1, 'M')
+    fill(g, 3, 8, 26, 1, 'D')
+    fill(g, 13, 4, 5, 1, 'M')          # 标题居中短横
+
+    # 内容区：右侧与底部压暗边（光源左上）
+    fill(g, 3, 9, 26, 19, 'L')
+    fill(g, 28, 9, 1, 19, 'M')
+    fill(g, 3, 27, 26, 1, 'M')
+    fill(g, 3, 28, 26, 1, 'D')
+    fill(g, 28, 26, 1, 2, 'D')
+
+    # 硬盘盘体 x5..x26 / y12..y23：白面 + K 外框 + 右/下内阴影（光源左上）
+    fill(g, 5, 12, 22, 12, 'W')
+    hline(g, 5, 12, 22, 'K')
+    hline(g, 5, 23, 22, 'K')
+    vline(g, 5, 12, 12, 'K')
+    vline(g, 26, 12, 12, 'K')
+    fill(g, 5, 22, 22, 1, 'M')         # 底部内阴影
+    fill(g, 25, 13, 1, 10, 'M')        # 右侧内阴影
+
+    # 盘片：外圈 K / 盘面 B / 主轴 2x2 W（圆心 (10.5, 17.5)）
+    cx, cy = 10.5, 17.5
+    for y in range(13, 23):
+        for x in range(6, 16):
+            d = ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2) ** 0.5
+            if d <= 1.5:
+                g[y][x] = 'S'          # 主轴座
+            elif d <= 4.0:
+                g[y][x] = 'B'          # 盘面
+            elif d <= 4.9:
+                g[y][x] = 'K'          # 外圈
+    g[17][10] = 'W'                    # 主轴高光
+    g[17][11] = 'W'
+    g[18][10] = 'W'
+
+    # 容量条 x16..x24 / y14|17|20：M 轨道 + P 绿色已用（长度递减）
+    for y, wfill in ((14, 8), (17, 5), (20, 3)):
+        hline(g, 16, y, 9, 'M')
+        hline(g, 16, y, wfill, 'P')
+    return g
+
+
 # ---------------------------------------------------------------- 16 档：窗口操作按钮带内嵌图标
 # 规格见 docs/icon-pipeline.md §1.2：16x16 网格 1:1 渲染（.sp-tb-icon）。
 # 双色：'N'（#1b3d72 深蓝描边）+ 'b'（#4a86d8 蓝面）——沿用水泡图标的同一支蓝。
@@ -817,6 +879,7 @@ if __name__ == '__main__':
     emit(build_runner(), 'runner')
     emit(build_blog(), 'blog')
     emit(build_audit(), 'audit')
+    emit(build_disk(), 'disk')
     # 16 档：窗口操作按钮带内嵌图标（Back / Up / Favorites，见 icon-pipeline.md §1.2）
     set_size(16)
     emit(build_fm_back(), 'fm-back')

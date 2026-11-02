@@ -8,7 +8,7 @@ const METER_BOUNDS = { low: 60, high: 80, optimum: 30 };
 
 // 资源使用率面板：圆形仪表 + 历史曲线（自绘可视化）+ ClassicyMeter 负载条
 export function ResourcesPanel({ metrics }: { metrics: Metrics }) {
-  const { cpu, mem, swap, disks, history } = metrics;
+  const { cpu, mem, swap, history } = metrics;
   const cores = cpu.cores || [];
 
   return (
@@ -62,16 +62,8 @@ export function ResourcesPanel({ metrics }: { metrics: Metrics }) {
             {...METER_BOUNDS}
           />
         )}
-        {disks && disks.length > 0 && disks.map((d) => (
-          <ClassicyMeter
-            key={d.mount}
-            value={d.usagePct}
-            label={`${d.mount} · ${fmtBytes(d.used)} / ${fmtBytes(d.size)}`}
-            labelPosition="left"
-            showValue
-            {...METER_BOUNDS}
-          />
-        ))}
+        {/* 磁盘容量展示已迁至独立 Disks 应用（src/apps/DiskApp.tsx + DiskPanel.tsx），
+            state.disks 数据仍由 /api/metrics 返回并在该处消费，此处不再重复渲染 */}
       </div>
     </ClassicyControlGroup>
   );
