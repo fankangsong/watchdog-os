@@ -23,7 +23,9 @@
 | `unauthorized` | 任一受保护接口鉴权失败 401 | 覆盖 printer / metrics / docker / processes / terminal / fs / prefs / runner / blog / chat / usage / audit |
 | `unauthorized` | 终端 WS 升级鉴权失败（401） | 与 HTTP 路径同一套埋点 |
 
-未记录（刻意）：登录页的 `/api/health`、静态资源（`/assets/*`、PWA 文件）、SSE 代理内部请求。
+未记录（刻意）：`/api/health` 与会话探测接口 `/api/auth/check`（恒 200 + `{ authenticated }`，不会走 `unauthorized()`，见下）、静态资源（`/assets/*`、PWA 文件）、SSE 代理内部请求。
+
+> 登录页最初用受保护接口 `/api/metrics` 探测鉴权态（401 即「未登录」），副作用是**访客每次打开登录页都落一条 `unauthorized`**，把「自己人刷新页面」混进撞库信号，并污染 `unauthorized` 计数与来源排行。现改为专用公开探测接口 `/api/auth/check`：只回一个布尔值，不写审计、不返回主机名，也顺带省掉了已登录时白拉整份 metrics 的开销。
 
 > 600ms 防爆破延迟计入失败记录的 `durationMs`（正常应 ≥ 600ms）。这是刻意保留的人工耗时：值异常小说明该分支被绕过，值稳定在 600ms 附近则是脚本化撞库的典型指纹。
 

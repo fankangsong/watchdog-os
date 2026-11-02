@@ -76,6 +76,15 @@ async function route(req, res, url) {
   /* ---- 公开接口 ---- */
   if (p === '/api/health') return send(res, 200, { ok: true, basePath: BASE });
 
+  /* ---- 会话探测（公开接口，恒 200，刻意不返回 401）----
+     登录页需要知道「当前浏览器是否持有有效会话」，但前端读不到 HttpOnly Cookie，
+     只能问服务端。用受保护接口探测有两个副作用：① 访客每次打开登录页都会走 unauthorized()
+     写一条 401 审计，把「自己人刷新页面」混进撞库信号；② 已登录时白拉整份 metrics
+     （含 history / processes / docker / printer，几十 KB）。
+     这里恒返回 200 + 布尔：响应只有几十字节，不写审计、不触发前端全局登出，
+     也不返回主机名等任何信息（等价于「你自己带来的 Cookie 是否有效」，匿名面不扩大）。 */
+  if (p === '/api/auth/check') return send(res, 200, { authenticated: checkAuth(req) });
+
   if (p === '/api/login' && req.method === 'POST') {
     const startedAt = Date.now();
     // 注意：失败分支含 600ms 防爆破延迟，durationMs 会偏大——这是刻意保留的人工耗时，便于识别撞库节奏

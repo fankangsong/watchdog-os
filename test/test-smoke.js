@@ -35,6 +35,21 @@ async function req(path, opts = {}, cookies = '') {
   r = await req('/api/docker');
   check('docker 未授权 401', r.status === 401, `status=${r.status}`);
 
+  // 会话探测接口：公开且恒 200（前端登录页用它判定鉴权态）。
+  // 若改回用受保护接口探测，未登录访客每次打开登录页都会产生一条 401 审计记录。
+  r = await req('/api/auth/check');
+  const probe = JSON.parse(r.body || '{}');
+  check(
+    'auth/check 未登录 → 200 + authenticated=false',
+    r.status === 200 && probe.authenticated === false,
+    `status=${r.status} body=${r.body.slice(0, 120)}`
+  );
+  check(
+    'auth/check 不泄露其它信息',
+    Object.keys(probe).join() === 'authenticated',
+    r.body.slice(0, 120)
+  );
+
   log('--- 登录 ---');
   r = await req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'wrong' }) });
   check('错误密码 401', r.status === 401, `status=${r.status}`);
@@ -59,6 +74,14 @@ async function req(path, opts = {}, cookies = '') {
   // 匿名面收敛：health 不再返回主机名
   r = await req('/api/health');
   check('health 不含 hostname', r.status === 200 && !JSON.parse(r.body || '{}').hostname, r.body.slice(0, 120));
+
+  // 会话探测：有效 Cookie → true；伪造 / 畸形 Cookie 仍 200 但 false（不 401、不写审计）
+  r = await req('/api/auth/check', {}, cookie);
+  check('auth/check 已登录 → 200 + authenticated=true', r.status === 200 && JSON.parse(r.body || '{}').authenticated === true, `status=${r.status} body=${r.body.slice(0, 120)}`);
+  r = await req('/api/auth/check', {}, 'sp_token=forged-token-should-be-rejected');
+  check('auth/check 伪造 Cookie → authenticated=false', r.status === 200 && JSON.parse(r.body || '{}').authenticated === false, `status=${r.status} body=${r.body.slice(0, 120)}`);
+  r = await req('/api/auth/check', {}, 'sp_token=%');
+  check('auth/check 畸形 Cookie → authenticated=false（非 500）', r.status === 200 && JSON.parse(r.body || '{}').authenticated === false, `status=${r.status} body=${r.body.slice(0, 120)}`);
 
   // 鉴权只认 Cookie：伪造的 Authorization / x-auth-token 头必须被拒（负向回归）
   r = await req('/api/metrics', { headers: { Authorization: 'Bearer forged-token-should-be-rejected' } });

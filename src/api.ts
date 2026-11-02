@@ -38,13 +38,18 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 /**
  * 静默鉴权探测（App 启动时判断是否已登录）。
- * 不走 request()：401 是「当前未登录」的正常结果，若触发全局登出会变成
- * 「401 → 重载 → 再探测 401」的死循环。网络异常按「已登录」处理，交由后续接口报错。
+ * 专用公开接口 `/api/auth/check`：恒 200 + `{ authenticated }`，几十字节。
+ * 不用受保护接口（曾是 `/api/metrics`）：那会 ① 让登录页访客每次打开都写一条 401 审计，
+ * 把「自己刷新页面」混进撞库信号；② 已登录时白拉整份 metrics 响应体。
+ * 不读 r.status===401 的语义，故不存在「401 → 全局登出 → 重载 → 再探测」的死循环风险；
+ * 服务异常 / 网络异常一律按「已登录」处理，交由后续接口自然报错。
  */
 export async function probeAuth(): Promise<boolean> {
   try {
-    const r = await fetch('./api/metrics');
-    return r.status !== 401;
+    const r = await fetch('./api/auth/check');
+    if (!r.ok) return true;
+    const d = (await r.json()) as { authenticated?: boolean };
+    return d.authenticated === true;
   } catch {
     return true;
   }

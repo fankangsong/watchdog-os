@@ -33,6 +33,15 @@ const PASSWORD = process.env.PASSWORD;
   r = await fetch(HOST + P + '/api/metrics', { redirect: 'manual' });
   check('带前缀未授权 → 401', r.status === 401, 'got ' + r.status);
 
+  // 会话探测（登录页用）：走前缀同样 200 + false
+  r = await fetch(HOST + P + '/api/auth/check', { redirect: 'manual' });
+  const probe = await r.json();
+  check(
+    '带前缀 auth/check → 200 + authenticated=false',
+    r.status === 200 && probe.authenticated === false,
+    'got ' + r.status + ' body=' + JSON.stringify(probe)
+  );
+
   // 登录（校验 Cookie Path=/probe）
   r = await fetch(HOST + P + '/api/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -47,6 +56,15 @@ const PASSWORD = process.env.PASSWORD;
   const m = await r.json();
   check('带前缀 metrics 200', r.status === 200);
   check('指标完整', m.cpu && m.mem && Array.isArray(m.disks));
+
+  // 已登录：探测接口返回 true（Cookie Path=/probe 下同样读取得到）
+  r = await fetch(HOST + P + '/api/auth/check', { headers: { Cookie: cookie } });
+  const probeAuthed = await r.json();
+  check(
+    '带前缀 auth/check 已登录 → authenticated=true',
+    r.status === 200 && probeAuthed.authenticated === true,
+    'got ' + r.status + ' body=' + JSON.stringify(probeAuthed)
+  );
 
   // 登录后首页：与未登录时同一份 index.html，鉴权态由前端切换
   r = await fetch(HOST + P + '/', { headers: { Cookie: cookie } });

@@ -109,13 +109,14 @@ Runner（脚本任务构建）：由 `RUNNER_ENABLED` / `RUNNER_SCRIPT` / `RUNNE
 
 - **无默认口令**：`PASSWORD` 未配置时进程直接退出（内置默认口令会让「以为改了配置」的部署直接暴露在局域网）。
 - **只认 Cookie**：`checkAuth` 仅从 HttpOnly 会话 Cookie 取令牌，**不接受** `Authorization: Bearer` / `x-auth-token`（令牌不应脱离浏览器使用）。脚本化调用请从 `/api/login` 的 `Set-Cookie` 取 `name=value` 段放到 `Cookie` 头。
+- **会话探测走专用公开接口 `/api/auth/check`**（`server/router.js` 公开段 + `src/api.ts` 的 `probeAuth`）：恒 `200 { authenticated: boolean }`，不产生 401、不写审计、不返回主机名（匿名面不扩大——它只回答「你自己带来的 Cookie 是否有效」）。**不要**再拿 `/api/metrics` 之类受保护接口当探测：登录页访客每次打开都会落一条 `unauthorized` 审计（把「自己刷新页面」混进撞库信号），且已登录时白拉整份 metrics 响应体（含 history / processes / docker / printer）。探测在响应异常 / 网络异常时按「已登录」处理，交由后续接口自然报错。
 - **令牌不回传**：`/api/login` 响应体只有 `{ ok, expiresIn }`，token 仅存在于 `Set-Cookie`；Cookie 属性为 `Path=BASE; HttpOnly; SameSite=Lax` + 按策略追加的 `Secure`。
 - **WS 来源校验**：终端 WS 升级在鉴权之后额外校验 `Origin`（缺 `Origin` 放行以兼容 curl / 脚本；跨站来源一律拒绝）。反向代理或跨协议访问时显式配置 `PUBLIC_ORIGIN`（逗号分隔多域名）。**升级被拒时返回明确 HTTP 状态（401/403/503）而非静默断开**——静默 destroy 会被反代翻成 502 Bad Gateway，把「Origin 不匹配」掩盖成“连接失败”，是排障第一手线索；浏览器 Network 面板可直接看到被拒的状态码
 - **签名校验固定 HS256**：`verifyJwt` 不读取 `header.alg`（`alg:none` 与 RS256→HS256 混淆攻击因此不成立），签名用 `timingSafeEqual` 常数时间比较，`exp` 必须为有限数字。
 - **会话不可吊销**（已知取舍）：`/api/logout` 只清 Cookie，服务端无会话表，泄露的 token 在 `JWT_EXPIRES_IN` 内始终有效。缩短有效期是当前唯一的缓解手段。
 - **登录审计不成为新的泄露面**：审计记录只含时间 / 事件类型 / 结果 / IP / UA / 路径 / 状态码 / 耗时，**永不写入密码、密码哈希、JWT、Cookie 值**（`test/test-audit-log-api.js` 有对应断言）；`/api/audit/*` 与其它接口一样先过 `checkAuth`（只认 Cookie），客户端不能传路径参数；CSV 导出对 `= + - @` 开头的值加 `'` 前缀防公式注入。
 - **登出必须幂等**：`/api/logout` 刻意**不要求有效会话**，恒返回 `200` 并清 `Set-Cookie`（`Max-Age=0`）。若像普通接口那样先鉴权，过期 Cookie 就永远清不掉——浏览器每次轮询都 401，用户被卡在「桌面 ↔ 401」之间。仅在会话有效时写审计（避免未授权登出伪造日志）。
-- **退出登录必须两端同时收口**（`src/session.ts`）：① 服务端清 Cookie；② 前端删除与会话相关的 localStorage（`classicyDesktopState` / `classicyStorage` / `classicyStorage:seq` / `srv-editor-recent` / `watchdog-chat-*`，纯外观偏好保留），再置一次性 `wd-signed-out` 标记并 `location.replace` 整页重载（只有重载才能清掉模块级单例里的上一会话数据）。**任一接口 401 走同一条路径**（`api.ts` 的 `unauthorized()` 统一通知，App 启动探测 `probeAuth()` 例外——它的 401 表示「未登录」，若也触发会 401↔重载死循环）。
+- **退出登录必须两端同时收口**（`src/session.ts`）：① 服务端清 Cookie；② 前端删除与会话相关的 localStorage（`classicyDesktopState` / `classicyStorage` / `classicyStorage:seq` / `srv-editor-recent` / `watchdog-chat-*`，纯外观偏好保留），再置一次性 `wd-signed-out` 标记并 `location.replace` 整页重载（只有重载才能清掉模块级单例里的上一会话数据）。**任一接口 401 走同一条路径**（`api.ts` 的 `unauthorized()` 统一通知，App 启动探测 `probeAuth()` 例外——它走 `/api/auth/check` 恒 200，本就产生不了 401；这个豁免必须保留，否则「未登录」会被当成「会话失效」形成 401↔重载死循环）。
 - **401 绝不再发 `/api/logout`**：会话失效时应用只调 `onLogout()`（= `endSession`）。曾经的写法（MonitorApp / FinderApp / FinderBrowser / EditorApp / ConverterApp 各自 `await logout()` 再登出）会让一次 401 主动清掉仍在有效期内的 Cookie，把「一个过期请求」放大成「整轮接口 401 雪崩」，并在审计里写入并非用户主动的 logout 记录。只有苹果菜单 Sign Out 才 POST `/api/logout`（浏览器实测可断言：清掉 Cookie 让 `metrics` 变 401 后，网络面板里**没有** logout 请求，而点 Sign Out 恰好一次）。
 - **轮询 store 的新订阅会清掉上一会话的 401**（`sharedPoll.ts`）：`monitorPoll` / `dockerPoll` / `printerPoll` 是模块级单例，`error` 会跨登录切换残留；若不清，组件挂载即读到旧的 `Unauthorized` 并立刻触发登出（表现为「刚登录就被踢出 / 登录后自动调用一次 logout」）。
 - ⚠️ **classicy 持久化菜单项没有处理函数**：`classicyDesktopState` 会把 `systemMenu` / `appMenu` 序列化进 localStorage，而函数无法序列化——刷新后残留的 `Sign Out` 项只有 `{ id, title }`，点击毫无反应（历史 BUG）。因此 `Desktop.tsx` 的 `AppleMenuLogoutItem` **每次挂载都先剔除同 id 旧项再用新的 `onClickFunc` 重建**，不能写成「已存在就跳过」。
@@ -256,7 +257,7 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 1. **静态资源只有 `dist/` 一个来源**（旧版零依赖前端 `public/` 已删除）：`server/config.js` 的 `PUBLIC_DIR` 恒等于 `dist/`，`router.js` 只放行 `/assets/*`，其余路径 404；`dist/` 缺失时 `static.js` 的 `serveIndex` 返回 503 + 「先 `npm run build`」提示页（不静默降级）。新增静态资源走根 `index.html` 引用让 Vite 打进 `assets/`，并保持 `vite.config.ts` 的 `publicDir: false`。
 2. **`base: './'`**：构建产物使用相对路径，SPA 可在任意 basePath 子路径下直接运行。改动 `vite.config.ts` 时保持此行为。
 3. **`server/index.js` 零依赖**：只使用 Node.js 内置模块，不要引入第三方 npm 依赖。
-4. **鉴权**：会话校验（`checkAuth`，只认 HttpOnly Cookie）贯穿 REST API 与 WS 升级；静态页面无鉴权（SPA 入口对所有人返回同一份 `index.html`，登录态由前端 `LoginApp` 判 `/api/metrics` 401 后切换）。新增需要鉴权的接口时用 `checkAuth` 而非自建校验。
+4. **鉴权**：会话校验（`checkAuth`，只认 HttpOnly Cookie）贯穿 REST API 与 WS 升级；静态页面无鉴权（SPA 入口对所有人返回同一份 `index.html`，登录态由前端 `probeAuth()` 调公开的 `/api/auth/check` 判定后切换）。新增需要鉴权的接口时用 `checkAuth` 而非自建校验。
 5. **basePath**：后端与前端均需支持子路径部署，新增 API 路由时注意挂载在 `BASE` 前缀之下。
 6. **Node 版本**：`engines` 要求 `>=18.15`。
 7. **不新增鉴权旁路**：不要引入 `Authorization` / `x-auth-token` 之类的头鉴权、CORS 头或第三方 auth 中间件；会话只经 Cookie 传递（详见「会话鉴权安全约定」）。

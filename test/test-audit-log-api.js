@@ -170,6 +170,23 @@ async function postLogin(password, rawBody) {
       `records=${unauthRecs.length} count=${unauthTotal}`
     );
 
+    /* ---- 5b. 会话探测接口：恒 200、不产生 401 审计（登录页访客不得污染撞库信号）---- */
+    let probeStatus = 0;
+    let probeBody = null;
+    for (let i = 0; i < 3; i++) {
+      const pr = await fetch(`${BASE}/api/auth/check`);
+      probeStatus = pr.status;
+      probeBody = await pr.json();
+    }
+    ok(
+      'auth probe 200 + authenticated=false',
+      probeStatus === 200 && probeBody.authenticated === false,
+      `status=${probeStatus} body=${JSON.stringify(probeBody)}`
+    );
+    await sleep(DEDUPE_SEC * 1000 + 400);
+    const probeRecs = readLogLines().filter((e) => e.type === 'unauthorized' && e.path === '/api/auth/check');
+    ok('auth probe 不写 401 审计', probeRecs.length === 0, `records=${probeRecs.length}`);
+
     /* ---- 6. 审计接口鉴权：未登录 401 ---- */
     const noAuth = await fetch(`${BASE}/api/audit/login-log`);
     ok('audit api requires auth', noAuth.status === 401, `status=${noAuth.status}`);
