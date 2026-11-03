@@ -27,6 +27,7 @@ node test/test-chat-api.js          # Hermes 聊天代理 API 冒烟测试（自
 node test/test-chat-sessions-api.js # Hermes 会话 API 冒烟测试
 node test/test-terminal-ws.js [port]# 终端链路验证（直连 ttyd 端口：/token、WS 握手、ttyd 帧协议、输入回显；零依赖，默认 7681）
 node test/test-favorites-store.mjs   # 收藏夹 store 竞态回归（esbuild 转译 TS + mock fetch；esbuild 缺失时 SKIP）
+node test/test-finder-prefs-store.mjs # Files 偏好 store 回归（默认展开/切换落盘去重/加载竞态；同上转译方式）
 node test/test-shared-poll.mjs       # 页面级共享轮询回归（同上；覆盖零订阅者续轮/暂停/401 重启/慢接口防叠加）
 node test/test-session-store.mjs      # 退出登录收尾回归（本地会话存储清理 / 单次导航 / 401 同路径 / 存储被禁仍收尾）
 # 以下两个连接「已在运行的服务」，需带 PASSWORD 环境变量
@@ -147,7 +148,8 @@ components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（C
 hooks/ # usePolling —— 数据轮询 Hook
 mobile/ # 移动外壳（仅 <768px 挂载）：shellModel.ts 纯逻辑 / MobileShell 组合 / MobileHome 首页网格 / MobileHomeBar 返回首页（见下节「移动端 / 小屏适配」）
 responsive.ts # 断点层：layoutForWidth 纯函数 + useViewport（matchMedia 单例）+ 写 html[data-wd-layout]
-api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理、/api/audit/\* 登录审计）
+api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理、/api/prefs/\* 用户偏好、/api/audit/\* 登录审计）
+finderPrefs.ts # Files 偏好外部 store（收藏夹侧栏显隐，经 /api/prefs/finder 落盘 ~/.watchdog-os）
 editorBridge.ts # Finder → 文本编辑器 跨应用打开文件的联动桥
 hostFsAdapter.ts # classicy FS Adapter：内置 Finder（Finder.app / Macintosh HD）接入宿主机文件系统（见下节）
 session.ts # 会话收尾：退出登录 / 任一接口 401 → 清本地会话存储 + 整页重载回登录页
@@ -218,9 +220,9 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
   - 快捷键经 window keydown 真实绑定（classicy 的 `keyboardShortcut` 仅作展示）：焦点在输入框/编辑器时放行，不劫持对话框内打字
   - 图标视图**拖拽框选**（rubber band，`handleIconsMouseDown`）：画布任意位置左键拖动超过 4px 即框选与矩形相交（含边缘相触）的条目；修饰键语义与单击一致——plain 整体替换、⇧ 在按下时的选中上**追加**、⌘/Ctrl 以按下时的选中为基座**取反**；Esc 取消并还原，窗口失焦收尾（保留结果）；选框 `.sp-fm-band` 绝对定位于画布内容坐标（含滚动偏移），命中测试取条目 `data-fm-item` 的客户区矩形，每帧结果与上次相同则跳过 setState；拖拽结束后尾随的那次画布 click 由 `bandDidDragRef` 吞掉，避免清空刚框出的选中（list 视图多选走 ClassicyTable 自身，无框选）。⚠️ 修饰键分支曾把 ⇧ 误实现为取反（与 ⌘ 同分支），表现是 shift 加选反而只留框选交集——用真实浏览器（Playwright 合成鼠标事件 + 页面侧 capture 埋点）定位
   - 上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
-  - 收藏夹：`src/favoritesStore.ts` 外部 store（`useSyncExternalStore` 订阅，经 `/api/fs/favorites` 持久化到 `~/.watchdog-os/data.json`，多窗口共享）。添加入口三处：右键文件夹条目（Add / Remove from Favorites）、右键空白处（当前目录）、工具栏 Favorites 按钮；菜单栏 Go 之后有 Favorites 菜单组（Open Favorites + 收藏路径列表 + Add/Remove Current Folder）。⚠️ 曾出现「添加 B 覆盖了刚添加的 A」（docs/tasks.md）：服务端 favorites 是**全量替换**语义，而旧 store 的变更既不与首次加载互等、提交也不串行、过期 GET 响应还会后落地覆盖新状态。现所有变更先进串行队列、队列内 `await ensureLoaded()` 后基于最新状态计算 next（加载失败则原样报错，不盲写），加载响应带世代号防过期覆盖；回归测试 `node test/test-favorites-store.mjs`。浏览主体抽为 `src/apps/FinderBrowser.tsx`（按 `winId` + `initialPath` 多实例）：`FinderApp` 持主窗口（`fm-main`）、收藏夹列表窗口（`fm-favorites`，ClassicyTable，双击/Open 新开文件夹窗口）与收藏目标文件夹窗口注册表（`folderWinId(path)` 按路径生成 id，同路径复用仅聚焦）
+  - 收藏夹：`src/favoritesStore.ts` 外部 store（`useSyncExternalStore` 订阅，经 `/api/fs/favorites` 持久化到 `~/.watchdog-os/data.json`，多窗口共享）。添加入口三处：右键文件夹条目（Add / Remove from Favorites）、右键空白处（当前目录）、工具栏 Favorites 按钮；菜单栏 Go 之后有 Favorites 菜单组（Open Favorites + 收藏路径列表 + Add/Remove Current Folder）。⚠️ 曾出现「添加 B 覆盖了刚添加的 A」（docs/tasks.md）：服务端 favorites 是**全量替换**语义，而旧 store 的变更既不与首次加载互等、提交也不串行、过期 GET 响应还会后落地覆盖新状态。现所有变更先进串行队列、队列内 `await ensureLoaded()` 后基于最新状态计算 next（加载失败则原样报错，不盲写），加载响应带世代号防过期覆盖；回归测试 `node test/test-favorites-store.mjs`。**收藏夹侧栏默认展开**（首次打开 Files 即「盘符根列表 + Favorites 目录」双栏）：显隐状态在 `src/finderPrefs.ts` 外部 store，经 `GET/PUT /api/prefs/finder` 持久化到 `~/.watchdog-os/data.json` 的 `finder` 键（键缺失 = 展开），工具栏 Favorites 按钮与 Favorites 菜单的 Show/Hide 项共用同一状态；侧栏仍只在主窗口渲染（次窗口菜单项置灰），回归测试 `node test/test-finder-prefs-store.mjs`。浏览主体抽为 `src/apps/FinderBrowser.tsx`（按 `winId` + `initialPath` 多实例）：`FinderApp` 持主窗口（`fm-main`）、收藏夹列表窗口（`fm-favorites`，ClassicyTable，双击/Open 新开文件夹窗口）与收藏目标文件夹窗口注册表（`folderWinId(path)` 按路径生成 id，同路径复用仅聚焦）
 - 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify），主题/字号/字体偏好存 localStorage；View 菜单的 Word Wrap / Show Preview 经 `GET/PUT /api/prefs/editor` 持久化到服务端（挂载拉取 + 变更推送；本地已变更时本地胜出；升级时以旧 localStorage 值为初始值自动迁移），未保存关闭有 `onBeforeClose` veto 确认
-- 用户偏好 API（`server/api/prefs.js` 的 `GET/PUT /api/prefs/editor`，统一 `checkAuth` 401 优先）：Editor 视图偏好落盘 `~/.watchdog-os/data.json` 的 `editor` 键（经 `lib/userdata.js` 合并写，与 favorites 键互不覆盖）。GET 仅返回白名单布尔键（`wordWrap`/`showPreview`，未设置的键不出现）；PUT 为**部分合并**语义（区别于 favorites 的全量替换）：请求体 `{ editor: { … } }` 经布尔白名单清洗后与磁盘现有值合并，未传字段不丢；非法/超大 body（>64KB）400，未知路径/方法 404
+- 用户偏好 API（`server/api/prefs.js` 的 `GET/PUT /api/prefs/:scope`，统一 `checkAuth` 401 优先）：各应用偏好落盘 `~/.watchdog-os/data.json` 的同名顶层键（经 `lib/userdata.js` 合并写，与 favorites 键互不覆盖）。作用域为 `PREF_SCHEMAS` 白名单：`editor`（`wordWrap`/`showPreview`）、`finder`（`showFavoritesSidebar`，Files 收藏夹侧栏显隐，键缺失由前端视为「展开」），未列出的路径一律 404。GET 仅返回白名单布尔键（未设置的键不出现）；PUT 为**部分合并**语义（区别于 favorites 的全量替换）：请求体 `{ <scope>: { … } }` 经布尔白名单清洗后与磁盘现有值合并，未传字段不丢；非法/超大 body（>64KB）400，未知路径/方法 404
 - 跨应用联动：`src/editorBridge.ts` 的 `openInEditor(path)` —— 记录 pendingPath + dispatch `ClassicyAppOpen`/`ClassicyWindowOpen` + DOM 事件双通道（挂载消费 pending、已挂载走事件），避免竞态
 
 ### Chat（ChatApp + `/api/chat/*`：聊天代理 + hermes Sessions 转发）
@@ -386,8 +388,9 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏（含 `~/.watchdog-os/data.json` 落盘位置断言）/越权防护等 30 项）。
 - PWA：`node test/test-pwa.js` 全部 PASS（自起 server，`BASE_PATH=/tkp`，覆盖 manifest 字段/相对 scope/SW 占位符替换/图标尺寸/缓存头/穿越防护；未先 `npm run build` 时 SKIP）
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
-- 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（401/默认读取/单字段 PUT/合并语义/布尔白名单/400/落盘 `~/.watchdog-os/data.json`/与 favorites 键互不破坏等 17 项；测试前后快照恢复真实 data.json，零残留）。
-- 收藏夹 store 竞态：`node test/test-favorites-store.mjs` 全部 PASS（8 项：加载响应晚于提交 / 未加载即变更 / 并发添加乱序 / 加载失败不破坏性盲写 / 正常增删切换回归；经 esbuild 转译真实 TS store + mock fetch 驱动，esbuild 缺失时 SKIP）。
+- 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（26 项：401/默认读取/单字段 PUT/合并语义/布尔白名单/400/落盘 `~/.watchdog-os/data.json`/editor 与 finder 作用域互不破坏、均不被 favorites 写覆盖；测试前后快照恢复真实 data.json，零残留）。
+- 收藏夹 store 竞态：`node test/test-favorites-store.mjs` 全部 PASS（8 项：加载响应晚于提交 / 未加载即变更 / 并发添加乱序 / 加载失败不破坏性盲写 / 正常增删切换回归；经 esbuild 转译真实 TS store + mock fetch 驱动，esbuild 缺失时 SKIP——pnpm 布局会自动到 `node_modules/.pnpm` 下兜底查找）。
+- Files 偏好 store：`node test/test-finder-prefs-store.mjs` 全部 PASS（17 项：默认展开且未设置不写盘 / 服务端 false 生效 / 切换落盘且同值去重 / 加载在途本地胜出并补推 / GET 失败保持默认 / PUT 失败不回滚 UI 且下次重试成功）。
 - 页面级共享轮询：`node test/test-shared-poll.mjs` 全部 PASS（16 项：零订阅者续轮 / 订阅即首拉 / 暂停恢复 / 改间隔 / 401 停止与重登重启 / 慢接口防叠加 / 快照引用稳定 / reload 语义 / polls.ts 端点接线）。
 - 退出登录收尾：`node test/test-session-store.mjs` 全部 PASS（11 项：会话相关 storage 清理且保留纯外观偏好 / 并发 401 只导航一次 / `wd-signed-out` 一次性标记 / 401 与主动退出同路径 / storage 被禁仍完成收尾；优先直接 import `.ts`，旧 Node 回退 esbuild）。
 - 登录审计：`node test/test-audit-log-api.js` 全部 PASS（28 项：登录成功/失败/坏 body/登出落盘、日志不含凭据、401 去重合并、审计接口 401、统计与筛选、CSV 的 BOM/表头/不受 limit 限制、疑似暴力破解命中、保留期清理、重启后可读；临时 `LOGIN_LOG_DIR`，零残留）。

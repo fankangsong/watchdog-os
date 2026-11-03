@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-/* 用户偏好 API 冒烟测试（/api/prefs/editor）：零依赖。spawn server/index.js 子进程，
+/* 用户偏好 API 冒烟测试（/api/prefs/editor 与 /api/prefs/finder）：零依赖。spawn server/index.js 子进程，
    验证鉴权 / 默认读取 / 单字段写入 / 合并语义 / 白名单清洗 / 非法 body / 落盘位置 /
-   与 favorites 键互不破坏。测试直接读写真实 ~/.watchdog-os/data.json，
+   各作用域键（editor / finder / favorites）互不破坏。测试直接读写真实 ~/.watchdog-os/data.json，
    故前置快照、finally 原样恢复，保证零残留。 */
 'use strict';
 const { spawn } = require('child_process');
@@ -140,6 +140,56 @@ const jput = (url, body, H) =>
     const afterFav = await (await fetch(`${BASE}/api/prefs/editor`, { headers: H })).json();
     ok('prefs survive favorites write', afterFav.editor.wordWrap === true && afterFav.editor.showPreview === true, JSON.stringify(afterFav.editor));
 
+    // ---- finder 作用域（Files 收藏夹侧栏显隐，落盘 data.json 的 finder 键）----
+    const f0 = await (await fetch(`${BASE}/api/prefs/finder`, { headers: H })).json();
+    ok('finder GET default object', !!f0 && typeof f0.finder === 'object' && f0.finder !== null, JSON.stringify(f0.finder));
+
+    // 单字段写入 + 读回（false = 用户收起了侧栏）
+    const f1 = await (await jput(`${BASE}/api/prefs/finder`, { finder: { showFavoritesSidebar: false } }, H)).json();
+    ok('finder PUT showFavoritesSidebar', f1.ok === true && f1.finder.showFavoritesSidebar === false, JSON.stringify(f1.finder));
+    const fg = await (await fetch(`${BASE}/api/prefs/finder`, { headers: H })).json();
+    ok('finder GET back', fg.finder.showFavoritesSidebar === false, JSON.stringify(fg.finder));
+
+    // 白名单：非布尔值 / 未知字段被忽略，已存值不被改坏
+    const f2 = await (await jput(`${BASE}/api/prefs/finder`, { finder: { showFavoritesSidebar: 'yes', other: true } }, H)).json();
+    ok(
+      'finder whitelist filters invalid',
+      f2.finder.showFavoritesSidebar === false && f2.finder.other === undefined,
+      JSON.stringify(f2.finder)
+    );
+
+    // 非法 JSON body → 400（与 editor 同一出口）
+    const badFinder = await fetch(`${BASE}/api/prefs/finder`, {
+      method: 'PUT',
+      headers: { ...H, 'content-type': 'application/json' },
+      body: 'not-json',
+    });
+    ok('finder invalid body 400', badFinder.status === 400, `status=${badFinder.status}`);
+
+    // 作用域互不影响：finder 写不丢 editor
+    const afterFinder = await (await fetch(`${BASE}/api/prefs/editor`, { headers: H })).json();
+    ok(
+      'editor survives finder write',
+      afterFinder.editor.wordWrap === true && afterFinder.editor.showPreview === true,
+      JSON.stringify(afterFinder.editor)
+    );
+
+    // 落盘：finder 键存在，且既有的 favorites 键未被覆盖
+    let diskFinder = null;
+    try {
+      diskFinder = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    } catch { /* 不存在时保持 null */ }
+    ok(
+      'finder saved to ~/.watchdog-os/data.json',
+      !!diskFinder && !!diskFinder.finder && diskFinder.finder.showFavoritesSidebar === false,
+      DATA_FILE
+    );
+    ok(
+      'favorites survive finder write',
+      !!diskFinder && Array.isArray(diskFinder.favorites) && diskFinder.favorites.includes(favDir),
+      JSON.stringify(diskFinder && diskFinder.favorites)
+    );
+
     // 反向：editor 写不丢 favorites
     await jput(`${BASE}/api/prefs/editor`, { editor: { wordWrap: false } }, H);
     let disk2 = null;
@@ -147,6 +197,7 @@ const jput = (url, body, H) =>
       disk2 = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     } catch { /* 不存在时保持 null */ }
     ok('favorites survive prefs write', !!disk2 && Array.isArray(disk2.favorites) && disk2.favorites.includes(favDir), JSON.stringify(disk2 && disk2.favorites));
+    ok('finder survives editor write', !!disk2 && !!disk2.finder && disk2.finder.showFavoritesSidebar === false, JSON.stringify(disk2 && disk2.finder));
 
     // 未知路径 / 方法 → 404
     const nf = await fetch(`${BASE}/api/prefs/unknown`, { headers: H });

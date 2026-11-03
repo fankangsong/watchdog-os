@@ -1,8 +1,9 @@
 // Finder 浏览主体（Files 应用的窗口内容，按 winId + initialPath 支持多实例）：
 // 主窗口（根列表起步）、收藏夹双击新开的文件夹窗口共用本组件，各自持有独立的
 // 当前目录/选中/历史/预览等状态。默认图标视图（大图标 + 下方名称，OS8 选中高亮），
-// View 菜单可切换列表视图。无状态栏；主窗口可弹出收藏夹侧栏（工具栏 Favorites 按钮
-// 或 Favorites 菜单切换显隐：点开在左侧展示收藏夹列表，再次点击收起）。
+// View 菜单可切换列表视图。无状态栏；主窗口左侧有收藏夹侧栏——默认展开（首次打开即见
+// Favorites 目录），工具栏 Favorites 按钮或 Favorites 菜单切换显隐，选择经
+// src/finderPrefs.ts 持久化到服务端 ~/.watchdog-os/data.json（下次打开按上次选择恢复）。
 // 目录导航经双击进入 + Go 菜单（Back ⌘[ / Open Parent Folder ⌘↑）。
 // 支持上传（从系统拖入窗口 / Upload File…，进度/取消/覆盖确认）、新建文件夹、新建文本文件、
 // 重命名（可改扩展名）、删除、
@@ -45,6 +46,7 @@ import {
 } from '../api';
 import type { FsEntry } from '../api';
 import { addFavorites, isFavorite, removeFavorites, useFavorites } from '../favoritesStore';
+import { setShowFavoritesSidebar, useFinderPrefs } from '../finderPrefs';
 import { fmtBytes } from '../format';
 import { copyText } from '../clipboard';
 import { openInEditor } from '../editorBridge';
@@ -348,8 +350,10 @@ export function FinderBrowser({
   const [picking, setPicking] = useState(isConverterPicking);
   // 视图模式：默认图标视图（对齐参考图 Workspace），View 菜单切换并持久化
   const [viewMode, setViewModeState] = useState<ViewMode>(loadViewMode);
-  // 收藏夹侧栏显隐（仅主窗口渲染；工具栏 Favorites 按钮 / Favorites 菜单切换）
-  const [showFavs, setShowFavs] = useState(false);
+  // 收藏夹侧栏显隐（仅主窗口渲染；工具栏 Favorites 按钮 / Favorites 菜单切换）。
+  // 状态在 finderPrefs store 里：默认展开（首次打开即见 Favorites 目录），
+  // 用户切换经 /api/prefs/finder 落盘 ~/.watchdog-os/data.json，下次打开按上次选择恢复
+  const { showFavoritesSidebar: showFavs } = useFinderPrefs();
   // 非主窗口的级联偏移（挂载时取一次，重开同 id 窗口时由 store 记录保留原位）
   const [cascade] = useState(() => (folderCascade++ % 6) * 26);
 
@@ -432,7 +436,7 @@ export function FinderBrowser({
     [fetchDir, current]
   );
 
-  // 挂载即加载初始目录（主窗口为根列表：无侧栏后根视图即初始视图，磁盘图标列表）
+  // 挂载即加载初始目录（主窗口为根列表：盘符视图即初始视图，收藏夹侧栏并列其左）
   useEffect(() => {
     void fetchDir(initialPath);
   }, [fetchDir, initialPath]);
@@ -1326,7 +1330,7 @@ export function FinderBrowser({
         title: showFavs ? 'Hide Favorites Sidebar' : 'Show Favorites Sidebar',
         // 侧栏仅在主窗口渲染；次窗口保留菜单项置灰（保留项不隐藏）
         disabled: !isMain,
-        onClickFunc: () => setShowFavs((v) => !v),
+        onClickFunc: () => setShowFavoritesSidebar(!showFavs),
       },
     ];
     if (favorites.length > 0) {
@@ -1545,7 +1549,7 @@ export function FinderBrowser({
             {/* 收藏夹侧栏开关（仅主窗口）：点开在左侧展示收藏列表，再次点击收起；
                 选文件模式禁用收藏夹入口，避免把选择流程分散到多个窗口 */}
             {isMain && (
-              <ClassicyButton disabled={picking} onClickFunc={() => setShowFavs((v) => !v)}>
+              <ClassicyButton disabled={picking} onClickFunc={() => setShowFavoritesSidebar(!showFavs)}>
                 <img className="sp-tb-icon" src={fmFavIcon} alt="" />
                 Favorites
               </ClassicyButton>

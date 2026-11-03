@@ -274,6 +274,21 @@ export const prefsSetEditor = (editor: EditorServerPrefs) =>
     body: JSON.stringify({ editor }),
   });
 
+/** Files 偏好（服务端持久化到 ~/.watchdog-os/data.json 的 finder 键）。
+ *  键缺失语义由前端决定：showFavoritesSidebar 缺省视为 true（首次打开即展开收藏夹侧栏） */
+export interface FinderServerPrefs {
+  showFavoritesSidebar?: boolean;
+}
+
+export const prefsGetFinder = () => request<{ finder: FinderServerPrefs }>('./api/prefs/finder');
+
+export const prefsSetFinder = (finder: FinderServerPrefs) =>
+  request<{ ok: true; finder: FinderServerPrefs }>('./api/prefs/finder', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ finder }),
+  });
+
 /** 图片内联预览地址；download=1 时走附件下载（HttpOnly Cookie 鉴权天然可用） */
 export const fsRawUrl = (path: string, download = false) =>
   `./api/fs/raw?path=${enc(path)}${download ? '&download=1' : ''}`;

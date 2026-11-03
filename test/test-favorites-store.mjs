@@ -12,9 +12,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STORE_SRC = path.join(ROOT, 'src', 'favoritesStore.ts');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'srv-fav-store-'));
 
@@ -61,6 +61,24 @@ function mockServer({ initial = [], getDelay = 0, putDelays = [], failGet = fals
   return { getList: () => [...list], puts };
 }
 
+/* esbuild 只作 TS 转译。pnpm 布局下它没有顶层软链（node_modules/.pnpm/esbuild@x/...），
+   直接 import('esbuild') 会失败；这里补一层嵌套路径兜底，避免测试在本机永远 SKIP。 */
+async function loadEsbuild() {
+  try {
+    return await import('esbuild');
+  } catch {
+    const pnpmDir = path.join(ROOT, 'node_modules', '.pnpm');
+    if (fs.existsSync(pnpmDir)) {
+      for (const name of fs.readdirSync(pnpmDir)) {
+        if (!name.startsWith('esbuild@')) continue;
+        const entry = path.join(pnpmDir, name, 'node_modules', 'esbuild', 'lib', 'main.js');
+        if (fs.existsSync(entry)) return import(pathToFileURL(entry).href);
+      }
+    }
+    throw new Error('esbuild not found (npm/pnpm 布局均未命中)');
+  }
+}
+
 /* ---------- 经 esbuild 把 TS store 打包成 Node ESM（react 别名到订阅桩） ---------- */
 async function bundleStore() {
   const stub = path.join(TMP, 'stub-react.mjs');
@@ -74,7 +92,7 @@ async function bundleStore() {
 `
   );
   const out = path.join(TMP, 'favoritesStore.mjs');
-  const esbuild = await import('esbuild');
+  const esbuild = await loadEsbuild();
   await esbuild.build({
     entryPoints: [STORE_SRC],
     bundle: true,
