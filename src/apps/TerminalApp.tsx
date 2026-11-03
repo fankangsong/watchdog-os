@@ -59,20 +59,33 @@ function copyToClipboard(text: string): void {
   copyViaExecCommand(text);
 }
 
+/**
+ * execCommand 兜底：把文本塞进隐藏 textarea 选中后复制。
+ * - 用 1px + opacity 0.01 而不是 opacity 0：Safari（含 iOS）会拒绝复制「不可见」
+ *   元素的选区，完全透明在部分版本里同样被判定为不可见；
+ * - setSelectionRange 是 iOS 上 select() 不生效时的必要补充；
+ * - 结束后把焦点还给原元素：自动复制发生在拖选结束时，焦点一旦被临时 textarea
+ *   带走，终端就收不到键盘输入，用户看到的是「选完字终端没反应」。
+ */
 function copyViaExecCommand(text: string): void {
+  const prevFocus = document.activeElement as HTMLElement | null;
   const ta = document.createElement('textarea');
   ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.opacity = '0';
-  ta.style.pointerEvents = 'none';
+  ta.setAttribute('readonly', '');
+  ta.style.cssText =
+    'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;outline:0;' +
+    'box-shadow:none;background:transparent;opacity:0.01;pointer-events:none;';
   document.body.appendChild(ta);
-  ta.select();
   try {
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
     document.execCommand('copy');
   } catch {
     /* 复制失败时暂无更优降级方案，静默忽略 */
   } finally {
     document.body.removeChild(ta);
+    if (prevFocus && prevFocus.isConnected) prevFocus.focus();
   }
 }
 
@@ -648,6 +661,29 @@ function TerminalWindow({
       ev.stopPropagation();
       console.debug('[Terminal] 已拦截浏览器原生 paste 事件（避免与快捷键粘贴重复）');
     };
+    /**
+     * 选中自动复制：在 window 的 mouseup 冒泡末端执行。
+     * - xterm 把 mousemove / mouseup 注册在 document 上，window 的冒泡监听排在它之后，
+     *   此时选区已经落定；
+     * - mouseup 是受信任的用户手势，Safari 的剪贴板写入只允许发生在手势内——放在
+     *   onSelectionChange 里会被静默拒绝，表现就是「选中了却没复制」。
+     * 只处理落在终端内的拖选：拖窗口标题栏 / 边框结束时不要把残留选区复制走。
+     */
+    const copyOnSelectionEnd = (ev: MouseEvent) => {
+      if (!autoCopyRef.current) return;
+      const t = termRef.current;
+      if (!t) return;
+      const target = ev.target as Node | null;
+      const domSel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      const anchorNode = domSel?.anchorNode ?? null;
+      const inTerm =
+        (!!target && container.contains(target)) || (!!anchorNode && container.contains(anchorNode));
+      if (!inTerm) return;
+      const sel = t.getSelection();
+      if (!sel || sel === lastCopiedRef.current) return;
+      lastCopiedRef.current = sel;
+      copyToClipboard(sel);
+    };
     try {
       term = new Terminal({
         fontSize,
@@ -667,6 +703,7 @@ function TerminalWindow({
 
       container.addEventListener('pointerdown', refocus);
       container.addEventListener('paste', blockNativePaste, true);
+      window.addEventListener('mouseup', copyOnSelectionEnd);
 
       // 键盘输入 → 0x30 + 文本 的二进制帧
       term.onData((data) => {
@@ -690,18 +727,17 @@ function TerminalWindow({
         ws.send(frame);
       });
 
-      // 选中自动复制：选区变化（拖动过程中每次不同选区至多复制一次）时写入剪贴板
+      /* 选区变化只同步「有无选区」给菜单置灰（用 ref 比较，避免拖动时每次
+         变化都触发 React 渲染）。复制不在这里做：selectionchange 不属于用户手势，
+         Safari 会拒绝其中的剪贴板写入，见 copyOnSelectionEnd。 */
       term.onSelectionChange(() => {
-        const sel = term!.getSelection();
-        const has = sel.length > 0;
-        // 选区有无只影响菜单置灰，用 ref 比较避免每次拖动都触发 React 渲染
+        const has = term!.getSelection().length > 0;
         if (has !== hasSelectionRef.current) {
           hasSelectionRef.current = has;
           setHasSelection(has);
         }
-        if (!autoCopyRef.current || !sel || sel === lastCopiedRef.current) return;
-        lastCopiedRef.current = sel;
-        copyToClipboard(sel);
+        // 选区被清空（点空白处 / 重新选择）后允许再次复制同一段文本
+        if (!has) lastCopiedRef.current = '';
       });
 
       /**
@@ -789,6 +825,7 @@ function TerminalWindow({
       ro?.disconnect();
       container.removeEventListener('pointerdown', refocus);
       container.removeEventListener('paste', blockNativePaste, true);
+      window.removeEventListener('mouseup', copyOnSelectionEnd);
       wsRef.current?.close();
       wsRef.current = null;
       term?.dispose();
@@ -797,6 +834,7 @@ function TerminalWindow({
       // 终端重建后选区必然清空，同步复位避免菜单置灰状态残留
       hasSelectionRef.current = false;
       setHasSelection(false);
+      lastCopiedRef.current = '';
     };
     // 注意：不要把 autoCopy / pasteHotkey / fontSize / fontFamily 放进依赖，
     // 否则设置变更会重建终端并触发 WebSocket 重连抖动（改用 ref 同步）
