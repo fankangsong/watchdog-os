@@ -80,9 +80,9 @@ node server/index.js
 
 ## 后端配置
 
-**配置的唯一来源是项目根目录的 `.env`**（由 `server/config.js` 的 `loadEnv()` 读入 `process.env`，同名真实环境变量优先）。`config.example.json` 是入库的字段总览模板（各 32 项，凭据留空），仅供查阅。解析规则：**未设置与空串一律视为「未设置」并回退默认值**，非法值打 `[warn]` 后回落。
+**配置的唯一来源是项目根目录的 `.env`**（由 `server/config.js` 的 `loadEnv()` 读入 `process.env`，同名真实环境变量优先）。解析规则：**未设置与空串一律视为「未设置」并回退默认值**，非法值打 `[warn]` 后回落。（历史文档提到的 `config.example.json` 目前并不在仓库中，字段总览以 `.env.example` 为准。）
 
-配置项分组（完整清单见 `.env.example` / `config.example.json`）：
+配置项分组（完整清单见 `.env.example`）：
 
 | 分组     | 变量                                                                                                                           | 默认值                                                                           |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
@@ -91,6 +91,7 @@ node server/index.js
 | 采样     | `DISK_MOUNTS`(JSON 数组) / `COLLECT_INTERVAL` / `DOCKER_INTERVAL` / `PROCESS_INTERVAL` / `PROCESS_TOP_N`                       | `[]` / `2000` / `5000` / `10000` / `50`                                          |
 | 会话     | `JWT_EXPIRES_IN`（收敛到 `300~2592000`）/ `COOKIE_SECURE`（`auto`/`always`/`never`）/ `PUBLIC_ORIGIN`（逗号分隔，留空=仅同源） | `86400` / `auto` / 空                                                            |
 | 登录审计 | `LOGIN_LOG_ENABLED` / `LOGIN_LOG_DIR` / `LOGIN_LOG_RETENTION_DAYS` / `LOGIN_LOG_MAX_ENTRIES` / `LOGIN_LOG_BRUTE_THRESHOLD` / `LOGIN_LOG_BRUTE_WINDOW_MIN` / `LOGIN_LOG_401_DEDUPE_SEC` | `true` / 空（= `~/.watchdog-os/login-log`）/ `30` / `20000` / `5` / `10` / `60` |
+| 草稿     | `DRAFT_DIR` / `DRAFT_MAX_ENTRIES`（收敛到 1~500）/ `DRAFT_RETENTION_DAYS`（收敛到 1~3650）                                      | 空（= `~/.watchdog-os/drafts`）/ `50` / `30`                                     |
 | 文件管理 | `FS_ROOTS`（`path.delimiter` 分隔；**与 `DISK_MOUNTS` 语义不同**：前者是文件管理器权限白名单，后者是监控采样目标）             | 按平台默认                                                                       |
 | 终端     | `TERMINAL_ENABLED` / `TTYD_PATH` / `TTYD_PORT` / `TTYD_ARGS`(JSON 数组) / `TTYD_WSL`                                           | `false` / `ttyd` / `7681` / `["bash"]` / `false`                                 |
 | Runner   | `RUNNER_ENABLED` / `RUNNER_SCRIPT`（必配绝对路径）/ `RUNNER_SHELL` / `RUNNER_MAX_LOG_BYTES`                                    | `false` / `''` / `bash` / `5242880`                                              |
@@ -102,11 +103,13 @@ node server/index.js
 
 > **生产部署**：配置只认 `.env`，systemd 建议加 `EnvironmentFile=/root/watchdog-os/.env`；`.env` 不在版本控制内，需手工维护。
 
-> **新增配置项的规矩**：在 `server/config.js` 里用 `envStr` / `envInt` / `envBool` / `envJsonArray` 声明（不要裸写 `process.env.X`，否则空串与非法值会静默污染配置），并同步更新 `.env.example` 与 `config.example.json`（两者键名必须一致）。
+> **新增配置项的规矩**：在 `server/config.js` 里用 `envStr` / `envInt` / `envBool` / `envJsonArray` / `envClampedInt` 声明（不要裸写 `process.env.X`，否则空串与非法值会静默污染配置），并同步更新 `.env.example`（当前仓库无 `config.example.json`，不必新建）。
 
 Runner（脚本任务构建）：由 `RUNNER_ENABLED` / `RUNNER_SCRIPT` / `RUNNER_SHELL` / `RUNNER_MAX_LOG_BYTES` 控制，`RUNNER_SCRIPT` 为必配的脚本绝对路径且只接受服务端配置（客户端不可传路径）；日志写 `data/runner.log`（超过 `RUNNER_MAX_LOG_BYTES` 归档为 `.old`）。
 
 登录审计日志：`server/api/audit.js` 把登录成功/失败、登出、受保护接口 401 按**本地日期**分文件写 `~/.watchdog-os/login-log/YYYY-MM-DD.jsonl`，保留 `LOGIN_LOG_RETENTION_DAYS` 天（启动时 + 跨天首次写入时清理）。三条硬约束：① 只记请求元信息，**绝不记录密码 / 哈希 / Cookie / Authorization**；② 写入 fire-and-forget，落盘失败只 `[warn]`，不得影响登录结果；③ 同 IP + 同路径 401 在 `LOGIN_LOG_401_DEDUPE_SEC` 窗口内合并为一条（登录失败不合并），否则前端页面级轮询在会话失效后会把日志刷爆并淹没真实撞墙信号。审查入口是桌面应用 `Audit Log`（`src/apps/AuditApp.tsx`，数据源 `GET /api/audit/login-log`，导出 `GET /api/audit/login-log.csv`）。完整字段、统计口径与异常判定见 `docs/login-audit-log.md`。
+
+编辑器草稿（`server/api/drafts.js` + `server/lib/drafts.js`）：编辑中的未保存内容自动缓存到 `~/.watchdog-os/drafts/`（`DRAFT_DIR` 可覆盖），**不写 data.json**——正文最大 2MB，而 `saveUserData` 每次整体重读 + 重写 + 全量常驻内存，打字期每 2s 一次的写入会把偏好文件反复刷盘，且没有按条淘汰 / 过期的能力。每个草稿是一个自描述文件：`WDDRAFT/1\n{JSON 头}\n正文原文`，**不维护独立索引**——单文件让元数据与正文同生共死，配合「临时文件 + rename」原子写，崩溃最多残留 `.tmp`（启动清理）；列表只短读前 16KB 头部，正文一个字节都不读。API（全部先过 `checkAuth`）：`GET /api/drafts`（列表 + 源文件 `disk` 状态，不含正文）/ `GET /api/drafts/:id`（含正文）/ `PUT /api/drafts?path=&baseMtime=`（body 为 UTF-8 原文，>2MB 413）/ `DELETE ?path=`（幂等）/ `DELETE /:id` / `DELETE`（全部丢弃）。写 / 删走全局串行链（保证「保存成功后删」不会被在途写覆盖），读不进链。路径只作 sha1 键（win32 小写归一），**从不拼进文件名**，故无穿越面；**不校验 `FS_ROOTS`**（该 API 不读写目标路径，限制它只会让收窄根目录后的历史草稿删不掉）。容量：单份 2MB、`DRAFT_MAX_ENTRIES` 条、`DRAFT_RETENTION_DAYS` 天，启动时强制清理 + 每次写后节流 10 分钟清理。前端调度在 `src/editorDraft.ts`（2s 防抖 / 15s 不饿死 / 单飞合并 / 同内容去重 / 先写后删 / 失败暂停不刷请求），恢复**只由用户显式选择**（窗口首次打开提醒一次 + File > Restore Draft…），不自动载入。
 
 ## 会话鉴权安全约定
 
@@ -140,15 +143,16 @@ index.js # 入口：组装各模块与生命周期（采集定时器、退出时
 config.js # 配置加载（.env，唯一来源）+ basePath 规范化
 router.js # API 路由分发与 WS 升级处理
 static.js # 静态资源服务（只服务 dist/：serveIndex 返回 SPA 入口，dist 缺失时 503 提示构建）
-lib/ # http.js 基础工具 / auth.js JWT 鉴权 / userdata.js 用户数据文件（~/.watchdog-os/data.json）读写
-api/ # metrics / printer / terminal / runner / chat / fs / audit（登录审计：JSONL 落盘 + 统计 + CSV）
+lib/ # http.js 基础工具 / auth.js JWT 鉴权 / userdata.js 用户数据文件（~/.watchdog-os/data.json）读写 / drafts.js 草稿文件存储（~/.watchdog-os/drafts）
+api/ # metrics / printer / terminal / runner / chat / fs / drafts（编辑器草稿缓存）/ audit（登录审计：JSONL 落盘 + 统计 + CSV）
 src/ # React 前端源码
 apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Files，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）、AuditApp（登录审计日志）
 components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板、AuditPanels / AuditTrendChart（审计表格与趋势图）
 hooks/ # usePolling —— 数据轮询 Hook
 mobile/ # 移动外壳（仅 <768px 挂载）：shellModel.ts 纯逻辑 / MobileShell 组合 / MobileHome 首页网格 / MobileHomeBar 返回首页（见下节「移动端 / 小屏适配」）
 responsive.ts # 断点层：layoutForWidth 纯函数 + useViewport（matchMedia 单例）+ 写 html[data-wd-layout]
-api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/\* 文件管理、/api/prefs/\* 用户偏好、/api/audit/\* 登录审计）
+api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/* 文件管理、/api/prefs/* 用户偏好、/api/drafts/* 编辑器草稿、/api/audit/* 登录审计）
+editorDraft.ts # 自动草稿写入调度器（防抖 / 不饿死 / 单飞合并 / 先写后删，纯 TS 无 React 依赖）
 finderPrefs.ts # Files 偏好外部 store（收藏夹侧栏显隐，经 /api/prefs/finder 落盘 ~/.watchdog-os）
 editorBridge.ts # Finder → 文本编辑器 跨应用打开文件的联动桥
 hostFsAdapter.ts # classicy FS Adapter：内置 Finder（Finder.app / Macintosh HD）接入宿主机文件系统（见下节）
@@ -221,8 +225,9 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
   - 图标视图**拖拽框选**（rubber band，`handleIconsMouseDown`）：画布任意位置左键拖动超过 4px 即框选与矩形相交（含边缘相触）的条目；修饰键语义与单击一致——plain 整体替换、⇧ 在按下时的选中上**追加**、⌘/Ctrl 以按下时的选中为基座**取反**；Esc 取消并还原，窗口失焦收尾（保留结果）；选框 `.sp-fm-band` 绝对定位于画布内容坐标（含滚动偏移），命中测试取条目 `data-fm-item` 的客户区矩形，每帧结果与上次相同则跳过 setState；拖拽结束后尾随的那次画布 click 由 `bandDidDragRef` 吞掉，避免清空刚框出的选中（list 视图多选走 ClassicyTable 自身，无框选）。⚠️ 修饰键分支曾把 ⇧ 误实现为取反（与 ⌘ 同分支），表现是 shift 加选反而只留框选交集——用真实浏览器（Playwright 合成鼠标事件 + 页面侧 capture 埋点）定位
   - 上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
   - 收藏夹：`src/favoritesStore.ts` 外部 store（`useSyncExternalStore` 订阅，经 `/api/fs/favorites` 持久化到 `~/.watchdog-os/data.json`，多窗口共享）。添加入口三处：右键文件夹条目（Add / Remove from Favorites）、右键空白处（当前目录）、工具栏 Favorites 按钮；菜单栏 Go 之后有 Favorites 菜单组（Open Favorites + 收藏路径列表 + Add/Remove Current Folder）。⚠️ 曾出现「添加 B 覆盖了刚添加的 A」（docs/tasks.md）：服务端 favorites 是**全量替换**语义，而旧 store 的变更既不与首次加载互等、提交也不串行、过期 GET 响应还会后落地覆盖新状态。现所有变更先进串行队列、队列内 `await ensureLoaded()` 后基于最新状态计算 next（加载失败则原样报错，不盲写），加载响应带世代号防过期覆盖；回归测试 `node test/test-favorites-store.mjs`。**收藏夹侧栏默认展开**（首次打开 Files 即「盘符根列表 + Favorites 目录」双栏）：显隐状态在 `src/finderPrefs.ts` 外部 store，经 `GET/PUT /api/prefs/finder` 持久化到 `~/.watchdog-os/data.json` 的 `finder` 键（键缺失 = 展开），工具栏 Favorites 按钮与 Favorites 菜单的 Show/Hide 项共用同一状态；侧栏仍只在主窗口渲染（次窗口菜单项置灰），回归测试 `node test/test-finder-prefs-store.mjs`。浏览主体抽为 `src/apps/FinderBrowser.tsx`（按 `winId` + `initialPath` 多实例）：`FinderApp` 持主窗口（`fm-main`）、收藏夹列表窗口（`fm-favorites`，ClassicyTable，双击/Open 新开文件夹窗口）与收藏目标文件夹窗口注册表（`folderWinId(path)` 按路径生成 id，同路径复用仅聚焦）
-- 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify），主题/字号/字体偏好存 localStorage；View 菜单的 Word Wrap / Show Preview 经 `GET/PUT /api/prefs/editor` 持久化到服务端（挂载拉取 + 变更推送；本地已变更时本地胜出；升级时以旧 localStorage 值为初始值自动迁移），未保存关闭有 `onBeforeClose` veto 确认
-- 用户偏好 API（`server/api/prefs.js` 的 `GET/PUT /api/prefs/:scope`，统一 `checkAuth` 401 优先）：各应用偏好落盘 `~/.watchdog-os/data.json` 的同名顶层键（经 `lib/userdata.js` 合并写，与 favorites 键互不覆盖）。作用域为 `PREF_SCHEMAS` 白名单：`editor`（`wordWrap`/`showPreview`）、`finder`（`showFavoritesSidebar`，Files 收藏夹侧栏显隐，键缺失由前端视为「展开」），未列出的路径一律 404。GET 仅返回白名单布尔键（未设置的键不出现）；PUT 为**部分合并**语义（区别于 favorites 的全量替换）：请求体 `{ <scope>: { … } }` 经布尔白名单清洗后与磁盘现有值合并，未传字段不丢；非法/超大 body（>64KB）400，未知路径/方法 404
+- 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify）。**全部偏好**（主题/字号/字体/Word Wrap/Show Preview）经 `GET/PUT /api/prefs/editor` 持久化到服务端（挂载拉取 + 去重推送；本地已变更时本地胜出；服务端缺该键时只有非默认值才推送，老用户 localStorage 值一次性迁移），localStorage 只作首屏兜底。⚠️ **脏标记由 `content !== baseline` 派生**，不再用布尔：CodeEditor 的外部 value 同步会触发一次 `onChange`，布尔标记会被「打开文件」本身误置为脏（并生成空草稿）。整篇替换（打开 / 恢复 / 丢草稿）`docSeq+1` 重建 `EditorState`，且外部同步标 `Transaction.addToHistory.of(false)`——否则撤销栈跨文档串味、打开文件后一次 Ctrl+Z 会退回空串。未保存关闭有 `onBeforeClose` veto 确认（选「不保存」会先 flush 草稿再关窗）。编辑中的未保存内容自动缓存为草稿（见「编辑器草稿」节），窗口首次打开提醒一次 + File > Restore Draft… 手动入口；恢复后内容区顶部提示条给「保存到文件 / 丢弃草稿」，磁盘已变更 / 源文件不可读时明确警示。
+- 用户偏好 API（`server/api/prefs.js` 的 `GET/PUT /api/prefs/:scope`，统一 `checkAuth` 401 优先）：各应用偏好落盘 `~/.watchdog-os/data.json` 的同名顶层键（经 `lib/userdata.js` 合并写，与 favorites 键互不覆盖）。作用域为 `PREF_SCHEMAS` **字段表**（早期只有布尔数组，现为「键 → 类型 + 长度/范围」）：`editor`（`wordWrap`/`showPreview` 布尔、`theme` ≤32 字符串、`fontFamily` ≤64 字符串、`fontSize` 10~24 整数）、`finder`（`showFavoritesSidebar`），未列出的路径一律 404。**服务端不校验枚举值**（合法主题 / 字体栈来自前端 `EDITOR_THEMES` / `EDITOR_FONTS`，复制到服务端必然漂移），前端读取时按枚举回退；`fontFamily` 会进入 CodeMirror 主题 CSS，前端必须白名单校验。GET 仅返回白名单内且类型合法的键（未设置的不出现）**并回传 `file`（真实落盘路径）供设置面板展示**；PUT 为**部分合并**语义（区别于 favorites 的全量替换）：请求体 `{ <scope>: { … } }` 经字段表清洗后与磁盘现有值合并，未传字段不丢（老客户端只推布尔不会清掉类型化字段）；非法/超大 body（>64KB）400，未知路径/方法 404。
+- 编辑器偏好同步（`src/editorPrefs.ts` 纯逻辑 + `EditorApp` 接线）：**必须按字段合并**——`mutated` 记录用户本会话亲自改过的字段（这些字段 hydration 不覆盖），其余字段照常采用服务端值；早期实现用一个全局布尔「本地已变更」直接跳过整轮 hydration，导致「GET 还没回来就点了 Word Wrap」时后续所有字段都不再同步、改动也永远不推送。`hydrated` 必须是 **state 并进入推送 effect 依赖**（放 ref 里不会触发重跑）。GET 失败重试一次后仍要放开 hydrated，让后续变更能推送；PUT 失败重试一次。设置面板底部展示 `偏好已保存到 <file>`（来自 GET 的 `file`），可直接确认落盘位置。
 - 跨应用联动：`src/editorBridge.ts` 的 `openInEditor(path)` —— 记录 pendingPath + dispatch `ClassicyAppOpen`/`ClassicyWindowOpen` + DOM 事件双通道（挂载消费 pending、已挂载走事件），避免竞态
 
 ### Chat（ChatApp + `/api/chat/*`：聊天代理 + hermes Sessions 转发）
@@ -388,7 +393,10 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏（含 `~/.watchdog-os/data.json` 落盘位置断言）/越权防护等 30 项）。
 - PWA：`node test/test-pwa.js` 全部 PASS（自起 server，`BASE_PATH=/tkp`，覆盖 manifest 字段/相对 scope/SW 占位符替换/图标尺寸/缓存头/穿越防护；未先 `npm run build` 时 SKIP）
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
-- 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（26 项：401/默认读取/单字段 PUT/合并语义/布尔白名单/400/落盘 `~/.watchdog-os/data.json`/editor 与 finder 作用域互不破坏、均不被 favorites 写覆盖；测试前后快照恢复真实 data.json，零残留）。
+- 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（34 项：401/默认读取/单字段 PUT/合并语义/布尔与类型化字段白名单/字号范围/400/GET 回传真实落盘路径/落盘 `~/.watchdog-os/data.json`/editor 与 finder 作用域互不破坏、均不被 favorites 写覆盖；测试前后快照恢复真实 data.json，零残留）。
+- 编辑器草稿 API：`node test/test-drafts-api.js` 全部 PASS（51 项：401/空列表/写入与 id=sha1(路径)/列表不含正文/正文逐字节往返/大小写与 `./` 归一/含 `%` 的路径只解码一次/非法路径 400/2MB 413/幂等删除/坏文件跳过/`disk` 状态/并发原子性/落盘格式/重启清理保留期 + 条数 + 残留 `.tmp`；全程 `DRAFT_DIR` 指向临时目录，不触碰真实 `~/.watchdog-os`）。
+- 自动草稿调度器：`node test/test-editor-draft.mjs` 全部 PASS（18 项：防抖合并 / maxWait 不饿死 / 单飞 + 尾随 / 同内容去重 / 切文件先写旧 / flush 排空 / 失败上报一次且不刷请求 / 恢复清错误态 / 先写后删 / 异常原样上抛 / dispose 停请求；优先 esbuild，缺失时退回 Node 22+ 类型擦除）。
+- 编辑器偏好逻辑：`node test/test-editor-prefs.mjs` 全部 PASS（18 项：首屏兜底解析含损坏/非法枚举回退 / 服务端值合并（缺键保留本地、用户刚改过的字段不被 hydration 弹回、其余字段仍正常 hydration）/ 推送判定（服务端有值比差异、缺键仅非默认值才推）；零依赖，Node 22+ 类型擦除直跑）。
 - 收藏夹 store 竞态：`node test/test-favorites-store.mjs` 全部 PASS（8 项：加载响应晚于提交 / 未加载即变更 / 并发添加乱序 / 加载失败不破坏性盲写 / 正常增删切换回归；经 esbuild 转译真实 TS store + mock fetch 驱动，esbuild 缺失时 SKIP——pnpm 布局会自动到 `node_modules/.pnpm` 下兜底查找）。
 - Files 偏好 store：`node test/test-finder-prefs-store.mjs` 全部 PASS（17 项：默认展开且未设置不写盘 / 服务端 false 生效 / 切换落盘且同值去重 / 加载在途本地胜出并补推 / GET 失败保持默认 / PUT 失败不回滚 UI 且下次重试成功）。
 - 页面级共享轮询：`node test/test-shared-poll.mjs` 全部 PASS（16 项：零订阅者续轮 / 订阅即首拉 / 暂停恢复 / 改间隔 / 401 停止与重登重启 / 慢接口防叠加 / 快照引用稳定 / reload 语义 / polls.ts 端点接线）。

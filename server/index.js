@@ -13,6 +13,7 @@
  *  - api/blog.js      博客构建触发（BlogApp）
  *  - api/chat.js      Hermes 聊天代理（ImcolinApp）
  *  - api/fs.js        文件管理（FinderApp / EditorApp）
+ *  - api/drafts.js    编辑器草稿缓存（EditorApp）
  *  - static.js        静态资源服务
  *  - router.js        API 路由分发与 WS 升级处理
  *
@@ -30,6 +31,7 @@ const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const blog = require('./api/blog');
 const audit = require('./api/audit');
+const drafts = require('./api/drafts');
 const { route, handleUpgrade } = require('./router');
 
 const server = http.createServer(async (req, res) => {
@@ -74,6 +76,10 @@ try {
 } catch (e) {
   console.warn('[warn] 登录审计日志初始化失败（不影响其他接口）:', (e && e.message) || e);
 }
+// 编辑器草稿：建目录 + 清理残留临时文件 / 过期 / 超条数；失败只 warn（编辑器保存照常）
+drafts.startDrafts().catch((e) => {
+  console.warn('[warn] 草稿目录初始化失败（不影响编辑器保存）:', (e && e.message) || e);
+});
 // ttyd 再延后一个 tick 并包 try/catch：即使 spawn 同步抛错也只记 warn，不影响已开始的监听
 setImmediate(() => {
   try {

@@ -463,7 +463,8 @@ status bar（左：上下文状态；右：全局信息）
 - 401 → `Unauthorized` → 应用 `handleLogout`；禁止把后端 401 当普通错误弹 alert（chat 上游 401 映射 502 的先例：watchdog 自身 401 才是登出信号）。
 - 流式（SSE）用 `streamChat` 模式：逐 chunk 回调 + 完成态 + 错误态齐全；工具调用/思考过程用可折叠 `<details>` 呈现，不刷屏。
 - 上传：XHR 出进度条 + 可取消；409 覆盖用 caution alert 确认。
-- 用户偏好（终端字体、编辑器主题等）存 localStorage，键名 `srv-` 前缀，读取时做类型校验回退。
+- 用户偏好（终端字体、编辑器主题等）经 `GET/PUT /api/prefs/:scope` 服务端持久化到 `~/.watchdog-os/data.json`（跨浏览器 / 重部署生效）；localStorage 同键仅作首屏兜底与升级迁移载体，键名 `srv-` 前缀，读取时做类型校验与枚举回退（`fontFamily` 会进入主题 CSS，必须白名单）。
+- 编辑中的未保存内容自动缓存为草稿（`/api/drafts`，落 `~/.watchdog-os/drafts`，列表不读正文）；恢复只能由用户显式选择（启动提醒 + File > Restore Draft…），**不自动载入**；保存成功或显式丢弃后清除该草稿。
 
 ---
 
@@ -484,7 +485,7 @@ status bar（左：上下文状态；右：全局信息）
 - [ ] 破坏性操作 = caution alert + 具体动词按钮 + `defaultButtonId` 指 cancel
 - [ ] 颜色全部走 CSS 变量；语义色集中 `format.ts`；间距用 HIG 变量；自绘样式 `sp-` 前缀
 - [ ] 数据经 `api.ts` + `usePolling`；401 登出；上次更新时间进状态栏
-- [ ] 未保存改动用 `onBeforeClose` veto；偏好 localStorage `srv-` 前缀
+- [ ] 未保存改动用 `onBeforeClose` veto；编辑类应用还需自动草稿缓存（保存 / 丢弃后清除）；偏好经 `/api/prefs/:scope` 持久化到服务端、localStorage 仅首屏兜底
 - [ ] `npm run build` 通过；按 AGENTS.md「验证」节执行相关冒烟测试
 
 ---

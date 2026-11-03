@@ -1,7 +1,7 @@
 // CodeMirror 6 封装：按扩展名动态加载语言高亮、社区主题切换、字号字体、撤销重做。
 // 文件管理器（只读预览）与文本编辑器（完整编辑）共用。
 import { useEffect, useRef } from 'react';
-import { Compartment, EditorState } from '@codemirror/state';
+import { Compartment, EditorState, Transaction } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
 import {
   EditorView,
@@ -38,16 +38,11 @@ import {
 import { dracula } from '@uiw/codemirror-theme-dracula';
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
+import { DEFAULT_EDITOR_FONT } from '../editorThemes';
 
 export type EditorThemeId = 'dracula' | 'githubDark' | 'githubLight' | 'vscodeDark';
 
-export const EDITOR_THEMES: Array<{ id: EditorThemeId; label: string }> = [
-  { id: 'dracula', label: 'Dracula' },
-  { id: 'githubDark', label: 'GitHub Dark' },
-  { id: 'githubLight', label: 'GitHub Light' },
-  { id: 'vscodeDark', label: 'VSCode Dark' },
-];
-
+/** 主题 / 字体清单与偏好逻辑共用同一份白名单（见 editorThemes.ts），此处只保留渲染用映射 */
 const DARK_THEMES: ReadonlySet<EditorThemeId> = new Set(['dracula', 'githubDark', 'vscodeDark']);
 
 // @uiw 主题包导出形态不一（Extension 或工厂函数），统一适配
@@ -57,16 +52,7 @@ function asExtension(v: unknown): Extension {
   return (typeof v === 'function' ? (v as () => Extension)() : v) as Extension;
 }
 
-export const EDITOR_FONTS: Array<{ value: string; label: string }> = [
-  { value: 'Consolas, "Courier New", monospace', label: 'Consolas' },
-  { value: '"JetBrains Mono", Consolas, monospace', label: 'JetBrains Mono' },
-  { value: '"Source Code Pro", Consolas, monospace', label: 'Source Code Pro' },
-  { value: 'Menlo, Monaco, "Courier New", monospace', label: 'Menlo / Monaco' },
-  { value: '"Courier New", monospace', label: 'Courier New' },
-  { value: 'monospace', label: '系统等宽字体' },
-];
-
-const DEFAULT_FONT = EDITOR_FONTS[0].value;
+const DEFAULT_FONT = DEFAULT_EDITOR_FONT;
 
 /* 扩展名 → 语言包 key；语言包按需动态 import，避免全部打进主包 */
 const EXT_LANG: Record<string, string> = {
@@ -232,13 +218,19 @@ export function CodeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 外部 value 同步（输入触发的回写值与文档一致时跳过，避免光标跳动）
+  // 外部 value 同步（输入触发的回写值与文档一致时跳过，避免光标跳动）。
+  // 必须排除在撤销栈之外：整篇 dispatch 若入栈，「打开文件后按一次 Ctrl+Z」会把文档还原成
+  // 挂载时的空串（空态先以 '' 建 doc），既造成假脏标记又会让自动草稿把空文件写盘。
+  // 跨文档切换由父组件传 key 重建 EditorState 兜底（否则撤销会跨文档串味）。
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     const cur = view.state.doc.toString();
     if (cur !== value) {
-      view.dispatch({ changes: { from: 0, to: cur.length, insert: value } });
+      view.dispatch({
+        changes: { from: 0, to: cur.length, insert: value },
+        annotations: Transaction.addToHistory.of(false),
+      });
     }
   }, [value]);
 

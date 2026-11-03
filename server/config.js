@@ -129,6 +129,13 @@ const cfg = {
     dedupeSec: envClampedInt('LOGIN_LOG_401_DEDUPE_SEC', 60, 0, 3600), // 同 IP + 同路径 401 合并窗口，0 = 关闭去重
   },
 
+  /* 编辑器草稿：自动缓存未保存内容，落盘独立目录（正文最大 2MB，不写 data.json） */
+  drafts: {
+    dir: envStr('DRAFT_DIR', ''), // 留空 = ~/.watchdog-os/drafts（支持 ~ 前缀）
+    maxEntries: envClampedInt('DRAFT_MAX_ENTRIES', 50, 1, 500),
+    retentionDays: envClampedInt('DRAFT_RETENTION_DAYS', 30, 1, 3650),
+  },
+
   /* Printer：CUPS 打印机与任务监控（依赖 ipptool / lpinfo，命令缺失时 available=false） */
   printer: {
     enabled: envBool('PRINTER_ENABLED', true),

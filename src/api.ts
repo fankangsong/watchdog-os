@@ -258,14 +258,19 @@ export const fsSetFavorites = (favorites: string[]) =>
     body: JSON.stringify({ favorites }),
   });
 
-/** Editor 视图偏好（服务端持久化到 ~/.watchdog-os/data.json，跨浏览器/重部署生效）。
- *  PUT 为部分合并语义：仅传需要变更的字段，未传字段保留服务端原值 */
+/** Editor 偏好（服务端持久化到 ~/.watchdog-os/data.json，跨浏览器/重部署生效）。
+ *  PUT 为部分合并语义：仅传需要变更的字段，未传字段保留服务端原值。
+ *  服务端只校验类型与长度，枚举（主题 id / 字体栈）由前端按 EDITOR_THEMES / EDITOR_FONTS 回退。 */
 export interface EditorServerPrefs {
   wordWrap?: boolean;
   showPreview?: boolean;
+  theme?: string;
+  fontSize?: number;
+  fontFamily?: string;
 }
 
-export const prefsGetEditor = () => request<{ editor: EditorServerPrefs }>('./api/prefs/editor');
+/** file 为服务端实际落盘路径（~/.watchdog-os/data.json），设置面板据此展示；PUT 不返回 */
+export const prefsGetEditor = () => request<{ editor: EditorServerPrefs; file?: string }>('./api/prefs/editor');
 
 export const prefsSetEditor = (editor: EditorServerPrefs) =>
   request<{ ok: true; editor: EditorServerPrefs }>('./api/prefs/editor', {
@@ -288,6 +293,57 @@ export const prefsSetFinder = (finder: FinderServerPrefs) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ finder }),
   });
+
+/* ---------- 编辑器草稿（/api/drafts）：未保存内容的自动缓存 ---------- */
+
+/** 源文件当前状态（服务端 stat 得出，只含元数据；列表里用来标「已变更 / 已删除」） */
+export interface DraftDiskState {
+  exists: boolean;
+  mtime: number | null;
+}
+
+/** 列表条目：**不含正文**（正文可能 2MB，列表只读文件头） */
+export interface DraftEntry {
+  id: string;
+  path: string;
+  name: string;
+  size: number;
+  updatedAt: number;
+  /** 草稿基于的磁盘 mtime；恢复时与当前 mtime 比对判断源文件是否已变 */
+  baseMtime: number | null;
+  disk: DraftDiskState;
+}
+
+export interface DraftFull extends DraftEntry {
+  content: string;
+}
+
+export interface DraftListResult {
+  drafts: DraftEntry[];
+  limits: { maxBytes: number; maxEntries: number; retentionDays: number };
+  dir: string;
+}
+
+export const draftsList = () => request<DraftListResult>('./api/drafts');
+
+export const draftsGet = (id: string) => request<DraftFull>(`./api/drafts/${enc(id)}`);
+
+/** 写入草稿（body 为 UTF-8 正文原文，与 /api/fs/write 同构）；baseMtime 供恢复时判断源文件是否已变 */
+export const draftsPut = (path: string, content: string, baseMtime: number | null) =>
+  request<{ ok: true; id: string; size: number; updatedAt: number; baseMtime: number | null }>(
+    `./api/drafts?path=${enc(path)}${baseMtime != null ? `&baseMtime=${baseMtime}` : ''}`,
+    { method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: content }
+  );
+
+/** 按路径删除（幂等）：保存成功 / 用户丢弃后调用，deleted=false 不算错误 */
+export const draftsDeleteByPath = (path: string) =>
+  request<{ ok: true; deleted: boolean }>(`./api/drafts?path=${enc(path)}`, { method: 'DELETE' });
+
+export const draftsDeleteById = (id: string) =>
+  request<{ ok: true; deleted: boolean }>(`./api/drafts/${enc(id)}`, { method: 'DELETE' });
+
+export const draftsDeleteAll = () =>
+  request<{ ok: true; deleted: number }>('./api/drafts', { method: 'DELETE' });
 
 /** 图片内联预览地址；download=1 时走附件下载（HttpOnly Cookie 鉴权天然可用） */
 export const fsRawUrl = (path: string, download = false) =>

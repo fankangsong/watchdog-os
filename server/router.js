@@ -21,6 +21,7 @@ const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { getDeepseekUsage, getZaiUsage } = require('./api/usage');
 const { fsRoute } = require('./api/fs');
 const { prefsRoute } = require('./api/prefs');
+const { draftsRoute } = require('./api/drafts');
 const audit = require('./api/audit');
 
 /**
@@ -205,6 +206,14 @@ async function route(req, res, url) {
       return unauthorized(req, res);
     }
     return prefsRoute(req, res, p);
+  }
+
+  /* ---- 编辑器草稿 API（未保存内容自动缓存，落盘 ~/.watchdog-os/drafts，统一 JWT 鉴权）---- */
+  if (p === '/api/drafts' || p.startsWith('/api/drafts/')) {
+    if (!checkAuth(req)) {
+      return unauthorized(req, res);
+    }
+    return draftsRoute(req, res, p, url);
   }
 
   /* ---- 登录审计日志 API（审查 + 统计 + CSV 导出，统一 JWT 鉴权）---- */

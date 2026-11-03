@@ -88,6 +88,8 @@ const jput = (url, body, H) =>
     // 默认读取：200 且 editor 为对象（不断言具体值——机器上可能有历史记录）
     const d0 = await (await fetch(`${BASE}/api/prefs/editor`, { headers: H })).json();
     ok('GET default', !!d0 && typeof d0.editor === 'object' && d0.editor !== null, JSON.stringify(d0.editor));
+    // GET 回传真实落盘路径：编辑器设置面板直接展示，省去"到底存哪了"的猜测
+    ok('GET returns data file path', typeof d0.file === 'string' && d0.file === DATA_FILE, d0.file);
 
     // 单字段写入 + 读回
     const p1 = await (await jput(`${BASE}/api/prefs/editor`, { editor: { wordWrap: true } }, H)).json();
@@ -102,6 +104,41 @@ const jput = (url, body, H) =>
     // 白名单：非法值/未知字段被忽略，不改变已存值
     const p3 = await (await jput(`${BASE}/api/prefs/editor`, { editor: { wordWrap: 'yes', extra: 1 } }, H)).json();
     ok('whitelist filters invalid', p3.editor.wordWrap === true && p3.editor.extra === undefined, JSON.stringify(p3.editor));
+
+    // ---- 新增的类型化字段（主题/字号/字体，编辑器偏好统一到服务端）----
+    const p4 = await (
+      await jput(`${BASE}/api/prefs/editor`, { editor: { theme: 'githubDark', fontSize: 18, fontFamily: 'Menlo, Monaco, monospace' } }, H)
+    ).json();
+    ok(
+      'PUT typed fields',
+      p4.editor.theme === 'githubDark' && p4.editor.fontSize === 18 && p4.editor.fontFamily === 'Menlo, Monaco, monospace',
+      JSON.stringify(p4.editor)
+    );
+    ok('typed write keeps booleans', p4.editor.wordWrap === true && p4.editor.showPreview === true, JSON.stringify(p4.editor));
+    const g4 = await (await fetch(`${BASE}/api/prefs/editor`, { headers: H })).json();
+    ok('typed fields read back', g4.editor.theme === 'githubDark' && g4.editor.fontSize === 18, JSON.stringify(g4.editor));
+
+    // 类型/范围校验：字符串型主题、越界字号、超长字体栈一律丢弃且不破坏已存值
+    const p5 = await (
+      await jput(`${BASE}/api/prefs/editor`, { editor: { theme: 123, fontSize: '14', fontFamily: 'x'.repeat(100) } }, H)
+    ).json();
+    ok(
+      'typed whitelist rejects invalid',
+      p5.editor.theme === 'githubDark' && p5.editor.fontSize === 18 && p5.editor.fontFamily === 'Menlo, Monaco, monospace',
+      JSON.stringify(p5.editor)
+    );
+    const p6 = await (await jput(`${BASE}/api/prefs/editor`, { editor: { fontSize: 99 } }, H)).json();
+    ok('fontSize out of range rejected', p6.editor.fontSize === 18, JSON.stringify(p6.editor));
+    const p7 = await (await jput(`${BASE}/api/prefs/editor`, { editor: { fontSize: 10.5 } }, H)).json();
+    ok('fontSize non-integer rejected', p7.editor.fontSize === 18, JSON.stringify(p7.editor));
+
+    // 老客户端只推布尔时，已存的类型化字段不被清掉（部分合并语义）
+    const p8 = await (await jput(`${BASE}/api/prefs/editor`, { editor: { showPreview: true } }, H)).json();
+    ok(
+      'boolean-only PUT keeps typed fields',
+      p8.editor.theme === 'githubDark' && p8.editor.fontSize === 18 && p8.editor.wordWrap === true,
+      JSON.stringify(p8.editor)
+    );
 
     // 非法 JSON body → 400
     const bad = await fetch(`${BASE}/api/prefs/editor`, {
