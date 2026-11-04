@@ -99,6 +99,7 @@ const cfg = {
     ttydPath: envStr('TTYD_PATH', 'ttyd'), // ttyd 可执行文件路径
     ttydPort: envInt('TTYD_PORT', 7681), // 监听端口（仅本机 127.0.0.1）
     ttydArgs: envJsonArray('TTYD_ARGS', ['bash']), // 要运行的 shell 及参数
+    cwd: envStr('TTYD_CWD', ''), // 终端启动工作目录；留空 = 用户主目录（支持 ~ 前缀）
     wsl: envBool('TTYD_WSL', false), // Windows 下经 WSL 运行 Linux 版 ttyd
   },
 

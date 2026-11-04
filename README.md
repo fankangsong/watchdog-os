@@ -141,6 +141,7 @@ TERMINAL_ENABLED=false  # true / 1 / yes / on 开启
 TTYD_PATH=ttyd           # ttyd 可执行文件路径
 TTYD_PORT=7681           # 仅监听 127.0.0.1
 TTYD_ARGS=["bash"]       # 要运行的 shell 及参数，JSON 数组
+TTYD_CWD=                # 终端启动工作目录；留空 = 用户主目录（~/），支持 ~ 前缀
 TTYD_WSL=false           # Windows 下经 WSL 运行 Linux 版 ttyd（此时忽略 TTYD_PATH）
 
 # ── 脚本任务 Runner（可选）──────────────────────────
@@ -162,6 +163,8 @@ HERMES_API_SERVER_KEY=   # Sessions API 专用 Bearer，为空则回退 HERMES_A
 HERMES_MODEL=hermes-agent
 HERMES_TIMEOUT_MS=300000
 ```
+
+> `TTYD_CWD` 留空时终端默认落在用户主目录 `~/`（与服务进程的启动目录无关）；配置后优先使用配置值，`~` / `~/xxx` 会自动展开。目录不存在时回退 `~/` 并打印 `[warn]`。
 
 > `TTYD_ARGS` 默认 `["bash"]`。若 shell 非登录 shell 不会加载用户 profile，导致 `~/.local/bin`、mise 管理的命令等「command not found」，建议改为 `TTYD_ARGS=["bash","-l"]` 或 `TTYD_ARGS=["zsh","-l"]` 对齐 ssh 登录环境。
 

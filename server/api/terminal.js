@@ -6,8 +6,11 @@
  */
 'use strict';
 
+const fs = require('fs');
 const http = require('http');
 const net = require('net');
+const os = require('os');
+const path = require('path');
 const { spawn } = require('child_process');
 const { cfg } = require('../config');
 const { send } = require('../lib/http');
@@ -20,9 +23,53 @@ let shuttingDown = false;     // 进程正在退出，停止子进程重试
 const TTYD_RETRY_MIN = 5000;  // 重试退避下限 ms
 const TTYD_RETRY_MAX = 60000; // 重试退避上限 ms
 
-/** WSL 模式的启动命令：先清理 WSL 内残留的 ttyd，再以登录环境拉起（~/.profile 的 PATH 生效）；
- *  -W 开启可写（ttyd 1.7.x 起默认只读模式，不加则键盘输入无效） */
-const WSL_TTYD_CMD = 'pkill -x ttyd 2>/dev/null; exec ttyd -W "$@"';
+/**
+ * 终端启动工作目录（TTYD_CWD）。
+ * 未配置时用用户主目录（~/）；配置了就以配置为准，支持 ~ 与 ~/xxx 前缀。
+ * 目录不存在或不是目录时 [warn] 并回退主目录 —— 否则 spawn 会 ENOENT 后无限退避重试。
+ */
+function resolveTerminalCwd() {
+  const home = os.homedir();
+  const raw = String(cfg.terminal.cwd || '').trim();
+  if (!raw) return home;
+  let p = raw;
+  if (p === '~') p = home;
+  else if (p.startsWith('~/') || p.startsWith('~\\')) p = path.join(home, p.slice(2));
+  p = path.resolve(p);
+  try {
+    if (!fs.statSync(p).isDirectory()) throw new Error('不是目录');
+    return p;
+  } catch {
+    console.warn(`[warn] 终端工作目录 "${p}" 不存在或不是目录，回退用户主目录 ${home}`);
+    return home;
+  }
+}
+
+/**
+ * ttyd 子进程的环境：剔除 .env 注入的 HOST。
+ * systemd 的 EnvironmentFile 会把监听地址写进服务进程环境，ttyd 再传给 shell；
+ * zsh 的 HOST 特殊参数优先取同名环境变量，于是提示符 / OSC 标题的主机名变成
+ * 「0.0.0.0」按首个点截断后的「0」（真实主机名只在 gethostname() 里）。
+ */
+function terminalEnv() {
+  const env = { ...process.env };
+  delete env.HOST;
+  return env;
+}
+
+/** 单引号安全包裹（WSL 侧是 shell 语义，路径可能含空格 / 特殊字符） */
+function shQuote(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+/** WSL 模式的启动命令：先清理 WSL 内残留的 ttyd，切到目标目录，再以登录环境拉起（~/.profile 的 PATH 生效）；
+ *  -W 开启可写（ttyd 1.7.x 起默认只读模式，不加则键盘输入无效）。
+ *  目录在 WSL 内解析：未配置 / ~ 交给 $HOME，配置值按原样 cd（失败回退 $HOME，不影响终端可用性）。 */
+function wslTtydCmd() {
+  const raw = String(cfg.terminal.cwd || '').trim();
+  const cd = !raw || raw === '~' ? 'cd "$HOME"' : `cd ${shQuote(raw)} 2>/dev/null || cd "$HOME"`;
+  return `pkill -x ttyd 2>/dev/null; ${cd}; exec ttyd -W "$@"`;
+}
 
 /**
  * 拉起 ttyd 子进程（仅监听 127.0.0.1）。
@@ -32,17 +79,22 @@ function startTtyd() {
   if (!cfg.terminal.enabled || shuttingDown || ttydProc) return;
   let cmd = cfg.terminal.ttydPath;
   let args = ['-i', '127.0.0.1', '-p', String(cfg.terminal.ttydPort), ...cfg.terminal.ttydArgs];
-  if (cfg.terminal.wsl && process.platform === 'win32') {
+  const isWsl = cfg.terminal.wsl && process.platform === 'win32';
+  const cwd = resolveTerminalCwd();
+  if (isWsl) {
     // Windows 本地联调：经 WSL 运行 Linux 版 ttyd，WSL2 会把 WSL 内监听的端口
     // 自动转发到 Windows 的 127.0.0.1；经 bash 登录环境启动以保证 ~/.local/bin 下的 ttyd 可见。
     // 仅 Windows 生效：同一目录在 WSL 内运行时忽略该开关，走原生 ttyd。
     cmd = 'wsl.exe';
-    args = ['-e', 'bash', '-lc', WSL_TTYD_CMD, 'bash', ...args];
+    args = ['-e', 'bash', '-lc', wslTtydCmd(), 'bash', ...args];
   }
   let proc;
   try {
     // stderr 保留用于诊断（如端口冲突时的 "Address already in use"），stdout 丢弃
-    proc = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    // cwd 只在原生 ttyd 生效；WSL 模式的目录已由 wslTtydCmd() 在 WSL 内 cd 处理
+    const spawnOpts = { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, env: terminalEnv() };
+    if (!isWsl) spawnOpts.cwd = cwd;
+    proc = spawn(cmd, args, spawnOpts);
   } catch (e) {
     ttydLastError = e.message;
     console.warn('[warn] ttyd 启动失败，终端暂不可用，稍后重试:', e.message);
@@ -78,7 +130,9 @@ function startTtyd() {
     );
     scheduleTtydRetry();
   });
-  console.log(`[sysprobe] ttyd 已拉起: 127.0.0.1:${cfg.terminal.ttydPort}  args=${args.join(' ')}`);
+  console.log(
+    `[sysprobe] ttyd 已拉起: 127.0.0.1:${cfg.terminal.ttydPort}  cwd=${isWsl ? cfg.terminal.cwd || '~' : cwd}  args=${args.join(' ')}`
+  );
 }
 
 /** ttyd 启动失败时按退避策略重试（5s 起，上限 60s） */
