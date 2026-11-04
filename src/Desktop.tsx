@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ClassicyAppManagerProvider,
   ClassicyDesktop,
@@ -9,6 +9,7 @@ import type { ClassicyStore } from 'classicy';
 import { logout } from './api';
 import { MobileShell } from './mobile/MobileShell';
 import { HostFsLazyLoader } from './hostFsAdapter';
+import { GlobalShortcuts, ShortcutsDialog } from './GlobalShortcuts';
 import { MonitorApp } from './apps/MonitorApp';
 import { DockerApp } from './apps/DockerApp';
 import { ImcolinApp } from './apps/ImcolinApp';
@@ -24,6 +25,7 @@ import { AuditApp } from './apps/AuditApp';
 import { DiskApp } from './apps/DiskApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
+const APPLE_MENU_SHORTCUTS_ID = 'sp-menu-shortcuts';
 
 /**
  * 关于 classicy 内置示例应用 Finder.app（桌面图标「Macintosh HD」，DOM 上是
@@ -38,8 +40,16 @@ type AppleMenuStoreApi = {
   setState: (updater: (state: ClassicyStore) => ClassicyStore | Partial<ClassicyStore>) => void;
 };
 
-// 在左上角苹果 LOGO 下拉菜单（系统菜单）中追加「退出登录」
-function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
+// 在左上角苹果 LOGO 下拉菜单（系统菜单）中追加「快捷键设置」与「退出登录」。
+// 两项必须由同一个组件重建：systemMenu 会被 classicy 持久化到 localStorage，
+// 函数无法序列化；分两个 effect 各自清理/追加会互相覆盖，且刷新后残留空壳项。
+function SystemMenuExtras({
+  onLogout,
+  onOpenShortcuts,
+}: {
+  onLogout: () => void;
+  onOpenShortcuts: () => void;
+}) {
   const setAppleMenuState = useAppManager as unknown as AppleMenuStoreApi;
 
   const handleLogout = useCallback(async () => {
@@ -59,7 +69,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
       // localStorage（classicyDesktopState），而函数无法被 JSON 序列化——刷新后残留项只剩
       // { id, title }，点击没有任何处理函数（表现为「点 Sign Out 没反应」）。
       // 因此每次挂载都先剔除旧项（连同尾部的分隔线），再用带 onClickFunc 的新项重建。
-      const cleaned = menu.filter((i) => i.id !== APPLE_MENU_LOGOUT_ID);
+      const cleaned = menu.filter((i) => i.id !== APPLE_MENU_LOGOUT_ID && i.id !== APPLE_MENU_SHORTCUTS_ID);
       while (cleaned.length > 0 && cleaned[cleaned.length - 1].id === 'spacer') cleaned.pop();
       return {
         System: {
@@ -71,6 +81,7 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
               systemMenu: [
                 ...cleaned,
                 { id: 'spacer' },
+                { id: APPLE_MENU_SHORTCUTS_ID, title: 'Keyboard Shortcuts…', onClickFunc: onOpenShortcuts },
                 { id: APPLE_MENU_LOGOUT_ID, title: 'Sign Out', onClickFunc: handleLogout },
               ],
             },
@@ -78,13 +89,17 @@ function AppleMenuLogoutItem({ onLogout }: { onLogout: () => void }) {
         },
       };
     });
-  }, [setAppleMenuState, handleLogout]);
+  }, [setAppleMenuState, handleLogout, onOpenShortcuts]);
 
   return null;
 }
 
 // 桌面：系统监控 / Docker / imcolin.fan / 终端 / Files（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器 / 登录审计 / 磁盘容量
 export function Desktop({ onLogout }: { onLogout: () => void }) {
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
+  const closeShortcuts = useCallback(() => setShortcutsOpen(false), []);
+
   return (
     <ClassicyAppManagerProvider
       // disableSimpleText
@@ -97,6 +112,8 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
     >
       <ClassicyDesktop startupScreen={false} startupLogo={ClassicyIcons.system.macosSvg}>
         <HostFsLazyLoader />
+        {/* 全局快捷键（默认 Ctrl+Q 退出当前应用）：挂在 Desktop 根节点，覆盖所有应用窗口 */}
+        <GlobalShortcuts />
         {/* 移动外壳：仅在手机断点（<768px）渲染首页网格与「返回首页」悬浮键，
             平板/桌面不渲染任何东西，13 个 app 的注册与窗口行为完全不变 */}
         <MobileShell />
@@ -113,8 +130,12 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
         <ConverterApp onLogout={onLogout} />
         <AuditApp onLogout={onLogout} />
         <DiskApp onLogout={onLogout} />
+        {/* 设置面板必须留在 ClassicyDesktop 内部：主题 CSS 变量（--color-system-*）
+            由 classicy 以内联样式注入在 .classicyDesktop 上，挂到根节点外侧会全部
+            取不到 → 背景/标题条变透明。 */}
+        <ShortcutsDialog open={shortcutsOpen} onClose={closeShortcuts} />
       </ClassicyDesktop>
-      <AppleMenuLogoutItem onLogout={onLogout} />
+      <SystemMenuExtras onLogout={onLogout} onOpenShortcuts={openShortcuts} />
     </ClassicyAppManagerProvider>
   );
 }

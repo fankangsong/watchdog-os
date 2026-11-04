@@ -752,6 +752,20 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 
 /* 恢复草稿对话框：比常规对话框宽，才放得下完整路径 */
 .sp-dialog-wide { width: 560px; }
+/* ---------- 全局快捷键设置 ---------- */
+/* 面板挂在 #classicyDesktop 下继承主题变量，层级必须高于 classicy 窗口（z-index 300） */
+.sp-shortcuts-mask { z-index: 1000; }
+.sp-shortcuts-dialog { width: 460px; }
+.sp-shortcuts-desc { font-size: 11px; color: #555; line-height: 1.5; }
+.sp-shortcuts-list { display: flex; flex-direction: column; gap: 4px; border: 1px solid rgba(0, 0, 0, 0.18); background: var(--color-white); padding: 6px; }
+.sp-shortcuts-row { display: flex; align-items: center; gap: 8px; }
+.sp-shortcuts-info { flex: 1 1 auto; min-width: 0; }
+.sp-shortcuts-name { font-size: 12px; font-weight: 700; }
+.sp-shortcuts-action-desc { font-size: 11px; color: #666; }
+.sp-shortcuts-key { flex: 0 0 auto; min-width: 88px; padding: 3px 8px; border: 1px solid var(--color-black); background: var(--color-white); box-shadow: inset -1px -1px 0 rgba(0, 0, 0, 0.25); color: inherit; font-family: var(--ui-font); font-size: 12px; line-height: 16px; cursor: pointer; }
+.sp-shortcuts-key.is-recording { background: #ffffcc; border-style: dashed; }
+.sp-shortcuts-key:focus-visible { outline: 2px solid var(--color-black); outline-offset: 1px; }
+.sp-shortcuts-error { font-size: 11px; color: #a40000; }
 .sp-draft-hint { font-size: 11px; color: #555; }
 .sp-draft-empty { padding: 18px 0; text-align: center; font-size: 12px; color: #666; }
 .sp-draft-list { max-height: 260px; overflow: auto; background: var(--color-white); border: 1px solid rgba(0, 0, 0, 0.25); }
