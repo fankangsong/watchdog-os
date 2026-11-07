@@ -147,7 +147,7 @@ const cfg = {
   /* Hermes 聊天代理：转发到 OpenAI 兼容上游。apiKey 等仅服务端持有，不回传任何响应 */
   hermes: {
     enabled: envBool('HERMES_ENABLED', false),
-    baseUrl: envStr('HERMES_BASE_URL', 'http://192.168.100.20:8642'),
+    baseUrl: envStr('HERMES_BASE_URL', 'http://127.0.0.1:8642'),
     apiKey: envStr('HERMES_API_KEY', ''), // 上游 Bearer（可为空）
     apiServerKey: envStr('HERMES_API_SERVER_KEY', ''), // Sessions API 专用 Bearer，为空回退 apiKey
     model: envStr('HERMES_MODEL', 'hermes-agent'), // 客户端未指定 model 时注入
@@ -156,15 +156,12 @@ const cfg = {
   // 大模型用量 Dashboard（余额/配额，/api/usage/* 代理；key 只存服务端，不回传前端）
   usage: {
     enabled: envBool('USAGE_ENABLED', false),
-    deepseekKey: envStr('DEEPSEEK_API_KEY', ''), // DeepSeek 上游 Bearer（留空经 SSH 从 Mac hermes 配置读取）
+    deepseekKey: envStr('DEEPSEEK_API_KEY', ''), // DeepSeek 上游 Bearer（留空从本机 hermes 配置读取）
     deepseekBaseUrl: envStr('DEEPSEEK_BASE_URL', ''), // 留空 = hermes 配置值优先，否则官方 https://api.deepseek.com
-    zaiKey: envStr('ZAI_API_KEY', ''), // 智谱 Coding 套餐 Key（与标准 API Key 不通用）
+    zaiKey: envStr('ZAI_API_KEY', ''), // 智谱（BigModel）API Key：账户余额查询用标准 API Key 即可
     zaiBaseUrl: envStr('ZAI_BASE_URL', 'https://open.bigmodel.cn'), // 国际站改 https://api.z.ai
-    // 两个 key 留空时的兜底：SSH 读 Mac 上 ~/.hermes/.env（mac 为 ~/.ssh/config 的免密别名；grep 只取所需键名）
-    sshCmd: envStr(
-      'USAGE_SSH_CMD',
-      'ssh -o BatchMode=yes -o ConnectTimeout=5 mac "grep -E \'^(DEEPSEEK_API_KEY|DEEPSEEK_BASE_URL|GLM_API_KEY|ZAI_API_KEY)=\' ~/.hermes/.env"'
-    ),
+    // 两个 key 留空时的兜底：读本机 hermes 的 .env（2026-11-01 hermes 已从 Mac 迁到本机 hermes-gateway）
+    envFile: envStr('USAGE_ENV_FILE', '/root/.hermes/.env'),
     timeoutMs: envInt('USAGE_TIMEOUT_MS', 15000),
   },
 };

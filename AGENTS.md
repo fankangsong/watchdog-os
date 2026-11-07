@@ -96,8 +96,8 @@ node server/index.js
 | 终端     | `TERMINAL_ENABLED` / `TTYD_PATH` / `TTYD_PORT` / `TTYD_ARGS`(JSON 数组) / `TTYD_CWD`（留空 = `~`）/ `TTYD_WSL`                     | `false` / `ttyd` / `7681` / `["bash"]` / 空 / `false`                           |
 | Runner   | `RUNNER_ENABLED` / `RUNNER_SCRIPT`（必配绝对路径）/ `RUNNER_SHELL` / `RUNNER_MAX_LOG_BYTES`                                    | `false` / `''` / `bash` / `5242880`                                              |
 | 打印机   | `PRINTER_ENABLED` / `PRINTER_INTERVAL` / `PRINTER_HISTORY_LIMIT`                                                               | `true` / `10000` / `200`                                                         |
-| Hermes   | `HERMES_ENABLED` / `HERMES_BASE_URL` / `HERMES_API_KEY` / `HERMES_API_SERVER_KEY` / `HERMES_MODEL` / `HERMES_TIMEOUT_MS`       | `false` / `http://192.168.100.20:8642` / `''` / `''` / `hermes-agent` / `300000` |
-| 用量     | `USAGE_ENABLED` / `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `ZAI_API_KEY` / `ZAI_BASE_URL` / `USAGE_SSH_CMD` / `USAGE_TIMEOUT_MS`  | `false` / `''`（留空经 SSH 读 Mac hermes 配置）/ `''`（hermes 配置值优先，默认官方）/ `''` / `https://open.bigmodel.cn` / `ssh … mac "grep … ~/.hermes/.env"` / `15000` |
+| Hermes   | `HERMES_ENABLED` / `HERMES_BASE_URL` / `HERMES_API_KEY` / `HERMES_API_SERVER_KEY` / `HERMES_MODEL` / `HERMES_TIMEOUT_MS`       | `false` / `http://127.0.0.1:8642` / `''` / `''` / `hermes-agent` / `300000` |
+| 用量     | `USAGE_ENABLED` / `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `ZAI_API_KEY` / `ZAI_BASE_URL` / `USAGE_ENV_FILE` / `USAGE_TIMEOUT_MS`  | `false` / `''`（留空读本机 hermes 配置）/ `''`（hermes 配置值优先，默认官方）/ `''` / `https://open.bigmodel.cn` / `/root/.hermes/.env` / `15000` |
 
 > `JWT_SECRET` 可用 `openssl rand -hex 32` 生成。**密钥与密码是两个独立秘密**：不要用密码派生密钥（旧实现下任意一个泄露的 token 都能离线反推密码），也不要复用同一字符串。换密钥等价于让所有人重新登录；改密码则不会影响已签发的 token。
 
@@ -403,7 +403,7 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 - 页面级共享轮询：`node test/test-shared-poll.mjs` 全部 PASS（16 项：零订阅者续轮 / 订阅即首拉 / 暂停恢复 / 改间隔 / 401 停止与重登重启 / 慢接口防叠加 / 快照引用稳定 / reload 语义 / polls.ts 端点接线）。
 - 退出登录收尾：`node test/test-session-store.mjs` 全部 PASS（11 项：会话相关 storage 清理且保留纯外观偏好 / 并发 401 只导航一次 / `wd-signed-out` 一次性标记 / 401 与主动退出同路径 / storage 被禁仍完成收尾；优先直接 import `.ts`，旧 Node 回退 esbuild）。
 - 登录审计：`node test/test-audit-log-api.js` 全部 PASS（28 项：登录成功/失败/坏 body/登出落盘、日志不含凭据、401 去重合并、审计接口 401、统计与筛选、CSV 的 BOM/表头/不受 limit 限制、疑似暴力破解命中、保留期清理、重启后可读；临时 `LOGIN_LOG_DIR`，零残留）。
-- 用量 Dashboard：`node test/test-usage-api.js` 全部 PASS（401 / 503 未启用 / key 未配置 503 / 200 转发透传 / 上游 401→502 / key 留空时经 USAGE_SSH_CMD 读取 hermes 配置并作为上游 Bearer；自起 mock 上游）。
+- 用量 Dashboard：`node test/test-usage-api.js` 全部 PASS（13 项：401 / 503 未启用 / key 未配置 503 / 200 转发透传 / 上游 401→502 / key 留空时经 USAGE_ENV_FILE 读取 hermes 配置并作为上游 key / BigModel 账户报告 200 且国内站用原始 API Key 认证 / `/api/usage/zai` 已下线 404；自起 mock 上游）。
 - 移动外壳：`node test/test-mobile-shell.mjs` 全部 PASS（36 项：三档断点边界含 iPad 分屏 320/507 / 首页图标过滤（classicy 内置 app、废纸篓、hidden、inApplications:false）/ 同名项去重且 app 优先 / 打开动作 event 优先 / 首页可见性只看未关闭窗口 / 返回首页窗口枚举 / 主窗口选择；优先直接 import `.ts`，旧 Node 回退 esbuild）。
 - 会话鉴权：`$env:PASSWORD='<密码>'; node test/test-smoke.js` 全部 PASS（31 项，含 Cookie 属性、`Secure` 的 auto 策略、响应体不含 token、请求头不通鉴权、畸形 Cookie 返回 401）。
 - 桌面图标：改桌面应用（新增/改名/换图标）或触碰 `Desktop.tsx` 的图标清理逻辑后，用浏览器实测 `document.querySelectorAll('.classicyDesktopIcon')` 的数量与 `id`（`id` 即 appId），确认没有多余图标（如 classicy 示例的 `Finder.app.shortcut`）。

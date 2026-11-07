@@ -868,15 +868,19 @@ export interface DeepseekBalance {
   balance_infos: Array<{ currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }>;
 }
 
-/** ZAI Coding 套餐配额（上游 quota/limit 响应原样透传，字段容错解析放前端） */
-export interface ZaiQuota {
+/** BigModel 标准 API 余额（上游账户报告接口原样透传；金额为人民币元，字段可能为 null） */
+export interface BigmodelBalance {
   code?: number;
   success?: boolean;
-  /** 业务失败文案（上游 HTTP 200 但 success=false，如「当前用户不存在coding plan」） */
   msg?: string;
   data?: {
-    level?: string;
-    limits?: Array<{ type: string; percentage?: number; usage?: number; currentValue?: number; remaining?: number }>;
+    balance?: number | null;
+    rechargeAmount?: number | null;
+    giveAmount?: number | null;
+    totalSpendAmount?: number | null;
+    todaySpendAmount?: number | null;
+    frozenBalance?: number | null;
+    availableBalance?: number | null;
   };
 }
 
@@ -900,7 +904,7 @@ async function fetchUsage<T>(path: string): Promise<UsageResult<T>> {
 }
 
 export const fetchDeepseekUsage = () => fetchUsage<DeepseekBalance>('./api/usage/deepseek');
-export const fetchZaiUsage = () => fetchUsage<ZaiQuota>('./api/usage/zai');
+export const fetchBigmodelUsage = () => fetchUsage<BigmodelBalance>('./api/usage/bigmodel');
 
 /* ---------- 登录审计日志（/api/audit/*，AuditApp）---------- */
 

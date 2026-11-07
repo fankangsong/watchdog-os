@@ -914,13 +914,6 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-usage-currency { font-size: 11px; color: #555; }
 .sp-usage-total { font-size: 16px; font-weight: bold; }
 .sp-usage-sub { font-size: 10px; color: #888; }
-.sp-usage-level { align-self: flex-start; font-size: 10px; text-transform: uppercase; background: #c9d4ee; padding: 0 6px; border-radius: 2px; }
-.sp-usage-quota { display: flex; flex-direction: column; gap: 2px; }
-.sp-usage-quota-label { display: flex; justify-content: space-between; font-size: 11px; color: #444; }
-.sp-usage-bar { height: 8px; border: 1px solid rgba(0, 0, 0, 0.3); background: rgba(0, 0, 0, 0.05); }
-.sp-usage-bar-fill { height: 100%; background: #4c68d8; }
-.sp-usage-bar-fill.warm { background: #c68a2e; }
-.sp-usage-bar-fill.hot { background: #c03030; }
 
 /* ---------- 桌面图标"已打开"态修正 ----------
    classicy 默认在应用窗口打开后把桌面图标渲染为轮廓棋盘网纹（图标本体 opacity:0 +

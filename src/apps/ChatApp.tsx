@@ -16,14 +16,14 @@ import {
   fetchChatSessionMessages,
   fetchChatSessions,
   fetchChatStatus,
+  fetchBigmodelUsage,
   fetchDeepseekUsage,
-  fetchZaiUsage,
   streamChat,
   Unauthorized,
+  type BigmodelBalance,
   type ChatMessage,
   type DeepseekBalance,
   type HermesSession,
-  type ZaiQuota,
 } from '../api';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 import { quitMenuItem } from '../quitMenuItem';
@@ -325,43 +325,29 @@ function UsageDeepseekCard({ state }: { state: UsageCard<DeepseekBalance> }) {
   );
 }
 
-/** ZAI 配额卡片内容（ok 态）：Coding 套餐无货币余额，以 5h/周/月配额余量呈现 */
-function UsageZaiCard({ state }: { state: UsageCard<ZaiQuota> }) {
-  // 同上：非 ok 态交 UsageState；ok 态（含上游 success=false）才走配额/文案渲染
+/** BigModel 余额卡片内容（ok 态）：可用余额大字 + 余额/充赠/累计消费明细 */
+function UsageBigmodelCard({ state }: { state: UsageCard<BigmodelBalance> }) {
   if (state.status !== 'ok') return <UsageState state={state} />;
-  const q = state.data;
-  if (q && q.success === false) {
-    // 上游 HTTP 200 但业务失败（如「当前用户不存在coding plan」——Key 是标准 API 而非 Coding 套餐）
-    return <div className="sp-usage-state err">{q.msg || 'Upstream error'}</div>;
-  }
-  const limits = q?.data?.limits ?? [];
-  const tokens = limits.filter((l) => l.type === 'TOKENS_LIMIT');
-  const time = limits.find((l) => l.type === 'TIME_LIMIT');
-  const level = state.data?.data?.level;
-  const rows: Array<{ label: string; pct?: number }> = [
-    { label: '5h window', pct: tokens[0]?.percentage },
-    { label: 'Weekly', pct: tokens[1]?.percentage },
-    { label: 'Monthly tools', pct: time?.percentage },
-  ];
-  const shown = rows.filter((r) => typeof r.pct === 'number');
+  const b = state.data;
+  if (b && b.success === false) return <div className="sp-usage-state err">{b.msg || 'Upstream error'}</div>;
+  const a = b?.data;
+  if (!a) return <div className="sp-usage-state">No balance data</div>;
+  const fmt = (n?: number | null) => (typeof n === 'number' ? n.toFixed(2) : '—');
   return (
     <>
-      {level && <div className="sp-usage-level">{level}</div>}
-      {shown.map((r) => (
-        <div key={r.label} className="sp-usage-quota">
-          <div className="sp-usage-quota-label">
-            <span>{r.label}</span>
-            <span>{r.pct}%</span>
-          </div>
-          <div className="sp-usage-bar">
-            <div
-              className={`sp-usage-bar-fill${(r.pct ?? 0) >= 95 ? ' hot' : (r.pct ?? 0) >= 80 ? ' warm' : ''}`}
-              style={{ width: `${Math.min(100, Math.max(0, r.pct ?? 0))}%` }}
-            />
-          </div>
+      <div className="sp-usage-balance">
+        <div className="sp-usage-balance-line">
+          <span className="sp-usage-currency">CNY</span>
+          <span className="sp-usage-total">{fmt(a.availableBalance ?? a.balance)}</span>
         </div>
-      ))}
-      {shown.length === 0 && <div className="sp-usage-state">No quota data</div>}
+        <div className="sp-usage-sub">Available · Balance {fmt(a.balance)}</div>
+      </div>
+      <div className="sp-usage-sub">
+        Recharged {fmt(a.rechargeAmount)} · Granted {fmt(a.giveAmount)} · Spent {fmt(a.totalSpendAmount)}
+      </div>
+      {typeof a.frozenBalance === 'number' && a.frozenBalance > 0 && (
+        <div className="sp-usage-sub">Frozen {fmt(a.frozenBalance)}</div>
+      )}
     </>
   );
 }
@@ -409,10 +395,10 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
   const loadSeqRef = useRef(0);
   // 等待态秒表显示值（等待起点存于 run.thinkStart，这里只存每秒 tick）
   const [thinkSec, setThinkSec] = useState(0);
-  // 用量 Dashboard：窗口条件渲染 + 两张卡片各自三态（互不影响）
+  // 用量 Dashboard：窗口条件渲染 + 各卡片各自三态（互不影响）
   const [usageOpen, setUsageOpen] = useState(false);
   const [dsUsage, setDsUsage] = useState<UsageCard<DeepseekBalance>>({ status: 'loading' });
-  const [zaiUsage, setZaiUsage] = useState<UsageCard<ZaiQuota>>({ status: 'loading' });
+  const [bmUsage, setBmUsage] = useState<UsageCard<BigmodelBalance>>({ status: 'loading' });
   const [usageAt, setUsageAt] = useState(0);
 
   // 当前查看会话对应的运行记录（currentId 优先，未关联会话回退临时键）
@@ -804,15 +790,15 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
     stickRef.current = true;
   }, [applyCurrentId, applyViewRunKey]);
 
-  /** 用量 Dashboard：并发拉取两家平台，卡片互不影响；Unauthorized 冒泡走统一登出 */
+  /** 用量 Dashboard：并发拉取各家平台，卡片互不影响；Unauthorized 冒泡走统一登出 */
   const loadUsage = useCallback(async () => {
     setUsageAt(Date.now());
     setDsUsage((prev) => ({ ...prev, status: 'loading' }));
-    setZaiUsage((prev) => ({ ...prev, status: 'loading' }));
+    setBmUsage((prev) => ({ ...prev, status: 'loading' }));
     try {
-      const [ds, zai] = await Promise.all([fetchDeepseekUsage(), fetchZaiUsage()]);
+      const [ds, bm] = await Promise.all([fetchDeepseekUsage(), fetchBigmodelUsage()]);
       setDsUsage(ds.ok ? { status: 'ok', data: ds.data } : { status: 'error', error: ds.error, disabled: ds.disabled });
-      setZaiUsage(zai.ok ? { status: 'ok', data: zai.data } : { status: 'error', error: zai.error, disabled: zai.disabled });
+      setBmUsage(bm.ok ? { status: 'ok', data: bm.data } : { status: 'error', error: bm.error, disabled: bm.disabled });
     } catch (e) {
       if (e instanceof Unauthorized) {
         handleLogout();
@@ -820,7 +806,7 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
       }
       const msg = e instanceof Error ? e.message : String(e);
       setDsUsage({ status: 'error', error: msg });
-      setZaiUsage({ status: 'error', error: msg });
+      setBmUsage({ status: 'error', error: msg });
     }
   }, [handleLogout]);
 
@@ -1098,8 +1084,8 @@ export function ChatApp({ onLogout }: { onLogout?: () => void }) {
               <UsageDeepseekCard state={dsUsage} />
             </div>
             <div className="sp-usage-card">
-              <div className="sp-usage-provider">ZAI</div>
-              <UsageZaiCard state={zaiUsage} />
+              <div className="sp-usage-provider">BigModel</div>
+              <UsageBigmodelCard state={bmUsage} />
             </div>
           </div>
         </ClassicyWindow>

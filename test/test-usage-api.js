@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /* 用量 Dashboard 代理冒烟测试（/api/usage/*）：零依赖。spawn server/index.js 子进程 +
    自起 mock 上游（DeepSeek /user/balance、ZAI quota/limit、恒 401 上游），验证：
-   401（未登录）/ 503（未启用）/ 503（本地与 SSH 均无 key）/ 200 转发透传 /
-   上游 401→502 / key 留空时经 USAGE_SSH_CMD 读取 hermes 配置并作为上游 Bearer。 */
+   401（未登录）/ 503（未启用）/ 503（本地与 hermes 配置均无 key）/ 200 转发透传 /
+   上游 401→502 / key 留空时经 USAGE_ENV_FILE 读取 hermes 配置并作为上游 key / ZAI 配额端点已下线。 */
 'use strict';
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -17,8 +17,10 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const ROOT = path.join(__dirname, '..');
 const PASSWORD = process.env.PASSWORD || 'test123';
 const JWT_SECRET = process.env.JWT_SECRET || 'test-only-jwt-secret-0123456789abcdef0123456789';
-/* mock 的 hermes .env：模拟 Mac 上 ~/.hermes/.env 的键名形状 */
-const MOCK_SSH_ENV = path.join(os.tmpdir(), 'srv-usage-hermes-env-' + Date.now());
+/* mock 的 hermes .env：模拟本机 /root/.hermes/.env 的键名形状 */
+const MOCK_HERMES_ENV = path.join(os.tmpdir(), 'srv-usage-hermes-env-' + Date.now());
+/* 确定不存在的配置路径：验证「无 key → 503」 */
+const MISSING_ENV = path.join(os.tmpdir(), 'srv-usage-missing-env-' + Date.now());
 
 let passed = 0;
 let failed = 0;
@@ -57,7 +59,7 @@ function startMock(port, mode) {
       );
       return;
     }
-    if (req.url === '/api/monitor/usage/quota/limit') {
+    if (req.url === '/api/biz/account/query-customer-account-report') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -65,7 +67,14 @@ function startMock(port, mode) {
           msg: '操作成功',
           success: true,
           auth,
-          data: { level: 'pro', limits: [{ type: 'TIME_LIMIT', percentage: 7 }, { type: 'TOKENS_LIMIT', percentage: 44 }, { type: 'TOKENS_LIMIT', percentage: 53 }] },
+          data: {
+            balance: 21.25,
+            rechargeAmount: 40,
+            giveAmount: 0,
+            totalSpendAmount: 18.75,
+            frozenBalance: 0,
+            availableBalance: 21.25,
+          },
         })
       );
       return;
@@ -115,14 +124,14 @@ async function login() {
     const r1 = await fetch(`${BASE}/api/usage/deepseek`, { headers: H });
     ok('disabled 503', r1.status === 503, `status=${r1.status}`);
     const r2 = await fetch(`${BASE}/api/usage/zai`, { headers: H });
-    ok('disabled zai 503', r2.status === 503, `status=${r2.status}`);
+    ok('zai endpoint removed 404', r2.status === 404, `status=${r2.status}`);
   } finally {
     child.kill();
     await new Promise((r) => setTimeout(r, 300));
   }
 
-  /* 阶段 2：启用但本地无 key、SSH 读取失败 → 503 not configured */
-  child = await startServer({ USAGE_ENABLED: 'true', USAGE_SSH_CMD: 'false' });
+  /* 阶段 2：启用但本地无 key、hermes 配置读不到 → 503 not configured */
+  child = await startServer({ USAGE_ENABLED: 'true', USAGE_ENV_FILE: MISSING_ENV });
   try {
     const cookie = await login();
     const r = await fetch(`${BASE}/api/usage/deepseek`, { headers: { Cookie: cookie } });
@@ -133,14 +142,14 @@ async function login() {
     await new Promise((r) => setTimeout(r, 300));
   }
 
-  /* 阶段 3：本地 key 优先（SSH 不参与）→ deepseek 200（auth echo = 本地 key）、zai 上游 401 → 502 */
+  /* 阶段 3：本地 key 优先（不读 hermes 配置）→ deepseek 200（auth echo = 本地 key）、bigmodel 上游 401 → 502 */
   child = await startServer({
     USAGE_ENABLED: 'true',
     DEEPSEEK_API_KEY: 'ds-test-key',
     DEEPSEEK_BASE_URL: GOOD,
     ZAI_API_KEY: 'zai-test-key',
     ZAI_BASE_URL: `http://127.0.0.1:${MOCK_401}`,
-    USAGE_SSH_CMD: 'false',
+    USAGE_ENV_FILE: MISSING_ENV,
   });
   try {
     const cookie = await login();
@@ -155,8 +164,8 @@ async function login() {
     ok('deepseek local key used', ds.auth === 'Bearer ds-test-key', `auth=${ds.auth}`);
     // auth echo 是 mock 自带的测试字段，其余 body 不得出现 key 明文
     ok('deepseek key not leaked', !JSON.stringify({ ...ds, auth: undefined }).includes('ds-test-key'));
-    const rzai = await fetch(`${BASE}/api/usage/zai`, { headers: H });
-    ok('zai upstream 401 -> 502', rzai.status === 502, `status=${rzai.status}`);
+    const rbm401 = await fetch(`${BASE}/api/usage/bigmodel`, { headers: H });
+    ok('bigmodel upstream 401 -> 502', rbm401.status === 502, `status=${rbm401.status}`);
     const r404 = await fetch(`${BASE}/api/usage/deepseek`, { method: 'POST', headers: H });
     ok('POST 404', r404.status === 404, `status=${r404.status}`);
   } finally {
@@ -164,29 +173,51 @@ async function login() {
     await new Promise((r) => setTimeout(r, 300));
   }
 
-  /* 阶段 4：本地 key 留空 → USAGE_SSH_CMD 读取 mock 的 hermes .env，key 与 DEEPSEEK_BASE_URL 均生效 */
+  /* 阶段 4：本地 key 留空 → USAGE_ENV_FILE 读取 mock 的 hermes .env，key 与 DEEPSEEK_BASE_URL 均生效 */
   fs.writeFileSync(
-    MOCK_SSH_ENV,
-    ['TERMINAL_TIMEOUT=60', 'DEEPSEEK_API_KEY=ds-ssh-key', `DEEPSEEK_BASE_URL=${GOOD}`, 'GLM_API_KEY=zai-ssh-key', '', ''].join('\n')
+    MOCK_HERMES_ENV,
+    ['TERMINAL_TIMEOUT=60', 'DEEPSEEK_API_KEY=ds-hermes-key', `DEEPSEEK_BASE_URL=${GOOD}`, 'GLM_API_KEY=zai-hermes-key', '', ''].join('\n')
   );
   child = await startServer({
     USAGE_ENABLED: 'true',
     ZAI_BASE_URL: GOOD,
-    USAGE_SSH_CMD: `cat ${MOCK_SSH_ENV}`,
+    USAGE_ENV_FILE: MOCK_HERMES_ENV,
   });
   try {
     const cookie = await login();
     const H = { Cookie: cookie };
     const rds = await fetch(`${BASE}/api/usage/deepseek`, { headers: H });
     const ds = await rds.json();
-    ok('ssh key deepseek 200', rds.status === 200 && ds.auth === 'Bearer ds-ssh-key', `status=${rds.status} auth=${ds.auth}`);
-    const rzai = await fetch(`${BASE}/api/usage/zai`, { headers: H });
-    const zai = await rzai.json();
-    ok('ssh key zai 200', rzai.status === 200 && zai.auth === 'Bearer zai-ssh-key', `status=${rzai.status} auth=${zai.auth}`);
+    ok('hermes env key deepseek 200', rds.status === 200 && ds.auth === 'Bearer ds-hermes-key', `status=${rds.status} auth=${ds.auth}`);
+    const rbm = await fetch(`${BASE}/api/usage/bigmodel`, { headers: H });
+    const bm = await rbm.json();
+    ok('hermes env key bigmodel 200', rbm.status === 200 && bm.auth === 'zai-hermes-key', `status=${rbm.status} auth=${bm.auth}`);
   } finally {
     child.kill();
     await new Promise((r) => setTimeout(r, 300));
-    try { fs.unlinkSync(MOCK_SSH_ENV); } catch { /* 清理失败不影响结论 */ }
+    try { fs.unlinkSync(MOCK_HERMES_ENV); } catch { /* 清理失败不影响结论 */ }
+  }
+
+  /* 阶段 5：BigModel 账户余额 → 国内站用原始 API Key（无 Bearer 前缀）转发 */
+  child = await startServer({
+    USAGE_ENABLED: 'true',
+    ZAI_API_KEY: 'zai-test-key',
+    ZAI_BASE_URL: GOOD,
+    USAGE_ENV_FILE: MISSING_ENV,
+  });
+  try {
+    const cookie = await login();
+    const rbm = await fetch(`${BASE}/api/usage/bigmodel`, { headers: { Cookie: cookie } });
+    const bm = await rbm.json();
+    ok(
+      'bigmodel 200 passthrough',
+      rbm.status === 200 && bm.success === true && bm.data.availableBalance === 21.25,
+      `status=${rbm.status}`
+    );
+    ok('bigmodel raw key auth', bm.auth === 'zai-test-key', `auth=${bm.auth}`);
+  } finally {
+    child.kill();
+    await new Promise((r) => setTimeout(r, 300));
   }
 
   mocks.forEach((m) => m.close());
