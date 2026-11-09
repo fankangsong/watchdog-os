@@ -1,11 +1,14 @@
 // Finder（文件管理器）→ 文本编辑器 联动桥：
 // 记录待打开路径并打开/聚焦编辑器窗口；窗口内容挂载时消费 pendingPath，
 // 若窗口已打开则通过 DOM 事件即时通知加载（两条路径互补，避免竞态）。
-import { ClassicyIcons, dispatch } from 'classicy';
+import { dispatch } from 'classicy';
+// 自绘像素图标（32×32，与 Terminal / Files 等桌面图标同一套）；必须带 ?no-inline，
+// 否则 Vite 内联出的 data URI 含单引号，会让 classicy 注入的 CSS 自定义属性静默失效。
+import editorIcon from './assets/icons/editor.svg?no-inline';
 
 export const EDITOR_APP_ID = 'srv-editor.app';
 export const EDITOR_APP_NAME = 'Editor';
-export const EDITOR_ICON = ClassicyIcons.applications.simpletext.app;
+export const EDITOR_ICON = editorIcon;
 export const EDITOR_WIN_ID = 'editor-main';
 export const EDITOR_OPEN_EVENT = 'srv-editor:open';
 

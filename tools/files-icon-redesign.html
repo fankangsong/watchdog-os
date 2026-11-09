@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Files · 图标重设计 · Pixel Art</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh; padding: 40px 24px 64px;
+    background: #e9e9ee; color: #23232b;
+    font: 13px/1.7 ui-monospace, "SFMono-Regular", Consolas, "Microsoft YaHei", monospace;
+  }
+  .sheet { max-width: 940px; margin: 0 auto; }
+  header { border-bottom: 2px solid #23232b; padding-bottom: 14px; margin-bottom: 26px; }
+  h1 { font-size: 22px; letter-spacing: .04em; }
+  .sub { color: #6a6a78; margin-top: 4px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .card { background: #fafafd; border: 1px solid #c3c3cf; padding: 18px; }
+  .card.pick { border: 2px solid #2a62b2; padding: 17px; }
+  h2 { font-size: 14px; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .badge { background: #2a62b2; color: #fff; font-size: 10px; padding: 1px 7px; letter-spacing: .06em; }
+  .card p.desc { color: #6a6a78; font-size: 12px; min-height: 40px; }
+  .stage-row { display: flex; gap: 18px; align-items: flex-end; margin-top: 14px; }
+  .stage-box { text-align: center; }
+  .stage { display: grid; image-rendering: pixelated; background: #fff;
+    background-image: conic-gradient(#c0c0ca 0 25%, #e2e2ea 0 50%, #c0c0ca 0 75%, #e2e2ea 0);
+    background-size: 16px 16px; border: 1px solid #c3c3cf; }
+  .stage i { display: block; }
+  .cap { color: #6a6a78; font-size: 11px; margin-top: 6px; }
+  section.notes { margin-top: 30px; background: #fafafd; border: 1px solid #c3c3cf; padding: 20px 24px; }
+  section.notes h3 { font-size: 13px; margin-bottom: 10px; }
+  ol { padding-left: 20px; }
+  li { margin-bottom: 7px; }
+  .rules { margin-top: 18px; border-top: 1px dashed #c3c3cf; padding-top: 14px; color: #50505e; font-size: 12px; }
+  code { background: #e6e6ee; padding: 1px 5px; }
+  footer { margin-top: 22px; color: #6a6a78; font-size: 11px; }
+  @media (max-width: 720px) { .cards { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <h1>Files · 图标重设计</h1>
+    <div class="sub">32×32 · string-array pixel art · Mac OS 9 / Platinum · 生成自 tools/pixel-icon.py</div>
+  </header>
+
+  <div class="cards">
+    <figure class="card pick">
+      <h2>新版：经典 macOS 打开文件夹 <span class="badge">已落地</span></h2>
+      <p class="desc">小圆角橙黄 tab 只露上沿，大圆角浅黄渐变面板在前；柔和暖色外框，无硬黑边。</p>
+      <div class="stage-row">
+        <div class="stage-box"><div class="stage" id="new-8x"></div><div class="cap">32px · 8× 放大</div></div>
+        <div class="stage-box"><div class="stage" id="new-16"></div><div class="cap">16px 缩略 · 8×</div></div>
+      </div>
+    </figure>
+    <figure class="card">
+      <h2>上一版：蓝色梯形打开文件夹</h2>
+      <p class="desc">暗蓝后片 + 亮蓝梯形前片的透视画法，靠明度差与敞口线交代「打开」。</p>
+      <div class="stage-row">
+        <div class="stage-box"><div class="stage" id="old-8x"></div><div class="cap">32px · 8× 放大</div></div>
+        <div class="stage-box"><div class="stage" id="old-16"></div><div class="cap">16px 缩略 · 8×</div></div>
+      </div>
+    </figure>
+  </div>
+
+  <section class="notes">
+    <h3>改动理由</h3>
+    <ol>
+      <li><b>按参考图换造型（本轮）</b>：不再用蓝梯形透视，改成小圆角橙黄 tab 在<b>后</b>（<code>x2..16 / y3..13</code>，下部被盖住只露 <code>y3..7</code>）+ 大圆角浅黄面板在<b>前</b>（<code>x1..30 / y8..29</code>，占约 80% 面积）。tab 宽约为面板一半、露出高度约 18%，比例对齐参考图。</li>
+      <li><b>柔和渐变代替深色描边</b>：新增 <code>J</code>（#ffc233 橙黄）/ <code>V</code>（#ffeaa8 浅黄）两色；前片顶部一条 <code>W</code> 亮高光 = 敞口线，中部 <code>V</code> 浅黄，底部 <code>y → Y</code> 逐行收窄压深；外框改用暖色 <code>o</code> 而非 <code>K</code> / <code>N</code> 硬黑边。</li>
+      <li><b>配色随参考图改为暖黄</b>：桌面语义由「蓝 = Files」变为「暖黄 = Files」。与 Editor 的琥珀笔记本靠形状区分 —— 本版是纯色块 + 圆角，没有书脊 / 绑带 / 书签带。</li>
+      <li><b>保留独立主体，无窗口外框</b>：仍不画条纹标题栏与 1px 黑边，文件夹占满画布、四周留 1~3px 透明边，与 watchdog / converter / editor 一致；16px 缩略下「小 tab + 大面板」依旧清楚。</li>
+    </ol>
+    <div class="rules">
+      规范约束（docs/design-spec.md §7.4）：<code>viewBox 0 0 32 32</code>、仅 <code>&lt;path&gt;</code> 无 <code>&lt;text&gt;/&lt;font&gt;</code>、
+      <code>shape-rendering="crispEdges"</code>、体积 &lt; 4 KB、光源左上（高光 + 暗边，不加投影）、
+      import 必须带 <code>?no-inline</code>。本版按参考图改为暖黄渐变 + 圆角，独立主体无外框。
+    </div>
+  </section>
+
+  <footer>本页零外部依赖：像素数据内联为 ART（name / width / height / palette / pixels），CSS Grid 逐格渲染。换图标后老用户需清 <code>localStorage.classicyDesktopState</code> 才能看到新图标。</footer>
+</div>
+<script>
+const ART = {
+  "new32": {
+    "name": "Files · 新版 32x32",
+    "width": 32,
+    "height": 32,
+    "palette": {
+      "K": "#3a3a44",
+      "D": "#6f6f7c",
+      "M": "#a0a0ab",
+      "L": "#d8d8de",
+      "W": "#ffffff",
+      "S": "#282830",
+      "B": "#111116",
+      "T": "#f6f6f8",
+      "O": "#2b2b33",
+      "N": "#1b3d72",
+      "h": "#a8cff5",
+      "b": "#4a86d8",
+      "m": "#2a62b2",
+      "w": "#f4f4f8",
+      "d": "#dcdde7",
+      "g": "#71717f",
+      "G": "#2c6e31",
+      "P": "#46a049",
+      "p": "#7cc47f",
+      "e": "#d98a8a",
+      "E": "#c46a6a",
+      "y": "#f2d488",
+      "Y": "#e8b84b",
+      "o": "#c09434",
+      "A": "#d8a878",
+      "a": "#b08050",
+      "r": "#cf3b2f",
+      "J": "#ffc233",
+      "V": "#ffeaa8"
+    },
+    "pixels": [
+      "................................",
+      "................................",
+      "................................",
+      ".....ooooooooo..................",
+      ".....JyyyyyyyJ..................",
+      "...JJJJJJJJJJJJJ................",
+      "..oJJJJJJJJJJJJJo...............",
+      "..oJJJJJJJJJJJJJo...............",
+      "....oooooooooooooooooooooooo....",
+      "....VWWWWWWWWWWWWWWWWWWWWWWV....",
+      "..VVVVVVVVVVVVVVVVVVVVVVVVVVVV..",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVVVVVVVVVVVVVVVVVVVVVVVVVVVVo.",
+      ".oVyyyyyyyyyyyyyyyyyyyyyyyyyyVo.",
+      ".oVyyyyyyyyyyyyyyyyyyyyyyyyyyVo.",
+      ".oVVyyyyyyyyyyyyyyyyyyyyyyyyVVo.",
+      "..VVVyyyyyyyyyyyyyyyyyyyyyyVVV..",
+      "....VVYYYYYYYYYYYYYYYYYYYYVV....",
+      "....oooooooooooooooooooooooo....",
+      "................................",
+      "................................"
+    ]
+  },
+  "new16": {
+    "name": "Files · 新版 16px",
+    "width": 16,
+    "height": 16,
+    "palette": {
+      "K": "#3a3a44",
+      "D": "#6f6f7c",
+      "M": "#a0a0ab",
+      "L": "#d8d8de",
+      "W": "#ffffff",
+      "S": "#282830",
+      "B": "#111116",
+      "T": "#f6f6f8",
+      "O": "#2b2b33",
+      "N": "#1b3d72",
+      "h": "#a8cff5",
+      "b": "#4a86d8",
+      "m": "#2a62b2",
+      "w": "#f4f4f8",
+      "d": "#dcdde7",
+      "g": "#71717f",
+      "G": "#2c6e31",
+      "P": "#46a049",
+      "p": "#7cc47f",
+      "e": "#d98a8a",
+      "E": "#c46a6a",
+      "y": "#f2d488",
+      "Y": "#e8b84b",
+      "o": "#c09434",
+      "A": "#d8a878",
+      "a": "#b08050",
+      "r": "#cf3b2f",
+      "J": "#ffc233",
+      "V": "#ffeaa8"
+    },
+    "pixels": [
+      "................",
+      "...oooo.........",
+      "..JyyyJJ........",
+      ".JJJJJJJo.......",
+      "..oWWWWWWWWWWo..",
+      ".VVVVVVVVVVVVVV.",
+      "oVVVVVVVVVVVVVVo",
+      "oVVVVVVVVVVVVVVo",
+      "oVVVVVVVVVVVVVVo",
+      "oVVVVVVVVVVVVVVo",
+      "oVVVVVVVVVVVVVVo",
+      "oVVVVVVVVVVVVVVo",
+      "oVyyyyyyyyyyyyVo",
+      ".VyyyyyyyyyyyyV.",
+      "..VYYYYYYYYYYV..",
+      "................"
+    ]
+  },
+  "old32": {
+    "name": "Files · 旧版 32x32",
+    "width": 32,
+    "height": 32,
+    "palette": {
+      "K": "#3a3a44",
+      "D": "#6f6f7c",
+      "M": "#a0a0ab",
+      "L": "#d8d8de",
+      "W": "#ffffff",
+      "S": "#282830",
+      "B": "#111116",
+      "T": "#f6f6f8",
+      "O": "#2b2b33",
+      "N": "#1b3d72",
+      "h": "#a8cff5",
+      "b": "#4a86d8",
+      "m": "#2a62b2",
+      "w": "#f4f4f8",
+      "d": "#dcdde7",
+      "g": "#71717f",
+      "G": "#2c6e31",
+      "P": "#46a049",
+      "p": "#7cc47f",
+      "e": "#d98a8a",
+      "E": "#c46a6a",
+      "y": "#f2d488",
+      "Y": "#e8b84b",
+      "o": "#c09434",
+      "A": "#d8a878",
+      "a": "#b08050",
+      "r": "#cf3b2f",
+      "J": "#ffc233",
+      "V": "#ffeaa8"
+    },
+    "pixels": [
+      "................................",
+      "................................",
+      "................................",
+      ".......NNNNNNNNNNN..............",
+      "......NbbbbbbbbbbbN.............",
+      "......NbmmmmmmmmmNN.............",
+      "......NbmmmmmmmmmNN.............",
+      "......NbmmmmmmmmmNNNNNNNNN......",
+      ".....NbmmmmmmmmmmmbbbbbbbbN.....",
+      ".....NbmmmmmmmmmmmmmmmmmmNN.....",
+      ".....NbmmmmmmmmmmmmmmmmmmNN.....",
+      ".....NbmmmmmmmmmmmmmmmmmmNN.....",
+      ".....NbmmmmmmmmmmmmmmmmmmNN.....",
+      ".....NbmmmmmmmmmmmmmmmmmmNN.....",
+      ".....NbmmNNNNNNNNNNNNNNmmNN.....",
+      ".....NbmNhhhhhhhhhhhhhhNmNN.....",
+      ".....NbNhbbbbbbbbbbbbbbhNNN.....",
+      ".....NbNhbbbbbbbbbbbbbbmNNN.....",
+      "......NhbbbbbbbbbbbbbbbbhN......",
+      ".....NhbbbbbbbbbbbbbbbbbbhN.....",
+      "....NhbbbbbbbbbbbbbbbbbbbbhN....",
+      "...NhbbbbbbbbbbbbbbbbbbbbbbhN...",
+      "..NhbbbbbbbbbbbbbbbbbbbbbbbbhN..",
+      ".NhbbbbbbbbbbbbbbbbbbbbbbbbbbhN.",
+      ".NhbbbbbbbbbbbbbbbbbbbbbbbbbbmN.",
+      ".NhbbbbbbbbbbbbbbbbbbbbbbbbbbmN.",
+      ".NhbbbbbbbbbbbbbbbbbbbbbbbbbbmN.",
+      ".NhbbbbbbbbbbbbbbbbbbbbbbbbbbmN.",
+      ".NhmmmmmmmmmmmmmmmmmmmmmmmmmmmN.",
+      "..NNNNNNNNNNNNNNNNNNNNNNNNNNNN..",
+      "................................",
+      "................................"
+    ]
+  },
+  "old16": {
+    "name": "Files · 旧版 16px",
+    "width": 16,
+    "height": 16,
+    "palette": {
+      "K": "#3a3a44",
+      "D": "#6f6f7c",
+      "M": "#a0a0ab",
+      "L": "#d8d8de",
+      "W": "#ffffff",
+      "S": "#282830",
+      "B": "#111116",
+      "T": "#f6f6f8",
+      "O": "#2b2b33",
+      "N": "#1b3d72",
+      "h": "#a8cff5",
+      "b": "#4a86d8",
+      "m": "#2a62b2",
+      "w": "#f4f4f8",
+      "d": "#dcdde7",
+      "g": "#71717f",
+      "G": "#2c6e31",
+      "P": "#46a049",
+      "p": "#7cc47f",
+      "e": "#d98a8a",
+      "E": "#c46a6a",
+      "y": "#f2d488",
+      "Y": "#e8b84b",
+      "o": "#c09434",
+      "A": "#d8a878",
+      "a": "#b08050",
+      "r": "#cf3b2f",
+      "J": "#ffc233",
+      "V": "#ffeaa8"
+    },
+    "pixels": [
+      "................",
+      "....NNNNN.......",
+      "...bbbbbbN......",
+      "...bmmmmmNNNN...",
+      "..NbmmmmmbbbbN..",
+      "..NbmmmmmmmmmN..",
+      "..NbmmmmmmmmmN..",
+      "..NbNhhhhhhNmN..",
+      "..NbhbbbbbbbNN..",
+      "...hbbbbbbbbh...",
+      "..hbbbbbbbbbbh..",
+      ".hbbbbbbbbbbbbh.",
+      "NhbbbbbbbbbbbbbN",
+      "NhbbbbbbbbbbbbbN",
+      ".Nmmmmmmmmmmmmm.",
+      "................"
+    ]
+  }
+};
+function render(id, art, scale) {
+  const el = document.getElementById(id);
+  el.style.gridTemplateColumns = 'repeat(' + art.width + ', ' + scale + 'px)';
+  el.style.gridAutoRows = scale + 'px';
+  const frag = document.createDocumentFragment();
+  art.pixels.forEach(function (row) {
+    for (const ch of row) {
+      const px = document.createElement('i');
+      px.style.background = art.palette[ch] || 'transparent';
+      frag.appendChild(px);
+    }
+  });
+  el.appendChild(frag);
+}
+render('new-8x', ART.new32, 8);
+render('new-16', ART.new16, 8);
+render('old-8x', ART.old32, 8);
+render('old-16', ART.old16, 8);
+</script>
+</body>
+</html>

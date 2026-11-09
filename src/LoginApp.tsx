@@ -6,6 +6,8 @@ import {
   ClassicyInput,
 } from 'classicy';
 import { fetchHealth, login } from './api';
+// 与桌面 WatchDog OS 应用共用同一张自绘像素图标，保持登录页 / 桌面品牌一致。
+import watchdogIcon from './assets/icons/watchdog.svg?no-inline';
 
 /** 状态栏的后端连通性（健康探测结果），仅用于展示，不拦截登录 */
 type ServerState = 'checking' | 'online' | 'offline';
@@ -91,7 +93,7 @@ export function LoginApp({ onSuccess }: { onSuccess: () => void }) {
           <div className="sp-login-brand">
             <img
               className="sp-login-brand-icon"
-              src={ClassicyIcons.applications.systemProfiler.app}
+              src={watchdogIcon}
               alt=""
             />
             <div className="sp-login-brand-text">

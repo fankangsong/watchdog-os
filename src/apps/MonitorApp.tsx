@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { ClassicyApp, ClassicyButton, ClassicyIcons, ClassicyPopUpMenu, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
+import { ClassicyApp, ClassicyButton, ClassicyPopUpMenu, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
 import { Unauthorized } from '../api';
 import { monitorPoll } from '../polls';
 import { useSharedPoll } from '../sharedPoll';
@@ -8,15 +8,18 @@ import { SystemInfoPanel } from '../components/SystemInfoPanel';
 import { ResourcesPanel } from '../components/ResourcesPanel';
 import { ProcessPanel } from '../components/ProcessPanel';
 import { quitMenuItem } from '../quitMenuItem';
+// 产品主应用改用自绘像素图标（登录页品牌图标复用同一个，见 LoginApp.tsx）；?no-inline 必需。
+import watchdogIcon from '../assets/icons/watchdog.svg?no-inline';
 
 const APP_ID = 'srv-monitor.app';
 const APP_NAME = 'WatchDog OS';
+const ICON = watchdogIcon;
 
 const INTERVALS = [1, 2, 5, 10, 30];
 
 // 窗口1：系统信息 + 资源使用率 + 系统进程
 export function MonitorApp({ onLogout }: { onLogout: () => void }) {
-  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.applications.systemProfiler.app);
+  const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 
   // 仅在本应用启动期间订阅共享轮询：未启动 / Quit 后不发请求，重开窗口立即首拉
   const open = useAppOpen(APP_ID);
@@ -44,7 +47,7 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
         menuChildren: [
           aboutMenuItem,
           { id: 'spacer' },
-          quitMenuItem(APP_ID, APP_NAME, ClassicyIcons.applications.systemProfiler.app),
+          quitMenuItem(APP_ID, APP_NAME, ICON),
         ],
       },
     ],
@@ -58,11 +61,11 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
   }, [m]);
 
   return (
-    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ClassicyIcons.applications.systemProfiler.app} defaultWindow="monitor-main">
+    <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="monitor-main">
       <ClassicyWindow
         id="monitor-main"
         title={m ? `${APP_NAME} · ${m.host.hostname}` : APP_NAME}
-        icon={ClassicyIcons.applications.systemProfiler.app}
+        icon={ICON}
         appId={APP_ID}
         scrollable={false}
         resizable

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ClassicyIcons, dispatch, useAppManager } from 'classicy';
+import { dispatch, useAppManager } from 'classicy';
 import { homeIcons, isHomeVisible, primaryWindowId } from './shellModel';
+// 与桌面应用 / 登录页共用同一个产品图标，保持三处品牌一致。
+import watchdogIcon from '../assets/icons/watchdog.svg?no-inline';
 
 /** 首页底部状态条的时钟：独立组件 + 自身定时器，避免秒级刷新带动整个图标网格重渲染 */
 function HomeClock() {
@@ -51,7 +53,7 @@ export function MobileHome() {
   return (
     <div className="sp-m-home" role="navigation" aria-label="Applications">
       <div className="sp-m-home-head">
-        <img className="sp-m-home-logo" src={ClassicyIcons.applications.systemProfiler.app} alt="" />
+        <img className="sp-m-home-logo" src={watchdogIcon} alt="" />
         <div className="sp-m-home-brand">
           <h1 className="sp-m-home-title">WatchDog OS</h1>
           <p className="sp-m-home-sub">Server Console</p>

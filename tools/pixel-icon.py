@@ -10,16 +10,78 @@
   src/assets/icons/terminal.svg   32x32, viewBox="0 0 32 32", crispEdges, 仅 <path>
   src/assets/icons/chat.svg       同上
   src/assets/icons/docker.svg     同上
-  src/assets/icons/runner.svg     同上
+  src/assets/icons/runner.svg     同上（窗口 + 绿色圆形播放徽章 + 日志行 + 进度条）
   src/assets/icons/blog.svg       同上（窗口 + 白纸文本行 + 铅笔）
   src/assets/icons/audit.svg      同上（窗口 + 日志纸 + 结果标记 + 放大镜）
-  src/assets/icons/disk.svg       同上（窗口 + 硬盘盘片 + 容量条）
-  src/assets/icons/converter.svg  同上（窗口 + 两张竖幅照片 + 琥珀色右向箭头）
-  src/assets/icons/files.svg      同上（窗口 + 打开的蓝色文件夹 + 露出的白纸）
+  src/assets/icons/disk.svg       同上（窗口 + 大圆形存储盘 + 环形容量弧 + 中心主轴）
+  src/assets/icons/converter.svg  同上（无外框，参考 Chat：蓝 → / 琥珀 ← 两个大箭头前后叠放）
+  src/assets/icons/files.svg      同上（无外框，参考 macOS 经典打开文件夹：橙黄 tab + 浅黄大圆角面板）
+  src/assets/icons/editor.svg     同上（无外框，参考 Chat：深蓝后本 + 琥珀前本前后叠放）
+  src/assets/icons/watchdog.svg   同上（独立 8 齿钢灰齿轮 + 中心绿运行灯；登录页/手机首页复用）
   src/assets/icons/fm-back.svg    16x16, viewBox="0 0 16 16"（窗口操作按钮带内嵌图标）
   src/assets/icons/fm-up.svg      同上
   src/assets/icons/fm-fav.svg     同上
-  tools/pixel-icon/preview/*.png   预览（非交付物，可删）
+  tools/preview/*.png             预览（非交付物，可删）
+  tools/files-icon-redesign.html  Files 图标设计稿（新/旧网格对照，自包含，随脚本重生成）
+  tools/icons-redesign.html       5 应用图标集设计稿（新/旧 32px + 16px 对照，同上）
+
+重设计记录（2026-11-09）：
+  Files —— 旧版「平蓝板 + 两条孤立横纹 + 4 行白纸」在 16px 缩略下糊成带黑点的
+     蓝抽屉。新版回到一整块经典文件夹：靠 tab 缺口认形、靠整圈浮雕高光/暗边
+     交代立体、折痕用亮暗成对（缩略后并回蓝面）。中途试过「后片 + 白纸 + 前片」
+     三层，白纸把蓝色切成左右两块、16px 下只剩三条蓝横杠，已否决。
+  Editor / WatchDog OS —— 原本用 classicy 内置图标（simpletext / systemProfiler），
+     与自绘像素体系不统一；改为自绘，并让登录页品牌图标复用 watchdog.svg。
+  Converter / Runner / Disks —— 旧网格语义偏弱（两张一样的照片 / 裸三角 / 单盘），
+     重做主体。三者旧网格分别保留为 build_*_legacy() 供对照与一键回滚。
+  第三轮（同日，用户指定具象符号风格）—— WatchDog OS 齿轮 / Editor 笔记本封面 /
+     Converter 字母 / Disks 存储盘，Runner 与 Files 保持不动：
+       · watchdog 改为独立齿轮主体，不套窗口（主应用 + 登录页/手机首页小尺寸 logo
+         要占满画布才读得出；chat / docker 已有独立主体先例）。
+       · converter 的 HEIC / JPG 用 SKILL.md 的 3×5 像素字体逐字照抄，禁止近似。
+       · 上一轮 4 个网格保留为 build_{editor,converter,disk,watchdog}_v2()，
+         设计稿的「旧版」对照即指向它们；最初的 *_legacy() 仍可回滚。
+  第四轮（同日，Converter 单点）—— 用户要求「交换箭头」创意：字母版保留为
+     build_converter_v3()，新版用上琥珀 → / 下蓝色 ← 两条镜像立体粗箭头，尾部各挂
+     一个 4x4 格式块。踩坑：outline 会把两条箭头中间的 2px 缝也补成深色，⇄ 糊成
+     一整块，故只用 bevel 不上外框。
+  第五轮（同日，Converter 单点）—— 用户要求「参考 Chat，去掉外边框，2 个大箭头
+     相互交换」：带窗口外框的平行箭头版保留为 build_converter_v4()，新版改成
+     build_chat() 式前后叠放：无窗口、透明底，后箭头蓝 → 偏左上 / 前箭头琥珀 ←
+     偏右下，由同一 14 行轮廓水平镜像 + 下移 8 行生成。这里与第四轮相反，
+     **必须用 outline** —— 前层的整圈深色描边正是把自己从后层「切」出来的层次线。
+  第六轮（同日，Editor 单点）—— 用户「参考这个风格」= 第五轮 Converter 的 Chat 式
+     无外框叠放。带窗口的单本封面版保留为 build_editor_v3()，新版改成后本深蓝偏
+     左上（x2..21 / y2..18）/ 前本琥珀偏右下（x10..29 / y10..26）、重叠 10 行。
+     实现要点：前层先铺一圈**实心 K 描边框**（x9..30 / y9..27）再铺封面内容，
+     两层才不会在同一处糊成一片。
+  第七轮（同日，Files 单点）—— 用户「去掉外边框，保留文件夹样式即可」：带窗口
+     版保留为 build_files_windowed()，新版只做减法，文件夹放大到占满画布
+     （tab x4..14 / y4..9，主体 x2..29 / y9..27），tab 凸角 / bevel 浮雕 /
+     N 外框 / 亮暗成对折痕一律保留；outline 顺带勾出的 tab 右缘与主体顶边正好
+     是经典文件夹缺口。至此 watchdog / converter / editor / files 四个独立主体，
+     两份设计稿（Files 专用稿 + 图标集总览）都补上了本轮新/旧对照。
+  第八轮（同日，Files 单点）—— 用户「文件夹改成被打开的样子」：闭合独立大文件夹
+     版保留为 build_files_closed()，新版拆成两层：后片 tab + 立着的背板压暗成
+     m/N 留在敞口阴影里（刻意比前片窄），前片是 y15 起上窄下宽
+     （x9..22 / 14px → x2..29 / 28px）的梯形盖（亮蓝 b + h 高光 / m 暗部），
+     盖住后片下部。靠明度差 + 梯形斜边 + outline 勾出的敞口横线交代「打开」。
+     两处迭代：① 第一版梯形只扩 6px，读作上下两个方块；② 后片与前片等宽时
+     16px 缩略仍糊成上下两色块，把后片收窄到 20px 后才留住「上窄下宽」。
+     仍不放白纸（第一轮三层方案在 26×19 小内容区会把蓝块切碎，虽已换成大
+     画布也不重踩）。两份设计稿对照改为「打开 vs 闭合」。
+  第九轮（同日，Files 单点）—— 用户给参考图（macOS 经典打开文件夹）：蓝色
+     梯形打开版保留为 build_files_open_blue()，新版改成小圆角橙黄 tab 在后
+     （x2..16 / y3..13，下部被盖住只露 y3..7）+ 大圆角浅黄渐变面板在前
+     （x1..30 / y8..29，占约 80%），顶部 W 高光敞口线、底部 y→Y 逐行压深，
+     外框用暖色 o 不用 K/N 硬黑边。调色板新增 J (#ffc233) / V (#ffeaa8)。
+     ⚠️ 桌面语义由「蓝 = Files」变为「暖黄 = Files」；与 Editor 琥珀笔记本靠
+     形状区分（纯色块 + 圆角 vs 书脊 / 绑带 / 书签带）。两份设计稿对照改为
+     「参考图风格 vs 蓝梯形打开版」。
+
+统一可读性约定：关键元素 ≥2px、对齐偶数坐标，保证 2×2 多数票降采样到 16px 后
+仍是清晰色块；1px 细节只允许作为 32px 专属（如旧的 watchdog 点状网格）。
+禁用 <text>/<font>：所有字形与箭头一律像素网格，不是字体。
 
 约束（docs/design-spec.md 7.4）：
   - 32 档：viewBox 0 0 32 32，与 classicy 内置桌面/标题栏图标同档（实测 32x32 PNG）
@@ -31,6 +93,7 @@
 零依赖：PNG 编码器用标准库 zlib + struct 手写。
 """
 
+import math
 import os
 import re
 import struct
@@ -87,6 +150,10 @@ PALETTE = {
     'a': '#b08050',     # 木杆暗部
     # --- Audit（登录审计：成功点复用 Runner 的 P 绿，失败点用红）---
     'r': '#cf3b2f',     # 失败标记（登录失败的行首小方块）
+    # --- Files（参考图：macOS 经典打开文件夹的暖黄渐变）---
+    'J': '#ffc233',     # tab 橙黄基色（比 Y 更亮、更贴参考图）
+    'V': '#ffeaa8',     # 前片顶部浅黄高光
+    # 前片主体用 y (#f2d488)，底部渐变压回 Y / o，外框用 o（暖色，不用 K 硬黑边）
     # --- 按钮内嵌图标（16 档工具栏字形，双色：N 深蓝描边 + b 蓝面）---
     'C': 'currentColor',  # 跟随宿主元素文字色（本组图标不用它，保留给将来的单色字形）
     # 本组取 'N' + 'b'（与对话气泡同一支蓝）：固定色，不随按钮文字变化。
@@ -351,8 +418,8 @@ def build_docker():
     return g
 
 
-def build_runner():
-    """Runner：Mac OS 9 窗口 + 绿色播放键 + 日志行（脚本任务构建）。"""
+def build_runner_legacy():
+    """【旧版，保留作设计稿对照 / 一键回滚】Runner：窗口 + 绿三角 + 日志行。"""
     g = blank()
 
     # 窗口外框（与 terminal 同构，保持桌面观感统一）x2..x29 / y2..y29
@@ -507,8 +574,8 @@ def build_audit():
     return g
 
 
-def build_disk():
-    """Disk：Mac OS 9 窗口 + 硬盘（盘片 + 主轴）+ 容量条（磁盘容量查看）。
+def build_disk_legacy():
+    """【旧版，保留作设计稿对照 / 一键回滚】Disk：窗口 + 硬盘盘片 + 容量条。
 
     与 terminal / runner / blog / audit 同构的窗口外框保证桌面观感统一；
     盘体内左侧是圆形盘片（外圈 K / 盘面 B / 主轴 W），右侧三条绿色容量条
@@ -569,8 +636,8 @@ def build_disk():
     return g
 
 
-def build_converter():
-    """Converter（HEIC → JPEG）：Mac OS 9 窗口 + 左右两张竖幅照片 + 中间琥珀色右向箭头。
+def build_converter_legacy():
+    """【旧版，保留作设计稿对照 / 一键回滚】Converter：窗口 + 两张竖幅照片 + 琥珀箭头。
 
     与 terminal / runner / blog / audit / disk 同构的窗口外框保证桌面观感统一。
     两张卡外形完全一致——换格式不改变构图，语义差异全交给中间的箭头承担：
@@ -643,8 +710,8 @@ def build_converter():
     return g
 
 
-def build_files():
-    """Files（文件管理器）：Mac OS 9 窗口 + 蓝色文件夹（左上 tab + 横纹前片）+ 探出的白纸。
+def build_files_legacy():
+    """【旧版，保留作设计稿对照 / 一键回滚】Files：窗口 + 平蓝文件夹 + 探出的白纸。
 
     与 terminal / runner / blog / audit / disk / converter 同构的窗口外框保证桌面观感统一。
 
@@ -704,6 +771,621 @@ def build_files():
     # 前片横纹（Mac OS 9 文件夹的凹槽）：两条 m 暗线，别画太满
     hline(g, 7, 20, 18, 'm')
     hline(g, 7, 22, 18, 'm')
+    return g
+
+
+def window_chrome():
+    """返回一张画好 Mac OS 9 同构窗口外框的空白网格：黑边 + 条纹标题栏 + 内容区。
+
+    terminal / runner / blog / audit / disk / converter / files 共用的那套底色。
+    抽出来给 Files 重设计复用；既有 build_* 保持原样，不改动已验收的像素。
+    """
+    g = blank()
+    fill(g, 2, 2, 28, 28, 'L')
+    hline(g, 2, 2, 28, 'K')
+    hline(g, 2, 29, 28, 'K')
+    vline(g, 2, 2, 28, 'K')
+    vline(g, 29, 2, 28, 'K')
+    fill(g, 3, 3, 26, 6, 'L')
+    fill(g, 3, 3, 26, 1, 'W')
+    fill(g, 3, 5, 26, 1, 'M')
+    fill(g, 3, 8, 26, 1, 'D')
+    fill(g, 13, 4, 5, 1, 'M')
+    fill(g, 3, 9, 26, 19, 'L')
+    fill(g, 28, 9, 1, 19, 'M')
+    fill(g, 3, 27, 26, 1, 'M')
+    fill(g, 3, 28, 26, 1, 'D')
+    fill(g, 28, 26, 1, 2, 'D')
+    return g
+
+
+def build_files_windowed():
+    """【上一版，保留作设计稿对照 / 回滚】Files：Mac OS 9 窗口 + 立体蓝文件夹。
+
+    相对旧版（平蓝板 + 两条孤立横纹 + 顶端 4 行白纸）的三处改动：
+      1. 不再往文件夹里塞「后片 / 白纸 / 前片」三层。32px 内容区只有 26×19，
+         白纸会把蓝色切成左右两块，缩到 16px 更只剩三条蓝横杠 —— 试过并否决。
+         改为一整块完整色块，靠 tab 缺口（左上凸起 + 右侧 N 轮廓线）认形。
+      2. 删掉两条孤立 m 横纹（16px 下的深色脏点来源），改由 bevel 的整圈
+         「顶/左 h 高光、底/右 m 暗部」+ outline 一圈 N 承担全部立体感。
+      3. 前片折痕用「1px h 亮 + 1px m 暗」成对高光带：32px 上是折角，
+         2×2 多数票降采样后并回蓝面，不会像孤立暗线那样留下脏点。
+    桌面语义不变：蓝块 = Files，浅色块 = 文档类应用（blog / audit）。
+    """
+    g = window_chrome()
+
+    # 文件夹剪影：tab x5..13 / y11..14 与主体 x4..26 / y14..24 共享 y14，连成一整块。
+    folder = [[False] * W for _ in range(H)]
+    sil_rect(folder, 5, 11, 13, 14)
+    sil_rect(folder, 4, 14, 26, 24)
+    bevel(g, folder, 'b', 'h', 'm')
+    outline(g, folder, 'N')
+
+    # 前片折痕：亮/暗成对，缩略时并回蓝面
+    hline(g, 5, 18, 21, 'h')
+    hline(g, 5, 19, 21, 'm')
+    return g
+
+
+def build_editor_v2():
+    """【上一轮，保留作设计稿对照 / 回滚】Editor：窗口 + 行号栏 + 彩色语法高亮行。
+
+    原来用的是 classicy 内置 simpletext 图标，与自绘像素图标不是一套。新图标靠
+    「行号栏 + 彩色代码行」与 blog（白纸 + 灰线 + 铅笔）、terminal（黑屏 + >）区分：
+    blog 写文章、Editor 写代码，颜色就是分界。代码行一律 2px 高并对齐偶数 y，
+    2×2 多数票降采样后仍是彩条，不会像 1px 细线那样被白底吃掉。
+    """
+    g = window_chrome()
+
+    # 编辑区：K 黑框 + W 白面
+    fill(g, 4, 10, 24, 15, 'K')
+    fill(g, 5, 11, 22, 13, 'W')
+
+    # 行号栏 x5..8（L 浅灰底 + M 分隔线 + 2x2 行号点，不写文字）
+    fill(g, 5, 11, 4, 13, 'L')
+    vline(g, 9, 11, 13, 'M')
+    for y in (12, 16, 20):
+        fill(g, 6, y, 2, 2, 'g')
+
+    # 三行语法高亮：蓝关键字 / 绿字符串 / 琥珀数字 / 灰注释 + 块状光标
+    fill(g, 11, 12, 5, 2, 'b')
+    fill(g, 17, 12, 6, 2, 'P')
+    fill(g, 24, 12, 3, 2, 'Y')
+    fill(g, 13, 16, 6, 2, 'Y')
+    fill(g, 20, 16, 5, 2, 'b')
+    fill(g, 11, 20, 4, 2, 'P')
+    fill(g, 16, 20, 5, 2, 'g')
+    fill(g, 22, 20, 2, 2, 'K')
+    return g
+
+
+def build_converter_v2():
+    """【上一轮，保留作设计稿对照 / 回滚】Converter：照片 → 琥珀箭头 → 文件卡。
+
+    旧版左右是两张一模一样的照片，看不出「格式变了」。新版把输出端换成一张
+    白纸文件卡（折角 + 灰文本行），左图右文 + 单向箭头把「图片 → 另一种文件」
+    的方向交代清楚；箭头用 bevel 立体琥珀（与 blog 铅笔同一支黄），缩略后仍是
+    内容区里唯一的高饱和焦点。
+    """
+    g = window_chrome()
+
+    # 左：竖幅山景照片 x4..12 / y10..24（K 外框 + 7x13 风景）
+    fill(g, 4, 10, 9, 15, 'K')
+    photo = [
+        'hhhhhhh',
+        'hhyyhhh',
+        'hhyyhhh',
+        'hhhhhhh',
+        'hhhhhhh',
+        'hhhphhh',
+        'hhpPPhh',
+        'hpppPPh',
+        'pppPPPP',
+        'pppPPPP',
+        'GGGGGGG',
+        'GGGGGGG',
+        'GGGGGGG',
+    ]
+    blit(g, photo, 5, 11)
+
+    # 右：白纸文件卡 x20..27 / y10..24，右上折角（d 灰面 + K 斜边）
+    fill(g, 20, 10, 8, 15, 'K')
+    fill(g, 21, 11, 6, 13, 'W')
+    for i, x0 in enumerate((24, 25, 26)):
+        hline(g, x0, 11 + i, 27 - x0, 'g')   # 深灰折角（d 太浅，16px 下读不出）
+    g[11][24] = 'K'
+    g[12][25] = 'K'
+    g[13][26] = 'K'
+    fill(g, 22, 16, 5, 2, 'g')
+    fill(g, 22, 19, 4, 2, 'g')
+
+    # 中：右向立体箭头 x13..19 / y13..21（沿用旧版已验证的大箭头，右移 1px）
+    arrow = [[False] * W for _ in range(H)]
+    for i, (x0, x1) in enumerate(((19, 19), (18, 19), (17, 19),
+                                  (13, 19), (13, 19), (13, 19),
+                                  (17, 19), (18, 19), (19, 19))):
+        sil_rect(arrow, x0, 13 + i, x1, 13 + i)
+    bevel(g, arrow, 'Y', 'y', 'o')
+    return g
+
+
+def build_runner():
+    """Runner（脚本任务）：窗口 + 绿色圆形播放徽章 + 任务日志行 + 底部进度条。
+
+    旧版是灰窗口里一个裸绿三角 + 两条灰线，缩略后像一个孤零零的箭头。新版给
+    播放键套上立体圆徽章（G 外圈 / P 面 / p 左上高光 / K 描边），右侧三条日志行
+    与底部绿进度条一起交代「任务正在跑、有输出、有进度」。全部横条 2px 高。
+    """
+    g = window_chrome()
+
+    # 圆形徽章，圆心 (10.5, 16.5)
+    cx, cy = 10.5, 16.5
+    for y in range(10, 23):
+        for x in range(4, 17):
+            d = ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2) ** 0.5
+            if d <= 5.8:
+                g[y][x] = 'G' if d > 4.7 else ('p' if (x < cx and y < cy) else 'P')
+            elif d <= 6.7:
+                g[y][x] = 'K'
+
+    # 白色播放三角：纯色实心、加大到 6x7。bevel 的明暗分块会在 2×2 降采样后
+    # 把三角打成十字形，这里宁可少一层立体感也要保住 16px 的「▶」。
+    for i, w in enumerate((2, 3, 4, 5, 6, 5, 4, 3, 2)):
+        hline(g, 8, 12 + i, w, 'W')
+
+    # 任务日志行（长度递减）
+    fill(g, 18, 12, 9, 2, 'g')
+    fill(g, 18, 16, 7, 2, 'g')
+    fill(g, 18, 20, 5, 2, 'g')
+    # 进度条：M 轨道 + P 已执行
+    fill(g, 5, 23, 22, 2, 'M')
+    fill(g, 5, 23, 13, 2, 'P')
+    return g
+
+
+def build_disk_v2():
+    """【上一轮，保留作设计稿对照 / 回滚】Disks：窗口 + 三块层叠硬盘。
+
+    旧版是「一块盘 + 三条容量条」，语义停在单盘。新版按侧视画三块盘（对应
+    DiskPanel 的多个挂载点）：K 外框 + W 银白面 + P 状态灯 + M 散热槽 + b 用量条，
+    用量长度递减。三块对齐 y10/16/22、每块 4px 高，正好落在 2×2 降采样块的边界上，
+    16px 下是三条清晰的盘体而不是糊成一片。
+    """
+    g = window_chrome()
+    for i, y in enumerate((10, 16, 22)):
+        fill(g, 4, y, 24, 4, 'K')              # 盘体外框 x4..27 / y..y+3
+        fill(g, 5, y + 1, 22, 2, 'W')         # 银白面
+        fill(g, 6, y + 1, 2, 2, 'P')          # 状态灯（绿）
+        for x in (10, 12, 14):
+            vline(g, x, y + 1, 2, 'M')        # 散热槽
+        fill(g, 18, y + 1, 9, 2, 'M')         # 容量轨道
+        fill(g, 18, y + 1, (7, 5, 3)[i], 2, 'b')
+    return g
+
+
+def build_watchdog_v2():
+    """【上一轮，保留作设计稿对照 / 回滚】WatchDog OS：窗口 + 实时曲线 + 三色灯。
+
+    原来同样用 classicy 内置图标（systemProfiler）。作为产品主应用改自绘：内容区
+    是一条 2px 粗的阶梯折线（CPU / 流量实时曲线，p 上沿高光），底下三颗状态灯
+    （P 绿 / Y 琥珀 / r 红 = CPU / 内存 / 温度）。点状仪表网格是 32px 专属细节，
+    1px 散点在 2×2 多数票降采样后会被 L 底吃掉，不会污染 16px 观感。
+    登录页品牌图标也复用本图标，桌面与登录页保持一致。
+    """
+    g = window_chrome()
+
+    # 仪表网格（点状虚线，仅大尺寸可见）
+    for y in (13, 18, 23):
+        for x in range(5, 27, 3):
+            g[y][x] = 'M'
+
+    # 实时曲线：水平段 2px 粗 + 竖直连接段，p 为上沿高光
+    segs = [(5, 9, 20), (9, 13, 16), (13, 16, 18),
+            (16, 19, 11), (19, 23, 17), (23, 26, 14)]
+    for (x0, x1, y) in segs:
+        fill(g, x0, y, x1 - x0 + 1, 2, 'P')
+        hline(g, x0, y, x1 - x0 + 1, 'p')
+    for i in range(len(segs) - 1):
+        x = segs[i][1]
+        y0, y1 = segs[i][2], segs[i + 1][2]
+        lo, hi = min(y0, y1), max(y0, y1)
+        fill(g, x, lo, 2, hi - lo + 2, 'P')
+        vline(g, x, lo, hi - lo + 2, 'p')
+
+    # 三色状态灯
+    fill(g, 5, 24, 3, 2, 'P')
+    fill(g, 9, 24, 3, 2, 'Y')
+    fill(g, 13, 24, 3, 2, 'r')
+    return g
+
+
+def build_watchdog():
+    """WatchDog OS：独立 8 齿钢灰齿轮 + 中心绿运行灯（主应用 / 品牌 logo）。
+
+    本轮「齿轮风格」：系统引擎的具象符号。刻意不套窗口外框 —— 齿轮要占满画布
+    才撑得住 16px 缩略与登录页的小尺寸 logo，chat / docker 已有独立主体先例。
+    齿 = 半径 10 的圆盘 + 8 根沿 45° 方向伸到半径 13、宽 5px 的方头齿；不用
+    正弦波形，像素画里方齿才立得住。bevel 给左上 W 高光 / 右下 M 暗部，outline
+    补 1px K 外框；中心深色轴孔里一颗 2x2 P 绿点 = 看门狗正在运行。
+    """
+    g = blank()
+    cx = cy = 15.5
+    gear = [[False] * W for _ in range(H)]
+    for y in range(H):
+        for x in range(W):
+            dx, dy = x + 0.5 - cx, y + 0.5 - cy
+            r = math.hypot(dx, dy)
+            if r <= 10.0:
+                gear[y][x] = True
+                continue
+            for k in range(8):
+                a = k * math.pi / 4
+                ca, sa = math.cos(a), math.sin(a)
+                p = dx * ca + dy * sa
+                q = -dx * sa + dy * ca
+                if 9.0 <= p <= 13.0 and abs(q) <= 2.4:
+                    gear[y][x] = True
+                    break
+    bevel(g, gear, 'L', 'W', 'M')
+    outline(g, gear, 'K')
+
+    # 中心运行灯：整颗绿盘 P + 深色轴座 D。2x2 小绿点会在 2×2 降采样里被
+    # 深色孔吃掉，改成直径 5px 的绿盘后 16px 仍是明显的绿心。
+    for y in range(H):
+        for x in range(W):
+            if not gear[y][x]:
+                continue
+            r = math.hypot(x + 0.5 - cx, y + 0.5 - cy)
+            if r <= 2.6:
+                g[y][x] = 'P'
+            elif r <= 3.6:
+                g[y][x] = 'D'
+    g[14][14] = 'p'                    # 左上高光（32px 细节）
+    g[14][15] = 'p'
+    return g
+
+
+def build_editor_v3():
+    """【上一版，保留作设计稿对照 / 回滚】Editor：窗口 + 合上的琥珀笔记本封面。
+
+    「笔记本封面风格」：一本合上的皮面本子正视，不画打开的内页（那是 Blog 的白纸）。
+    书脊（左深棕 + 一道亮棱）、弹性绑带（右深色竖条）、两道压印标题线、底沿垂出的
+    红书签带，四处细节凑出 Moleskine 质感；暖琥珀封面在满桌蓝灰图标里也独一份。
+    压印线与书签带均 ≥2px，16px 缩略不会消失。
+    """
+    g = window_chrome()
+
+    # 封面 x6..25 / y9..23：K 外框 + 琥珀皮面（左上 y 高光、右下 o 暗部）
+    fill(g, 6, 9, 20, 15, 'K')
+    fill(g, 7, 10, 18, 13, 'Y')
+    hline(g, 7, 10, 18, 'y')
+    hline(g, 7, 22, 18, 'o')
+    vline(g, 24, 10, 13, 'o')
+
+    # 书脊 x7..9（深棕 a/o）+ 右侧一道亮棱 x10
+    fill(g, 7, 10, 3, 13, 'a')
+    vline(g, 7, 10, 13, 'o')
+    vline(g, 10, 10, 13, 'y')
+
+    # 弹性绑带 x21..22 + 底部小扣
+    fill(g, 21, 10, 2, 13, 'K')
+    fill(g, 21, 20, 2, 2, 'D')
+
+    # 封面压印标题（两条 2px 暗线，不写文字）
+    fill(g, 13, 14, 7, 2, 'o')
+    fill(g, 13, 18, 5, 2, 'o')
+
+    # 书签带从封面底沿垂出（红 r + 末端暗红 E）
+    fill(g, 17, 24, 3, 3, 'r')
+    hline(g, 17, 26, 3, 'E')
+    return g
+
+
+def build_converter_v3():
+    """【上一版，保留作设计稿对照 / 回滚】Converter：3×5 像素字母 HEIC / JPG 标签条。
+
+    「字母风格」：字母严格照抄 skills/pixelart/SKILL.md 的 3×5 参考表（不自行近似），
+    字符间 1px 间隔。上条浅蓝 h 面 + 深蓝 N 字 = 源格式，下条浅绿 p 面 + 深绿 G 字 =
+    目标格式，中间琥珀下箭头 = 转换方向。两条各 7px 高，2×2 降采样后仍是完整色带，
+    字母在 32px 下逐个可读、在 16px 下并成文字纹理。
+    """
+    g = window_chrome()
+
+    font = {
+        'H': ['#.#', '#.#', '###', '#.#', '#.#'],
+        'E': ['###', '#..', '###', '#..', '###'],
+        'I': ['###', '.#.', '.#.', '.#.', '###'],
+        'C': ['###', '#..', '#..', '#..', '###'],
+        'J': ['.##', '..#', '..#', '#.#', '##.'],
+        'P': ['###', '#.#', '###', '#..', '#..'],
+        'G': ['###', '#..', '#.#', '#.#', '###'],
+    }
+
+    def draw_text(s, x0, y0, fg):
+        for i, c in enumerate(s):
+            for j, row in enumerate(font[c]):
+                for k, v in enumerate(row):
+                    if v == '#':
+                        g[y0 + j][x0 + i * 4 + k] = fg
+
+    # 上：HEIC 标签
+    fill(g, 4, 9, 24, 7, 'N')
+    fill(g, 5, 10, 22, 5, 'h')
+    draw_text('HEIC', 8, 10, 'N')
+
+    # 中：琥珀下向箭头（柄 2px → 头 6px → 收 4px）
+    fill(g, 15, 16, 2, 2, 'Y')
+    fill(g, 13, 18, 6, 1, 'Y')
+    fill(g, 14, 19, 4, 1, 'o')
+
+    # 下：JPG 标签
+    fill(g, 4, 20, 24, 7, 'G')
+    fill(g, 5, 21, 22, 5, 'p')
+    draw_text('JPG', 11, 21, 'G')
+    return g
+
+
+def build_disk():
+    """Disks：窗口 + 大圆形存储盘（银色盘面 + 环形容量弧 + 中心主轴）。
+
+    「存储盘风格」= 一眼看得出是「盘」：占满内容区的大圆盘，外圈一圈 P 绿 / M 灰
+    容量弧（绿弧约 65% 已用，呼应 DiskPanel 的挂载点使用率），中心 S 深色主轴 +
+    W 高光。盘面按左上 W / 右下 M 做金属反光；比上一轮三条横带更像存储介质，
+    也不会和 audit 的放大镜（蓝玻璃圆 + 斜柄）撞。
+    """
+    g = window_chrome()
+    cx, cy, R = 15.5, 17.5, 8.5
+    for y in range(9, 27):
+        for x in range(3, 29):
+            dx, dy = x + 0.5 - cx, y + 0.5 - cy
+            r = math.hypot(dx, dy)
+            if r > R:
+                continue
+            if r > R - 1:
+                g[y][x] = 'K'                     # 盘缘外框
+                continue
+            if r >= 6.0:                         # 环形容量弧
+                ang = math.atan2(dx, -dy)
+                if ang < 0:
+                    ang += 2 * math.pi
+                g[y][x] = 'P' if ang <= 2 * math.pi * 0.65 else 'M'
+                continue
+            # 金属反光：左上亮、右下暗；高光收窄，否则浅色底上像圆盘缺了一角
+            s = dx + dy
+            g[y][x] = 'W' if s < -6 else ('M' if s > 5 else 'L')
+
+    # 中心主轴（S 深色 + D 环）+ 2x2 高光
+    for y in range(9, 27):
+        for x in range(3, 29):
+            r = math.hypot(x + 0.5 - cx, y + 0.5 - cy)
+            if r <= 2.3:
+                g[y][x] = 'S'
+            elif r <= 3.2:
+                g[y][x] = 'D'
+    fill(g, 14, 16, 2, 2, 'W')
+    return g
+
+
+def build_converter_v4():
+    """【上一版，保留作设计稿对照 / 回滚】Converter：带窗口外框的平行 ⇄ 双箭头。
+
+    用户指定「交换箭头」：不再用字母标签，改为上排琥珀右向箭头、下排蓝色左向箭头，
+    两条粗箭头首尾反向，一眼就是「互换」。各自尾部挂一个 4x4 格式块（左端浅蓝 h /
+    右端浅绿 p，沿用上一版 HEIC / JPG 标签条的取色），把「两个格式对调」的意思补齐，
+    而不只是抽象的刷新符号。
+
+    两条箭头由同一个 7 行轮廓左右镜像生成：3px 窄柄 + 7px 高的三角头，柄与头的
+    高度差必须够大，否则整枚箭头读作一根粗横条（第一版就踩了）。bevel 给左上
+    高光 / 右下暗部。**刻意不用 outline**：outline 会把两条箭头之间那 2px 空隙
+    也当成「剪影外且相邻有剪影」补上深色，⇄ 糊成一整块；只用 bevel 才保得住缝。
+    两条各占 7 行（y10..16 / y19..25），16px 缩略仍是两条完整的彩色箭头带。
+    """
+    g = window_chrome()
+
+    # 右向箭头的 7 行轮廓 (x0, x1)：3px 窄柄（y2..y4）+ 7px 高的三角头，
+    # 尖在 x26 / 中心行。柄与头的高度差必须够大，否则整枚箭头读作一根粗横条。
+    rows = [(19, 20), (19, 22), (5, 24), (5, 26),
+            (5, 24), (19, 22), (19, 20)]
+
+    def arrow(y0, mirrored, base, hi, lo):
+        sil = [[False] * W for _ in range(H)]
+        for i, (a, b) in enumerate(rows):
+            if mirrored:
+                a, b = 31 - b, 31 - a
+            sil_rect(sil, a, y0 + i, b, y0 + i)
+        bevel(g, sil, base, hi, lo)
+
+    arrow(10, False, 'Y', 'y', 'o')     # 上：→ 琥珀（y10..16）
+    arrow(19, True, 'b', 'h', 'm')      # 下：← 蓝（y19..25）
+
+    # 两端格式块（4x4 深色框 + 2x2 亮面）：上箭头尾部 / 下箭头尾部
+    fill(g, 5, 11, 4, 4, 'N')
+    fill(g, 6, 12, 2, 2, 'h')
+    fill(g, 23, 20, 4, 4, 'G')
+    fill(g, 24, 21, 2, 2, 'p')
+    return g
+
+
+def build_converter():
+    """Converter：无窗口外框，参考 Chat 双气泡构图 —— 两个大箭头前后叠放相互交换。
+
+    用户要求「参考 Chat，去掉外边框，2 个大箭头相互交换」：不再画 Mac OS 9 窗口，
+    主体直接落在透明底上（chat / docker / watchdog 齿轮已有先例）。构图照抄
+    build_chat() 的前后关系 —— 后箭头偏左上、前箭头偏右下、错开叠压，前层用整圈
+    描边把自己从后层上「切」出来，和 Chat 前白气泡压后蓝气泡是同一套手法。
+
+    一枚箭头 14 行：6px 柄 + 14px 高的三角头，尖占 2 行。两条由同一轮廓
+    水平镜像（x -> 31-x）+ 下移 8 行生成，所以一个朝右、一个朝左，头分别落在
+    右上与左下，绕着中心互相交换。后箭头用 Chat 后气泡那支蓝（N/b/h/m），
+    前箭头用琥珀（K/Y/y/o），亮暖色在前更醒目；柄上各两条 1px 文本线是
+    32px 专属细节，呼应 Chat 气泡里的文字线。
+    """
+    g = blank()
+
+    # 右向箭头的 14 行轮廓 (x0, x1)：柄 x2.. / 三角头 x18..24，尖在 x24
+    rows = [
+        (18, 18), (18, 19), (18, 20), (18, 21),
+        (2, 22), (2, 23), (2, 24), (2, 24),
+        (2, 23), (2, 22), (18, 21), (18, 20), (18, 19), (18, 18),
+    ]
+
+    def arrow(y0, mirrored, base, hi, lo, edge):
+        sil = [[False] * W for _ in range(H)]
+        for i, (a, b) in enumerate(rows):
+            if mirrored:
+                a, b = 31 - b, 31 - a
+            sil_rect(sil, a, y0 + i, b, y0 + i)
+        bevel(g, sil, base, hi, lo)
+        outline(g, sil, edge)
+
+    # 下移 8 行（不是 12）：两枚箭头重叠 6 行，才读作「前后叠压」而非上下排列
+    arrow(5, False, 'b', 'h', 'm', 'N')     # 后：→ 蓝，左上（y5..18）
+    arrow(13, True, 'Y', 'y', 'o', 'K')     # 前：← 琥珀，右下（y13..26）
+
+    # 柄上的文本线（32px 专属细节，呼应 Chat 气泡里的文字线）
+    hline(g, 5, 10, 9, 'W')
+    hline(g, 5, 12, 6, 'W')
+    hline(g, 17, 18, 9, 'o')
+    hline(g, 17, 20, 6, 'o')
+    return g
+
+
+def build_editor():
+    """Editor：无窗口外框，参考 Chat / Converter 的前后叠放 —— 两本笔记本封面。
+
+    用户要求「参考这个风格」（即新版 Converter 的 Chat 式构图）重做笔记本封面：
+    透明底、无 Mac OS 9 窗口，后本深蓝偏左上（x2..21 / y2..18）、前本琥珀偏右下
+    （x10..29 / y10..26），重叠 10 行；前本外铺一圈 1px K 描边框把自己从后层
+    「切」出来，和 Chat 前白气泡压后蓝气泡、Converter 前琥珀箭头压后蓝箭头同一手法。
+
+    前本是主角，封面细节全在它身上：深棕书脊 + 亮棱、弹性绑带 + 小扣、两道
+    压印标题线、底沿垂出的红书签带；后本只留高光/暗部与一条白文本线呼应 Chat
+    气泡。压印线与书签带 ≥2px，16px 缩略不会消失。
+    """
+    g = blank()
+
+    # 后本（深蓝，偏左上）x2..21 / y2..18：N 外框 + b 面 + h/m 浮雕
+    fill(g, 2, 2, 20, 17, 'N')
+    fill(g, 3, 3, 18, 15, 'b')
+    hline(g, 3, 3, 18, 'h')
+    vline(g, 3, 3, 15, 'h')
+    hline(g, 3, 17, 18, 'm')
+    vline(g, 20, 3, 15, 'm')
+    fill(g, 3, 3, 3, 15, 'N')          # 书脊
+    vline(g, 6, 3, 15, 'h')            # 书脊亮棱
+    hline(g, 8, 5, 10, 'W')            # 两条白压印线（呼应 Chat 气泡的文本线）
+    hline(g, 8, 7, 7, 'W')
+
+    # 前本整圈 K 描边框 x9..30 / y9..27：前后分层线
+    fill(g, 9, 9, 22, 19, 'K')
+
+    # 前本（琥珀，偏右下）x10..29 / y10..26
+    fill(g, 10, 10, 20, 17, 'Y')
+    hline(g, 10, 10, 20, 'y')
+    vline(g, 10, 10, 17, 'y')
+    hline(g, 10, 26, 20, 'o')
+    vline(g, 29, 10, 17, 'o')
+    fill(g, 10, 10, 3, 17, 'a')        # 深棕书脊 x10..12
+    vline(g, 10, 10, 17, 'o')
+    vline(g, 13, 10, 17, 'y')          # 亮棱
+    fill(g, 25, 10, 2, 17, 'K')        # 弹性绑带
+    fill(g, 25, 23, 2, 2, 'D')         # 小扣
+    fill(g, 16, 15, 7, 2, 'o')         # 压印标题线
+    fill(g, 16, 19, 5, 2, 'o')
+
+    # 红书签带从底沿垂出
+    fill(g, 21, 26, 3, 4, 'r')
+    hline(g, 21, 29, 3, 'E')
+    return g
+
+
+def build_files_closed():
+    """【上一版，保留作设计稿对照 / 回滚】Files：无外框、闭合的独立大蓝文件夹。
+
+    用户要求「去掉外边框，保留文件夹样式即可」：不再画 Mac OS 9 窗口，文件夹
+    从内容区放大到占满画布（tab x4..14 / y4..9，主体 x2..29 / y9..27），
+    其余一律保留 —— tab 凸角、bevel 左上 h 高光 / 右下 m 暗部、N 深蓝外框、
+    1px h / 1px m 成对的前片折痕。outline 顺带把 tab 右缘与主体顶边勾出深蓝线，
+    正是经典文件夹的「缺口」轮廓。四周留 1~3px 透明边，与 watchdog / converter /
+    editor 一样改用独立主体。
+    """
+    g = blank()
+
+    folder = [[False] * W for _ in range(H)]
+    sil_rect(folder, 4, 4, 14, 9)      # tab（6 行高，足够看出凸起的一角）
+    sil_rect(folder, 2, 9, 29, 27)     # 主体（19 行高，y9 与 tab 连成一整块）
+    bevel(g, folder, 'b', 'h', 'm')
+    outline(g, folder, 'N')
+
+    # 前片折痕：亮/暗成对，2×2 降采样后并回蓝面
+    hline(g, 5, 18, 23, 'h')
+    hline(g, 5, 19, 23, 'm')
+    return g
+
+
+def build_files_open_blue():
+    """【上一版，保留作设计稿对照 / 回滚】Files：蓝色梯形前片的打开文件夹。
+
+    用户要求「文件夹改成被打开的样子」：从一整块闭合蓝板拆成两层 ——
+      后片：tab（x7..17 / y4..8）+ 立着的背板（x6..25 / y8..17），压暗成 m/N
+            留在敞口阴影里；**刻意比前片窄一截**，两端在 y15..17 仍露出来，
+            2×2 降采样后才留得住「上窄下宽」的打开形（等宽会糊成上下两个方块）；
+      前片：从 y15 向下张开的梯形盖（上沿 x9..22 / 14px → 下沿 x2..29 / 28px，
+            每 1~2 行左右各扩 1px），亮蓝 b + h 高光 / m 暗部，盖住后片下部。
+    两层靠明度差 + 梯形斜边 + outline 勾出的敞口横线交代「打开」。不放白纸 ——
+    第一轮在 26×19 的小内容区试过后片/白纸/前片三层，白纸把蓝块切成左右两块、
+    16px 下只剩三条蓝横杠，这个坑不再踩。四周留 1~3px 透明边。
+    """
+    g = blank()
+
+    # 后片（暗）：tab + 立着的背板。比前片窄，左右两端在 y15..17 仍露出来，
+    # 才能读作「后面还有一块板」而不是上下平分的两半。
+    back = [[False] * W for _ in range(H)]
+    sil_rect(back, 7, 4, 17, 8)
+    sil_rect(back, 6, 8, 25, 17)
+    bevel(g, back, 'm', 'b', 'N')
+    outline(g, back, 'N')
+
+    # 前片（亮）：向前翻开的梯形，上沿 14px → 下沿 28px。后片刻意比前片窄一截，
+    # 2×2 降采样后才留得住「上窄下宽」的打开形（等宽会糊成上下两个方块）。
+    front = [[False] * W for _ in range(H)]
+    rows = [(9, 22), (8, 23), (8, 23), (7, 24), (6, 25), (5, 26),
+            (4, 27), (3, 28), (2, 29), (2, 29), (2, 29), (2, 29),
+            (2, 29), (2, 29)]
+    for i, (a, b) in enumerate(rows):
+        sil_rect(front, a, 15 + i, b, 15 + i)
+    bevel(g, front, 'b', 'h', 'm')
+    outline(g, front, 'N')          # 顺带在 y14 勾出一条深色敞口线
+    return g
+
+
+def build_files():
+    """Files：参考 macOS 经典打开文件夹 —— 小圆角 tab 在后 + 大圆角浅黄面板在前。
+
+    用户给的参考图：橙黄小 tab 只露出上沿，前面是一整块大圆角浅黄渐变面板，
+    两层之间一条亮敞口线，没有硬黑描边。按这个造型重做，与上一版「暗蓝后片 +
+    亮蓝梯形前片」的透视画法完全不同：
+      · 后片只画 tab（x2..16 / y3..13 的圆角块），下部被前片盖住，仅露 y3..7；
+      · 前片是 x1..30 / y8..29 的大圆角面板，占约 80% 面积，顶部 W 高光带、
+        中部 V 浅黄、底部 y→Y 渐变压深；外框用暖色 o 而非 K 硬黑边。
+    配色随参考图改为暖黄（新增 J / V 两色），桌面语义从「蓝 = Files」变成
+    「暖黄 = Files」；与 Editor 的琥珀笔记本靠形状区分（本版是纯色块 + 圆角，
+    没有书脊 / 绑带 / 书签带）。
+    """
+    g = blank()
+
+    # 后片 tab（橙黄，圆角；下部被前片盖住，只露顶部 5 行）
+    roundbox(g, 2, 3, 15, 11, 'o', r=3)
+    roundbox(g, 3, 4, 13, 9, 'J', r=2)
+    hline(g, 6, 4, 7, 'y')
+
+    # 前片：大圆角浅黄面板（参考图的主体）
+    roundbox(g, 1, 8, 30, 22, 'o', r=3)
+    roundbox(g, 2, 9, 28, 20, 'V', r=2)
+    hline(g, 5, 9, 22, 'W')                 # 上沿亮高光 = 敞口线
+    for yy, x0, w in ((24, 3, 26), (25, 3, 26), (26, 4, 24), (27, 5, 22)):
+        hline(g, x0, yy, w, 'y')            # 底部渐变，逐行收窄呼应圆角
+    hline(g, 6, 28, 20, 'Y')
     return g
 
 
@@ -975,6 +1657,321 @@ def lint_imports():
     return seen, problems
 
 
+# ---------------------------------------------------------------- 设计稿（pixelart 技能输出）
+# 单文件、零依赖：ART 为技能规定的「字符串数组 + 语义调色板」结构，CSS Grid 逐像素渲染。
+# 32 档和 16px 降采样档都由本脚本直接 dump，JS 只负责铺格子 —— 设计稿与落盘 SVG 同源。
+def shrink_chars(rows, f=2):
+    """字符网格的多数票降采样，近似 preview() 里 shrink(buf, 2) 的 16px 观感。"""
+    out = []
+    for y in range(0, len(rows), f):
+        line = ''
+        for x in range(0, len(rows[0]), f):
+            cnt = {}
+            for dy in range(f):
+                for dx in range(f):
+                    c = rows[y + dy][x + dx]
+                    cnt[c] = cnt.get(c, 0) + 1
+            def weight(c):
+                lum = sum(RGB[c][:3]) if c != '.' else 0
+                return (cnt[c], c != '.', lum)
+            line += max(cnt, key=weight)
+        out.append(line)
+    return out
+
+
+DESIGN_SHEET_TMPL = r'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Files · 图标重设计 · Pixel Art</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh; padding: 40px 24px 64px;
+    background: #e9e9ee; color: #23232b;
+    font: 13px/1.7 ui-monospace, "SFMono-Regular", Consolas, "Microsoft YaHei", monospace;
+  }
+  .sheet { max-width: 940px; margin: 0 auto; }
+  header { border-bottom: 2px solid #23232b; padding-bottom: 14px; margin-bottom: 26px; }
+  h1 { font-size: 22px; letter-spacing: .04em; }
+  .sub { color: #6a6a78; margin-top: 4px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .card { background: #fafafd; border: 1px solid #c3c3cf; padding: 18px; }
+  .card.pick { border: 2px solid #2a62b2; padding: 17px; }
+  h2 { font-size: 14px; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .badge { background: #2a62b2; color: #fff; font-size: 10px; padding: 1px 7px; letter-spacing: .06em; }
+  .card p.desc { color: #6a6a78; font-size: 12px; min-height: 40px; }
+  .stage-row { display: flex; gap: 18px; align-items: flex-end; margin-top: 14px; }
+  .stage-box { text-align: center; }
+  .stage { display: grid; image-rendering: pixelated; background: #fff;
+    background-image: conic-gradient(#c0c0ca 0 25%, #e2e2ea 0 50%, #c0c0ca 0 75%, #e2e2ea 0);
+    background-size: 16px 16px; border: 1px solid #c3c3cf; }
+  .stage i { display: block; }
+  .cap { color: #6a6a78; font-size: 11px; margin-top: 6px; }
+  section.notes { margin-top: 30px; background: #fafafd; border: 1px solid #c3c3cf; padding: 20px 24px; }
+  section.notes h3 { font-size: 13px; margin-bottom: 10px; }
+  ol { padding-left: 20px; }
+  li { margin-bottom: 7px; }
+  .rules { margin-top: 18px; border-top: 1px dashed #c3c3cf; padding-top: 14px; color: #50505e; font-size: 12px; }
+  code { background: #e6e6ee; padding: 1px 5px; }
+  footer { margin-top: 22px; color: #6a6a78; font-size: 11px; }
+  @media (max-width: 720px) { .cards { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <h1>Files · 图标重设计</h1>
+    <div class="sub">32×32 · string-array pixel art · Mac OS 9 / Platinum · 生成自 tools/pixel-icon.py</div>
+  </header>
+
+  <div class="cards">
+    <figure class="card pick">
+      <h2>新版：经典 macOS 打开文件夹 <span class="badge">已落地</span></h2>
+      <p class="desc">小圆角橙黄 tab 只露上沿，大圆角浅黄渐变面板在前；柔和暖色外框，无硬黑边。</p>
+      <div class="stage-row">
+        <div class="stage-box"><div class="stage" id="new-8x"></div><div class="cap">32px · 8× 放大</div></div>
+        <div class="stage-box"><div class="stage" id="new-16"></div><div class="cap">16px 缩略 · 8×</div></div>
+      </div>
+    </figure>
+    <figure class="card">
+      <h2>上一版：蓝色梯形打开文件夹</h2>
+      <p class="desc">暗蓝后片 + 亮蓝梯形前片的透视画法，靠明度差与敞口线交代「打开」。</p>
+      <div class="stage-row">
+        <div class="stage-box"><div class="stage" id="old-8x"></div><div class="cap">32px · 8× 放大</div></div>
+        <div class="stage-box"><div class="stage" id="old-16"></div><div class="cap">16px 缩略 · 8×</div></div>
+      </div>
+    </figure>
+  </div>
+
+  <section class="notes">
+    <h3>改动理由</h3>
+    <ol>
+      <li><b>按参考图换造型（本轮）</b>：不再用蓝梯形透视，改成小圆角橙黄 tab 在<b>后</b>（<code>x2..16 / y3..13</code>，下部被盖住只露 <code>y3..7</code>）+ 大圆角浅黄面板在<b>前</b>（<code>x1..30 / y8..29</code>，占约 80% 面积）。tab 宽约为面板一半、露出高度约 18%，比例对齐参考图。</li>
+      <li><b>柔和渐变代替深色描边</b>：新增 <code>J</code>（#ffc233 橙黄）/ <code>V</code>（#ffeaa8 浅黄）两色；前片顶部一条 <code>W</code> 亮高光 = 敞口线，中部 <code>V</code> 浅黄，底部 <code>y → Y</code> 逐行收窄压深；外框改用暖色 <code>o</code> 而非 <code>K</code> / <code>N</code> 硬黑边。</li>
+      <li><b>配色随参考图改为暖黄</b>：桌面语义由「蓝 = Files」变为「暖黄 = Files」。与 Editor 的琥珀笔记本靠形状区分 —— 本版是纯色块 + 圆角，没有书脊 / 绑带 / 书签带。</li>
+      <li><b>保留独立主体，无窗口外框</b>：仍不画条纹标题栏与 1px 黑边，文件夹占满画布、四周留 1~3px 透明边，与 watchdog / converter / editor 一致；16px 缩略下「小 tab + 大面板」依旧清楚。</li>
+    </ol>
+    <div class="rules">
+      规范约束（docs/design-spec.md §7.4）：<code>viewBox 0 0 32 32</code>、仅 <code>&lt;path&gt;</code> 无 <code>&lt;text&gt;/&lt;font&gt;</code>、
+      <code>shape-rendering="crispEdges"</code>、体积 &lt; 4 KB、光源左上（高光 + 暗边，不加投影）、
+      import 必须带 <code>?no-inline</code>。本版按参考图改为暖黄渐变 + 圆角，独立主体无外框。
+    </div>
+  </section>
+
+  <footer>本页零外部依赖：像素数据内联为 ART（name / width / height / palette / pixels），CSS Grid 逐格渲染。换图标后老用户需清 <code>localStorage.classicyDesktopState</code> 才能看到新图标。</footer>
+</div>
+<script>
+/*__ART__*/
+function render(id, art, scale) {
+  const el = document.getElementById(id);
+  el.style.gridTemplateColumns = 'repeat(' + art.width + ', ' + scale + 'px)';
+  el.style.gridAutoRows = scale + 'px';
+  const frag = document.createDocumentFragment();
+  art.pixels.forEach(function (row) {
+    for (const ch of row) {
+      const px = document.createElement('i');
+      px.style.background = art.palette[ch] || 'transparent';
+      frag.appendChild(px);
+    }
+  });
+  el.appendChild(frag);
+}
+render('new-8x', ART.new32, 8);
+render('new-16', ART.new16, 8);
+render('old-8x', ART.old32, 8);
+render('old-16', ART.old16, 8);
+</script>
+</body>
+</html>
+'''
+
+
+def write_design_sheet(new_g, old_g):
+    """把新/旧网格写成自包含 HTML 设计稿（技能 Mode 1 的 ≤48px 输出格式）。"""
+    import json
+    palette = {k: v for k, v in PALETTE.items() if v and v != 'currentColor'}
+
+    def art(name, rows):
+        return {'name': name, 'width': W, 'height': H,
+                'palette': palette, 'pixels': rows}
+
+    new_rows = [''.join(r) for r in new_g]
+    old_rows = [''.join(r) for r in old_g]
+    data = {
+        'new32': art('Files · 新版 32x32', new_rows),
+        'new16': art('Files · 新版 16px', shrink_chars(new_rows)),
+        'old32': art('Files · 旧版 32x32', old_rows),
+        'old16': art('Files · 旧版 16px', shrink_chars(old_rows)),
+    }
+    # 16px 档的 width/height 是 16，渲染器按它铺格子
+    data['new16']['width'] = data['new16']['height'] = 16
+    data['old16']['width'] = data['old16']['height'] = 16
+
+    html = DESIGN_SHEET_TMPL.replace(
+        '/*__ART__*/', 'const ART = ' + json.dumps(data, ensure_ascii=False, indent=2) + ';')
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files-icon-redesign.html')
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(html)
+    return path, len(html)
+
+
+ICON_SET_TMPL = r'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桌面图标重设计 · 5 个应用 · Pixel Art</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { min-height: 100vh; padding: 40px 24px 64px; background: #e9e9ee; color: #23232b;
+         font: 13px/1.7 ui-monospace, "SFMono-Regular", Consolas, "Microsoft YaHei", monospace; }
+  .sheet { max-width: 1000px; margin: 0 auto; }
+  header { border-bottom: 2px solid #23232b; padding-bottom: 14px; margin-bottom: 24px; }
+  h1 { font-size: 22px; letter-spacing: .04em; }
+  .sub { color: #6a6a78; margin-top: 4px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .card { background: #fafafd; border: 1px solid #c3c3cf; padding: 16px; }
+  h2 { font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .badge { background: #2a62b2; color: #fff; font-size: 10px; padding: 1px 7px; letter-spacing: .06em; }
+  p.desc { color: #50505e; font-size: 12px; margin-top: 4px; }
+  .stage-row { display: flex; gap: 14px; align-items: flex-end; margin-top: 12px; }
+  .stage-row.old { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #c3c3cf; }
+  .stage-box { text-align: center; }
+  .stage { display: grid; image-rendering: pixelated; background: #fff;
+           background-image: conic-gradient(#c0c0ca 0 25%, #e2e2ea 0 50%, #c0c0ca 0 75%, #e2e2ea 0);
+           background-size: 16px 16px; border: 1px solid #c3c3cf; }
+  .stage i { display: block; }
+  .cap { color: #6a6a78; font-size: 10px; margin-top: 5px; }
+  .reason { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #c3c3cf; font-size: 11px; color: #50505e; }
+  .oldtext { margin-top: 8px; font-size: 11px; color: #6a6a78; }
+  section.rules { margin-top: 26px; background: #fafafd; border: 1px solid #c3c3cf; padding: 18px 22px; }
+  section.rules h3 { font-size: 13px; margin-bottom: 8px; }
+  section.rules p { font-size: 12px; color: #50505e; }
+  code { background: #e6e6ee; padding: 1px 5px; }
+  footer { margin-top: 20px; color: #6a6a78; font-size: 11px; }
+  @media (max-width: 780px) { .cards { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <h1>桌面图标重设计 · 当前图标集</h1>
+    <div class="sub">32×32 · 齿轮 / 笔记本 / 交换箭头 / 文件夹 / 存储盘 / 播放徽章 · Mac OS 9 / Platinum · 生成自 tools/pixel-icon.py</div>
+  </header>
+  <div class="cards" id="cards"></div>
+  <section class="rules">
+    <h3>统一规范</h3>
+    <p>WatchDog OS（齿轮）、Converter（交换箭头）、Editor（笔记本封面）与 Files（文件夹）用独立主体直接落在透明底上，其余共用同构 Mac OS 9 窗口外框（条纹标题栏 + 1px 黑边 + 右下暗边），
+       光源统一左上。关键元素按 2px 栅格对齐偶数坐标，保证 2×2 多数票降采样到 16px 后不糊。
+       Converter 的双箭头由同一轮廓镜像叠压，前层整圈描边做前后分层。
+       <code>viewBox 0 0 32 32</code>、仅 <code>&lt;path&gt;</code>、
+       <code>shape-rendering="crispEdges"</code>、&lt; 4 KB、import 带 <code>?no-inline</code>（docs/design-spec.md §7.4）。</p>
+  </section>
+  <footer>本页零外部依赖：像素数据内联为 ART（name / width / height / palette / pixels），CSS Grid 逐格渲染。
+    换图标后老用户需清 <code>localStorage.classicyDesktopState</code> 才能看到新图标。</footer>
+</div>
+<script>
+/*__ART__*/
+function makeStage(art, scale) {
+  const el = document.createElement('div');
+  el.className = 'stage';
+  el.style.gridTemplateColumns = 'repeat(' + art.width + ', ' + scale + 'px)';
+  el.style.gridAutoRows = scale + 'px';
+  const frag = document.createDocumentFragment();
+  art.pixels.forEach(function (row) {
+    for (const ch of row) {
+      const px = document.createElement('i');
+      px.style.background = art.palette[ch] || 'transparent';
+      frag.appendChild(px);
+    }
+  });
+  el.appendChild(frag);
+  return el;
+}
+function figure(art, scale, cap) {
+  const box = document.createElement('div');
+  box.className = 'stage-box';
+  box.appendChild(makeStage(art, scale));
+  const c = document.createElement('div');
+  c.className = 'cap'; c.textContent = cap;
+  box.appendChild(c);
+  return box;
+}
+ART.apps.forEach(function (app) {
+  const card = document.createElement('figure');
+  card.className = 'card';
+  const h = document.createElement('h2');
+  h.innerHTML = app.name + ' <span class="badge">已落地</span>';
+  card.appendChild(h);
+  const p = document.createElement('p');
+  p.className = 'desc'; p.textContent = app.desc;
+  card.appendChild(p);
+
+  const newRow = document.createElement('div');
+  newRow.className = 'stage-row';
+  newRow.appendChild(figure(app.new32, 6, '新版 32px · 6×'));
+  newRow.appendChild(figure(app.new16, 8, '新版 16px · 8×'));
+  card.appendChild(newRow);
+
+  if (app.old32) {
+    const oldRow = document.createElement('div');
+    oldRow.className = 'stage-row old';
+    oldRow.appendChild(figure(app.old32, 3, '旧版 32px · 3×'));
+    oldRow.appendChild(figure(app.old16, 6, '旧版 16px · 6×'));
+    card.appendChild(oldRow);
+  } else {
+    const t = document.createElement('div');
+    t.className = 'oldtext'; t.textContent = '旧版：' + app.old;
+    card.appendChild(t);
+  }
+
+  const r = document.createElement('div');
+  r.className = 'reason'; r.textContent = app.reason;
+  card.appendChild(r);
+  document.getElementById('cards').appendChild(card);
+});
+</script>
+</body>
+</html>
+'''
+
+
+def write_icon_set_sheet(apps):
+    """5 个应用的新/旧 32px + 16px 对照总览（单文件、零依赖）。"""
+    import json
+    palette = {k: v for k, v in PALETTE.items() if v and v != 'currentColor'}
+
+    def art(name, rows, w, h):
+        return {'name': name, 'width': w, 'height': h,
+                'palette': palette, 'pixels': rows}
+
+    out = []
+    for a in apps:
+        new_rows = [''.join(r) for r in a['new']]
+        item = {
+            'name': a['name'], 'key': a['key'], 'desc': a['desc'],
+            'old': a['old'], 'reason': a['reason'],
+            'new32': art(a['name'] + ' 新版32', new_rows, W, H),
+            'new16': art(a['name'] + ' 新版16', shrink_chars(new_rows), 16, 16),
+            'old32': None, 'old16': None,
+        }
+        if a['legacy'] is not None:
+            old_rows = [''.join(r) for r in a['legacy']]
+            item['old32'] = art(a['name'] + ' 旧版32', old_rows, W, H)
+            item['old16'] = art(a['name'] + ' 旧版16', shrink_chars(old_rows), 16, 16)
+        out.append(item)
+
+    html = ICON_SET_TMPL.replace(
+        '/*__ART__*/',
+        'const ART = ' + json.dumps({'apps': out}, ensure_ascii=False) + ';')
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons-redesign.html')
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(html)
+    return path, len(html)
+
+
 # ---------------------------------------------------------------- 主流程
 def emit(g, name):
     print('=== %s ===' % name)
@@ -1022,7 +2019,47 @@ if __name__ == '__main__':
     emit(build_audit(), 'audit')
     emit(build_disk(), 'disk')
     emit(build_converter(), 'converter')
-    emit(build_files(), 'files')
+    emit(build_editor(), 'editor')
+    emit(build_watchdog(), 'watchdog')
+    files_new = build_files()
+    emit(files_new, 'files')
+    # 设计稿必须在 32 档下生成（shrink_chars / ART 的 width、height 读全局 W/H）
+    sheet, sheet_size = write_design_sheet(files_new, build_files_open_blue())
+    print('design sheet: %d bytes -> %s' % (sheet_size, sheet))
+    icon_set = [
+        dict(name='Editor', key='editor',
+             desc='参考 Chat：无外框，两本笔记本封面前后叠放',
+             old='',
+             reason='按新版 Converter 的 Chat 式构图重做：去掉窗口外框，后本深蓝偏左上、前本琥珀偏右下重叠 10 行，前本整圈 K 描边框把自己从后层上切出来。封面细节（深棕书脊 + 亮棱、弹性绑带 + 小扣、压印标题线、红书签带）全在前本；后本留 h/m 浮雕与一条白文本线呼应 Chat 气泡。',
+             new=build_editor(), legacy=build_editor_v3()),
+        dict(name='Converter', key='converter',
+             desc='参考 Chat：去掉外框，两个大箭头前后叠放相互交换',
+             old='',
+             reason='参考 Chat 双气泡构图：去掉 Mac OS 9 窗口外框，主体直接落在透明底上。后箭头偏左上（蓝 →）、前箭头偏右下（琥珀 ←）错开叠压，前层用整圈描边把自己从后层上切出来，和 Chat 前白气泡压后蓝气泡同一手法。两条由同一 14 行轮廓水平镜像 + 下移 8 行生成，头分落右上/左下绕中心互换；柄上 1px 文本线呼应 Chat 气泡。',
+             new=build_converter(), legacy=build_converter_v4()),
+        dict(name='Runner', key='runner',
+             desc='绿色圆形播放徽章 + 任务日志行 + 底部进度条',
+             old='沿用上一轮设计（本轮未改动）',
+             reason='本轮 4 个指定风格不含 Runner，保持上一轮成果，放在这里凑齐全套图标集对照。',
+             new=build_runner(), legacy=None),
+        dict(name='Disks', key='disk',
+             desc='存储盘：大圆盘 + 环形容量弧 + 中心主轴',
+             old='',
+             reason='「存储盘风格」要一眼是「盘」：占满内容区的大圆盘，外圈 P 绿 / M 灰容量弧（绿约 65% 已用，呼应挂载点使用率），中心 S 深色主轴。金属反光按左上 W / 右下 M，不与 audit 的放大镜撞。',
+             new=build_disk(), legacy=build_disk_v2()),
+        dict(name='WatchDog OS', key='watchdog',
+             desc='齿轮风格：独立 8 齿钢灰齿轮 + 中心绿运行灯',
+             old='',
+             reason='主应用改用独立齿轮主体，刻意不套窗口 —— 齿轮占满画布才撑得住 16px 与登录页小尺寸 logo（chat / docker 已有先例）。8 根方头齿沿 45° 伸出，bevel 左上高光 / 右下暗部，轴孔里一颗绿点 = 看门狗在运行。',
+             new=build_watchdog(), legacy=build_watchdog_v2()),
+        dict(name='Files', key='files',
+             desc='参考 macOS 经典打开文件夹：小橙黄 tab + 大圆角浅黄面板',
+             old='',
+             reason='按用户给的参考图重做：不再用蓝梯形透视，改成小圆角橙黄 tab 只露上沿在后、大圆角浅黄渐变面板占约 80% 面积在前，两层之间一条 W 亮敞口线；外框改用暖色 o 而非 K 硬黑边。配色随参考图改为暖黄（新增 J / V 两色），桌面语义由「蓝 = Files」变为「暖黄 = Files」，与 Editor 琥珀笔记本靠形状区分（本版纯色块 + 圆角，无书脊 / 绑带 / 书签带）。',
+             new=files_new, legacy=build_files_open_blue()),
+    ]
+    set_sheet, set_sheet_size = write_icon_set_sheet(icon_set)
+    print('icon set sheet: %d bytes -> %s\n' % (set_sheet_size, set_sheet))
     # 16 档：窗口操作按钮带内嵌图标（Back / Up / Favorites，见 icon-pipeline.md §1.2）
     set_size(16)
     emit(build_fm_back(), 'fm-back')
