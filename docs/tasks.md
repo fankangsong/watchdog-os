@@ -1,5 +1,15 @@
 # 待解决 / 已解决问题
 
+## 已解决（2026-11-07）
+
+### 1. 轮询接口改为「仅在所属 App 启动时才调用」
+
+- **现象**：`api/metrics`、`api/processes`、`api/docker`、`api/runner/status`、`api/printer` 在未启动任何应用时也在桌面自动轮询。
+- **根因**：2026-10-21 曾把轮询收敛为「页面级共享 store」（`src/sharedPoll.ts`），生命周期等同页面、零订阅者也不停止；而 `src/Desktop.tsx` 无条件挂载全部 App 组件，登录后首个订阅即启动。另外 `usePolling` 默认 `enabled=true`，RunnerApp / BlogApp / AuditApp 同样在桌面加载即轮询。二者叠加导致接口请求与应用开闭完全无关。
+- **修复**：`useSharedPoll(poll, enabled)` 与 `usePolling(..., enabled)` 统一由 `src/hooks/useAppOpen.ts` 读 `apps[APP_ID].open` 门控；`createSharedPoll` 改为按启用订阅者启停（最后一个订阅者退出即停定时器、不发请求，数据保留，重新打开立即首拉并续轮；`reload` 在无订阅者时 no-op）。手机首页 `MobileHome` 不再订阅 `monitorPoll`，改用静态兜底文案与常亮状态灯。
+- **影响面**：文档标题不再「登录即更新主机名」，而是打开 Monitor 后才更新；手机首页不再显示主机名（显示 `Server Console`）。均为严格门控（未启动任何 App 时零请求）的预期代价。
+- **验证**：`node test/test-shared-poll.mjs`（核心断言反转为「零订阅者后轮询停止」，补重新订阅首拉/续轮、`enabled=false` 不发请求、`reload` 无订阅者 no-op）；`npx tsc --noEmit`、`npm run build` 与 CDP 端到端（桌面零轮询请求、打开 Monitor / Docker 后才出现对应请求）。
+
 ## 已解决（2026-10-21）
 
 ### 1. 轮询接口「APP 退出就不再轮询」
@@ -8,6 +18,7 @@
 - **根因**：轮询挂在各 App 组件内（`usePolling`），生命周期受 classicy 窗口 / 应用开关影响；且 MonitorApp / DockerApp 的源码注释对「窗口关闭后是否续轮」各说不一，属于未验证的臆断。
 - **修复**：轮询收敛为页面级共享 store（`src/sharedPoll.ts` 的 `createSharedPoll` + `src/polls.ts` 单例 `monitorPoll` / `dockerPoll` / `printerPoll`），与 `favoritesStore` 同一模式。订阅即启动并立即首拉；**最后一个订阅者退出不停止**（退出 App / 关闭窗口 / 组件卸载均不中断，重开即有最新数据）；401 时停止避免风暴，重新登录后自动重启；另含暂停 / 改间隔 / 慢接口防叠加。RunnerApp 的构建状态轮询保持组件级（手动触发型界面，退出即停无妨）。
 - **验证**：`node test/test-shared-poll.mjs` 全部 PASS（16 项，含「零订阅者后轮询继续」核心回归）；`npx tsc --noEmit` 与 `npm run build` 通过。
+- **⚠️ 2026-11-07 需求反转**：上述「零订阅者仍续轮」已被推翻，改为「仅在所属 App 启动时轮询」，见本文件顶部 2026-11-07 一节；`test/test-shared-poll.mjs` 的对应断言也随之反转。
 
 ### 2. 文件浏览器「添加到收藏夹覆盖上一次添加的目录」
 
@@ -19,4 +30,4 @@
 
 ## 附：待确认（非阻塞）
 
-- 轮询在「已登录但所有 App 都退出」时持续进行（按需求预期）；若未来想加「闲置 N 分钟自动暂停」策略，应在 `sharedPoll.ts` 内实现，不要回到组件级轮询。
+- 轮询在「已登录但所有 App 都退出」时**不再**进行（2026-11-07 需求反转）；若未来想加「闲置 N 分钟自动暂停」策略，应在 `sharedPoll.ts` 内实现，不要回到「零订阅者仍续轮」。

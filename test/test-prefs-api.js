@@ -236,6 +236,27 @@ const jput = (url, body, H) =>
     ok('favorites survive prefs write', !!disk2 && Array.isArray(disk2.favorites) && disk2.favorites.includes(favDir), JSON.stringify(disk2 && disk2.favorites));
     ok('finder survives editor write', !!disk2 && !!disk2.finder && disk2.finder.showFavoritesSidebar === false, JSON.stringify(disk2 && disk2.finder));
 
+    // ---- showPreview:false 完整回环（bug 回归：关掉预览必须能被服务端存住）----
+    const pf = await (await jput(`${BASE}/api/prefs/editor`, { editor: { showPreview: false } }, H)).json();
+    ok('PUT showPreview false', pf.ok === true && pf.editor.showPreview === false, JSON.stringify(pf.editor));
+    const gf = await (await fetch(`${BASE}/api/prefs/editor`, { headers: H })).json();
+    ok('GET showPreview false back', gf.editor.showPreview === false, JSON.stringify(gf.editor));
+    let diskFalse = null;
+    try {
+      diskFalse = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    } catch { /* 不存在时保持 null */ }
+    ok(
+      'showPreview false saved to disk',
+      !!diskFalse && !!diskFalse.editor && diskFalse.editor.showPreview === false,
+      DATA_FILE
+    );
+
+    // 部分合并：只写另一字段，已存的 false 既不丢也不被翻回 true
+    const pm = await (await jput(`${BASE}/api/prefs/editor`, { editor: { wordWrap: true } }, H)).json();
+    ok('partial merge keeps showPreview false', pm.editor.showPreview === false, JSON.stringify(pm.editor));
+    const gm = await (await fetch(`${BASE}/api/prefs/editor`, { headers: H })).json();
+    ok('showPreview false survives partial PUT', gm.editor.showPreview === false, JSON.stringify(gm.editor));
+
     // 未知路径 / 方法 → 404
     const nf = await fetch(`${BASE}/api/prefs/unknown`, { headers: H });
     ok('unknown path 404', nf.status === 404, `status=${nf.status}`);

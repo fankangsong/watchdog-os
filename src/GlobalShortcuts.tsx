@@ -110,7 +110,7 @@ export function quitFocusedApp(): void {
     };
 
     if (successorId) focusApp(successorId);
-    if (!nextFocusedId) focusApp('Finder.app');
+    // 没有可聚焦的继任者时让菜单栏清空即可；不再兜底聚焦已移除的内置 Finder.app
 
     return {
       ...state,

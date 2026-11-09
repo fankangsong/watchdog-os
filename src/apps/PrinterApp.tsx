@@ -12,6 +12,7 @@ import {
 import { printTestPage, Unauthorized, type PrinterInfo, type PrinterJob, type PrinterState } from '../api';
 import { printerPoll } from '../polls';
 import { useSharedPoll } from '../sharedPoll';
+import { useAppOpen } from '../hooks/useAppOpen';
 import { quitMenuItem } from '../quitMenuItem';
 
 const APP_ID = 'srv-printer.app';
@@ -169,8 +170,9 @@ function JobTable({ jobs, showCompletedAt }: { jobs: PrinterJob[]; showCompleted
 
 /** 应用：CUPS 打印机状态 / 打印队列 / 打印历史 */
 export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
-  // 页面级共享轮询（printerPoll）：退出应用不中断（docs/tasks.md）
-  const poll = useSharedPoll(printerPoll);
+  // 仅在本应用启动期间轮询 /api/printer：未启动 / Quit 后不发请求
+  const open = useAppOpen(APP_ID);
+  const poll = useSharedPoll(printerPoll, open);
 
   /** 正在提交测试页的打印机名（空串 = 空闲）；结果就地展示在对应打印机行 */
   const [testingName, setTestingName] = useState('');

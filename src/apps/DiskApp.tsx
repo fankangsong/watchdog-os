@@ -3,6 +3,7 @@ import { ClassicyApp, ClassicyControlGroup, ClassicyWindow, useClassicyAboutMenu
 import { Unauthorized } from '../api';
 import { monitorPoll } from '../polls';
 import { useSharedPoll } from '../sharedPoll';
+import { useAppOpen } from '../hooks/useAppOpen';
 import { DiskPanel } from '../components/DiskPanel';
 import { quitMenuItem } from '../quitMenuItem';
 // ⚠️ 必须用 ?no-inline（仅 ?url 不够，它不绕过 assetsInlineLimit）让 Vite 输出独立文件 URL，
@@ -15,9 +16,10 @@ const APP_NAME = 'Disks';
 const ICON = diskIcon;
 
 // 磁盘容量：复用 monitorPoll（/api/metrics 已含 state.disks，后端每 10s statfs 采样），
-// 不新增接口、不新建 poll——与 MonitorApp 共享同一次轮询（docs/tasks.md 的页面级共享 store 约定）
+// 不新增接口、不新建 poll——与 MonitorApp 共享同一次轮询
 export function DiskApp({ onLogout }: { onLogout?: () => void }) {
-  const poll = useSharedPoll(monitorPoll);
+  const open = useAppOpen(APP_ID);
+  const poll = useSharedPoll(monitorPoll, open);
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 

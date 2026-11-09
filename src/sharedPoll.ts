@@ -2,13 +2,14 @@ import { useSyncExternalStore } from 'react';
 import { Unauthorized } from './api';
 
 /**
- * 页面级共享轮询（与 app 窗口开闭解耦）——docs/tasks.md：
- * metrics / processes / docker / printer 的轮询曾挂在 App 组件内（usePolling），
- * 生命周期受 classicy 窗口 / 应用开关影响（「APP 退出就不再轮询」）。本 store 把轮询
- * 收敛为模块级单例，生命周期等同页面：登录后首个订阅即启动，退出应用 / 关闭窗口
- * 不再停止；仅会话失效（401）时停止，重新登录后由新订阅自动重启。
+ * 应用级共享轮询（按启用中的订阅者启停）：
+ * 各 App 用 useAppOpen(APP_ID) 判断是否已启动，只在启动期间以 enabled=true 订阅；
+ * 没有任何启用中的订阅者（应用未启动 / 已 Quit）时定时器停转、不发请求，
+ * 数据保留在 store 中，应用重新打开时新订阅会立即首拉一次并续轮。
  *
- * 与 favoritesStore 同一模式：模块状态 + useSyncExternalStore 订阅。
+ * 401（会话失效）时停止避免风暴，重新登录后由新订阅自动重启；
+ * 另含暂停 / 改间隔 / 慢接口防叠加。与 favoritesStore 同一模式：
+ * 模块状态 + useSyncExternalStore 订阅。
  */
 export interface SharedPollState<T> {
   data: T | null;
@@ -24,7 +25,7 @@ export interface SharedPoll<T> {
   getSnapshot: () => SharedPollState<T>;
   setPaused: (paused: boolean) => void;
   setIntervalMs: (ms: number) => void;
-  /** 立即刷新一次（暂停 / 已停止时为 no-op，对齐旧 usePolling 行为） */
+  /** 立即刷新一次（暂停 / 无订阅者 / 已停止时为 no-op，对齐旧 usePolling 行为） */
   reload: () => void;
 }
 
@@ -73,9 +74,9 @@ export function createSharedPoll<T>(
     }
   }
 
-  /** 启动 / 恢复轮询：暂停或已停止时不动定时器；启动时立即拉一次，不必等一个间隔 */
+  /** 启动 / 恢复轮询：无启用订阅者、暂停或已停止时不动定时器；启动时立即拉一次，不必等一个间隔 */
   function ensureRunning() {
-    if (stopped || state.paused || timer != null) return;
+    if (listeners.size === 0 || stopped || state.paused || timer != null) return;
     timer = setInterval(tick, state.intervalMs);
     void tick();
   }
@@ -93,8 +94,12 @@ export function createSharedPoll<T>(
       ensureRunning();
       return () => {
         listeners.delete(onStoreChange);
-        // 注意：不因「最后一个订阅者退出」而停止——轮询生命周期等同页面，
-        // 退出 app / 关闭窗口不得中断（这正是本 store 的存在理由）。
+        // 最后一个启用中的订阅者退出（应用 Quit / 未启动）→ 停转定时器，不发请求。
+        // 数据保留：应用重新打开时新订阅会立即首拉并续轮。
+        if (listeners.size === 0 && timer != null) {
+          clearInterval(timer);
+          timer = null;
+        }
       };
     },
     getSnapshot: () => state,
@@ -121,12 +126,19 @@ export function createSharedPoll<T>(
       ensureRunning();
     },
     reload() {
-      if (!stopped && !state.paused) void tick();
+      if (listeners.size === 0 || stopped || state.paused) return;
+      void tick();
     },
   };
 }
 
-/** 订阅页面级共享轮询（退出 app / 关闭窗口不中断轮询，重开即有最新数据） */
-export function useSharedPoll<T>(poll: SharedPoll<T>): SharedPollState<T> {
-  return useSyncExternalStore(poll.subscribe, poll.getSnapshot, poll.getSnapshot);
+/** 未启用时的空订阅：保持 subscribe 引用稳定，避免 enabled 不变时 useSyncExternalStore 反复重订阅 */
+const NOOP_SUBSCRIBE = () => () => {};
+
+/**
+ * 订阅共享轮询：enabled 由所属应用的启动状态决定（见 useAppOpen）。
+ * enabled=false 时不注册订阅者，即不触发任何请求；切换时 React 会自动重订阅。
+ */
+export function useSharedPoll<T>(poll: SharedPoll<T>, enabled = true): SharedPollState<T> {
+  return useSyncExternalStore(enabled ? poll.subscribe : NOOP_SUBSCRIBE, poll.getSnapshot, poll.getSnapshot);
 }

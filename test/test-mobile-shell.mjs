@@ -3,8 +3,8 @@
    零依赖（esbuild 仅作 TS 转译，缺失时 SKIP）。
    覆盖 docs/mobile-adaptation.md 的四条硬约定：
      1. 断点边界：<768 mobile（含 iPad 分屏 320/507）、768~1024 tablet、>1024 desktop；
-     2. 首页图标来源：自研 app（srv- 前缀）与磁盘卷才出现，classicy 内置 app / 废纸篓 / hidden 一律排除；
-     3. 同名项去重（内置 Finder 与自研 Finder 都叫 Macintosh HD，手机上 app 优先）；
+     2. 首页图标来源：仅自研 app（srv- 前缀）；classicy 内置 app / 磁盘卷 / 废纸篓 / hidden 一律排除；
+     3. 同名项按显示名去重（app 优先）；
      4. 「无未关闭窗口 = 首页可见」与「返回首页逐个关闭窗口」，以及打开 app 后置顶主窗口。 */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -112,31 +112,38 @@ const {
   ok('过滤 hidden 项（Drive Setup）', !labels.includes('Drive Setup'));
   ok('过滤废纸篓', !labels.includes('Trash'));
   ok('过滤 inApplications:false', !labels.includes('Old'));
-  ok('保留自研 app 与磁盘卷（store 顺序）', labels.join(',') === 'Macintosh HD,Audit Log,Chat,WatchDog OS', labels.join(','));
+  ok('排除磁盘卷，仅保留自研 app（store 顺序）', labels.join(',') === 'Audit Log,Chat,WatchDog OS', labels.join(','));
+  ok('Macintosh HD（内置 Finder 磁盘卷）不出现在首页', !labels.includes('Macintosh HD'));
   ok('同一 app 重复条目只出现一次', labels.filter((l) => l === 'Chat').length === 1);
   ok('条目字段完整', entries.every((e) => e.key && e.label && e.icon && e.action));
   ok('空输入安全', eq(homeIcons(undefined), []) && eq(homeIcons(null), []));
 }
 
-/* ---------- 3. 同名项去重：app 优先于磁盘卷 ---------- */
+/* ---------- 3. 同名项去重与磁盘卷排除 ---------- */
 {
   const driveFirst = homeIcons([
     { appId: 'Finder.app', appName: 'Macintosh HD', icon: 'drive.png', kind: 'drive' },
     { appId: 'srv-finder.app', appName: 'Macintosh HD', icon: 'finder.svg', kind: 'app_shortcut' },
   ]);
-  ok('同名时保留自研 app（drive 在前）', driveFirst.length === 1 && driveFirst[0].icon === 'finder.svg', JSON.stringify(driveFirst.map((e) => e.icon)));
+  ok('磁盘卷被排除，只剩同名自研 app（drive 在前）', driveFirst.length === 1 && driveFirst[0].icon === 'finder.svg', JSON.stringify(driveFirst.map((e) => e.icon)));
 
   const appFirst = homeIcons([
     { appId: 'srv-finder.app', appName: 'Macintosh HD', icon: 'finder.svg', kind: 'app_shortcut' },
     { appId: 'Finder.app', appName: 'Macintosh HD', icon: 'drive.png', kind: 'drive' },
   ]);
-  ok('同名时保留自研 app（app 在前）', appFirst.length === 1 && appFirst[0].icon === 'finder.svg');
+  ok('磁盘卷被排除，只剩同名自研 app（app 在前）', appFirst.length === 1 && appFirst[0].icon === 'finder.svg');
 
   const distinctDrives = homeIcons([
     { appId: 'Finder.app', appName: 'C:', icon: 'c.png', kind: 'drive' },
     { appId: 'Finder.app', appName: 'D:', icon: 'd.png', kind: 'drive' },
   ]);
-  ok('不同名磁盘各自保留', distinctDrives.length === 2, JSON.stringify(distinctDrives.map((e) => e.label)));
+  ok('磁盘卷一律不出现在首页', distinctDrives.length === 0, JSON.stringify(distinctDrives.map((e) => e.label)));
+
+  const sameNameApps = homeIcons([
+    { appId: 'srv-a.app', appName: 'Same', icon: 'a.svg', kind: 'app_shortcut' },
+    { appId: 'srv-b.app', appName: 'Same', icon: 'b.svg', kind: 'app_shortcut' },
+  ]);
+  ok('同名自研 app 按显示名去重', sameNameApps.length === 1, JSON.stringify(sameNameApps.map((e) => e.label)));
 }
 
 /* ---------- 4. 打开动作：图标自带 event 优先 ---------- */

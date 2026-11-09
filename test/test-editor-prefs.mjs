@@ -91,6 +91,16 @@ const prefs = (patch = {}) => ({ ...DEFAULT_PREFS, ...patch });
       dirty.theme === DEFAULT_PREFS.theme && dirty.fontFamily === DEFAULT_PREFS.fontFamily,
       JSON.stringify(dirty)
     );
+
+    // showPreview:false 回归：程序化写入的本地 true 只要没进 mutated，hydration 必须采用服务端 false
+    const previewOff = mergeServerPrefs(prefs({ showPreview: true }), { showPreview: false }, NONE);
+    ok('server false overrides local true (unmutated)', previewOff.showPreview === false, JSON.stringify(previewOff));
+    // 反向兼容：服务端历史值 true 仍要能盖过本地默认 false
+    const previewOn = mergeServerPrefs(prefs({ showPreview: false }), { showPreview: true }, NONE);
+    ok('server true overrides local false', previewOn.showPreview === true, JSON.stringify(previewOn));
+    // 用户本会话亲自点过菜单时本地仍胜出（既有 mutated 语义，不能因修 bug 改坏）
+    const previewMutated = mergeServerPrefs(prefs({ showPreview: true }), { showPreview: false }, new Set(['showPreview']));
+    ok('mutated showPreview wins over server', previewMutated.showPreview === true, JSON.stringify(previewMutated));
   }
 
   /* ---------- 3. 推送判定 ---------- */
@@ -105,6 +115,12 @@ const prefs = (patch = {}) => ({ ...DEFAULT_PREFS, ...patch });
       prefsNeedPush(prefs({ wordWrap: true, theme: 'githubLight' }), { wordWrap: true, theme: 'dracula' }) === true
     );
     ok('unknown server keys ignored', prefsNeedPush(DEFAULT_PREFS, { legacy: 1 }) === false);
+
+    // 关掉预览的核心链路：服务端 true → 本地 false，必须推送 false 覆盖
+    ok('closing preview pushes false over server true', prefsNeedPush(prefs({ showPreview: false }), { showPreview: true }) === true);
+    ok('opening preview pushes true when server has no key', prefsNeedPush(prefs({ showPreview: true }), {}) === true);
+    // 服务端缺键 + 值等于默认 false = 从未动过设置，零写盘（既有语义）
+    ok('server missing + default false → no push', prefsNeedPush(prefs({ showPreview: false }), {}) === false);
   }
 
   fs.rmSync(TMP, { recursive: true, force: true });

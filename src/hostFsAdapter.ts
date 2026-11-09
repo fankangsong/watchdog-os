@@ -1,3 +1,8 @@
+// ⚠️ 当前已停用：内置 Finder 不再接入宿主机文件系统（2026-11-07）。
+//    main.tsx 已移除本模块的 import，模块级 registerHostFsAdapter() 不会执行；
+//    源码保留备查，如需恢复请同时接回 main.tsx / Desktop.tsx / EditorApp.tsx / GlobalShortcuts.tsx
+//    的接线（见 AGENTS.md「内置 Finder / hostFsAdapter（已停用）」）。
+//
 // classicy 内置 Finder（Macintosh HD）接入宿主机文件系统的适配器（FS Adapter 桥）：
 //
 //   reconcile（启动时）：调 /api/fs/list 把 FS_ROOTS 白名单目录翻译成 classicy FS 树，

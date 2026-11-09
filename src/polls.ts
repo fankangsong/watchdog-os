@@ -2,12 +2,12 @@ import { fetchDocker, fetchMetrics, fetchPrinter, fetchProcesses } from './api';
 import { createSharedPoll } from './sharedPoll';
 
 /**
- * 四个轮询数据源的页面级共享 store（模块单例，登录后首个订阅即启动）：
- *  - monitorPoll：系统指标 + 进程列表（MonitorApp 同一节奏，合并为一次轮询内的顺序两个请求）
+ * 轮询数据源的应用级共享 store（模块单例）：
+ *  - monitorPoll：系统指标 + 进程列表（MonitorApp / DiskApp 共用，合并为一次轮询内的顺序两个请求）
  *  - dockerPoll：Docker 容器列表（DockerApp）
  *  - printerPoll：CUPS 打印机 / 队列 / 历史（PrinterApp）
- * 轮询与 app 窗口开闭解耦：退出应用后仍在轮询，重开即有最新数据（docs/tasks.md）。
- * RunnerApp 的构建状态轮询保持组件级 usePolling（手动触发型界面，退出即停无妨）。
+ * 各 App 用 useAppOpen 门控订阅：未启动时不发请求，启动即首拉并续轮，Quit 后停转。
+ * RunnerApp / BlogApp / AuditApp 的组件级 usePolling 同样按应用启动状态门控。
  */
 export const monitorPoll = createSharedPoll(
   async () => ({

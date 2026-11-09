@@ -10,7 +10,6 @@ import {
   ClassicyAlert,
   ClassicyApp,
   ClassicyButton,
-  ClassicyFileSystemEntryFileType,
   ClassicyInput,
   ClassicyPopUpMenu,
   ClassicySplitView,
@@ -19,7 +18,6 @@ import {
   useClassicyAboutMenu,
 } from 'classicy';
 import type { ClassicyMenuItem } from 'classicy';
-import { classicyToHost } from '../hostFsAdapter';
 import {
   draftsDeleteAll,
   draftsDeleteByPath,
@@ -163,7 +161,9 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
   // 401 只做本地收尾（清会话存储 + 回登录页），**不再**发 /api/logout（见 src/session.ts）
   const handleLogout = useCallback(() => onLogout(), [onLogout]);
 
-  /* 偏好变更入口：按字段标记"本地已改"，hydration 时这些字段以本地为准 */
+  /* 偏好变更入口：按字段标记"本地已改"，hydration 时这些字段以本地为准。
+     仅供用户显式操作（View 菜单 / 设置面板）调用；打开文件、恢复草稿、跨应用联动等
+     程序化路径一律不得调用，否则会把自动值误记为用户偏好并回推服务端，覆盖用户已保存的选择。 */
   const updatePrefs = useCallback((patch: Partial<EditorPrefs>) => {
     for (const k of Object.keys(patch)) prefsMutatedRef.current.add(k as PrefKey);
     setPrefs((p) => ({ ...p, ...patch }));
@@ -261,8 +261,6 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
           return;
         }
         openDoc(r.path, r.content ?? '', r.mtime);
-        // Markdown 文件自动开启预览；非 Markdown 保持用户当前选择（记住状态）
-        if (isMdPath(r.path)) updatePrefs({ showPreview: true });
         setOpenDialog(false);
         setRecent((prev) => {
           const next = [r.path, ...prev.filter((x) => x !== r.path)].slice(0, 8);
@@ -280,7 +278,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         setLoading(false);
       }
     },
-    [handleLogout, openDoc, updatePrefs]
+    [handleLogout, openDoc]
   );
 
   const save = useCallback(async (): Promise<boolean> => {
@@ -334,27 +332,6 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
     window.addEventListener(EDITOR_OPEN_EVENT, onOpen);
     return () => window.removeEventListener(EDITOR_OPEN_EVENT, onOpen);
   }, [loadFile]);
-
-  // 内置 Finder（Macintosh HD）双击联动：本应用注册了 text_file/markdown 处理器后，
-  // classicy 的通用兜底会把路径（classicy 冒号路径）写入本应用 data.openFiles 并打开窗口；
-  // 这里监视新增项，还原宿主机路径后加载。首次快照只记为已处理（可能是上个会话残留），
-  // 只响应本会话内的新增双击，避免启动即自动打开旧文件。
-  const openFiles = useAppManager(
-    (s) => s.System.Manager.Applications.apps[EDITOR_APP_ID]?.data?.openFiles
-  ) as string[] | undefined;
-  const seenOpenFilesRef = useRef<Set<string> | null>(null);
-  useEffect(() => {
-    if (!Array.isArray(openFiles)) return;
-    if (seenOpenFilesRef.current === null) {
-      seenOpenFilesRef.current = new Set(openFiles);
-      return;
-    }
-    for (const p of openFiles) {
-      if (seenOpenFilesRef.current.has(p)) continue;
-      seenOpenFilesRef.current.add(p);
-      void loadFile(classicyToHost(p) ?? p);
-    }
-  }, [openFiles, loadFile]);
 
   /* ---------- 恢复草稿 ---------- */
 
@@ -448,7 +425,6 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         setRecoverOpen(false);
         // 恢复出来的内容就是"未保存改动"：后续自动缓存继续覆盖这份草稿
         draftPathRef.current = entry.path;
-        if (isMdPath(entry.path)) updatePrefs({ showPreview: true });
       } catch (e) {
         if (e instanceof Unauthorized) handleLogout();
         else setError(`恢复失败：${(e as Error).message}`);
@@ -456,7 +432,7 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
         setDraftBusy(false);
       }
     },
-    [handleLogout, openDoc, updatePrefs]
+    [handleLogout, openDoc]
   );
 
   /** 丢弃当前文档的草稿并回退到磁盘版本 */
@@ -649,8 +625,6 @@ export function EditorApp({ onLogout }: { onLogout: () => void }) {
       name={EDITOR_APP_NAME}
       icon={EDITOR_ICON}
       defaultWindow={EDITOR_WIN_ID}
-      // 注册为文本类文件的处理器：内置 Finder（Macintosh HD）双击文本/markdown 时路由到本应用
-      handlesFileTypes={[ClassicyFileSystemEntryFileType.TextFile, ClassicyFileSystemEntryFileType.Markdown]}
     >
       <ClassicyWindow
         id={EDITOR_WIN_ID}

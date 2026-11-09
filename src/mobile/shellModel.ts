@@ -37,7 +37,7 @@ export interface HomeEntry {
 /** 自研 app 的 id 一律以 srv- 开头（见 src/apps/*.tsx 的 APP_ID），用于把 classicy 内置 app 挡在首页外 */
 export const APP_ID_PREFIX = 'srv-';
 
-/** 磁盘卷图标的 kind（Macintosh HD 等，由 Finder 依据 FS 根目录生成） */
+/** 磁盘卷图标的 kind（classicy 内置示例 Finder 生成；首页一律排除） */
 export const DRIVE_KIND = 'drive';
 /** 废纸篓不上手机首页：手机上无法把文件拖进废纸篓 */
 export const TRASH_KIND = 'trash';
@@ -47,8 +47,10 @@ function isHomeIcon(icon: WdDesktopIcon): boolean {
   if (icon.hidden) return false;
   if (icon.inApplications === false) return false;
   if (icon.kind === TRASH_KIND) return false;
-  // 自研 app 与磁盘卷；classicy 内置的 Sound Manager / Date & Time / 示例 app 等一律不出现
-  return icon.appId.startsWith(APP_ID_PREFIX) || icon.kind === DRIVE_KIND;
+  // 已停用 hostFsAdapter：内置 Finder 的磁盘卷（Macintosh HD）不再出现在首页；
+  // classicy 内置的 Sound Manager / Date & Time / 示例 app 等也一律排除
+  if (icon.kind === DRIVE_KIND) return false;
+  return icon.appId.startsWith(APP_ID_PREFIX);
 }
 
 /** 打开动作：图标带 event 就照抄（eventData 可缺省），否则打开对应 app */

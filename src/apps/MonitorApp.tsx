@@ -3,6 +3,7 @@ import { ClassicyApp, ClassicyButton, ClassicyIcons, ClassicyPopUpMenu, Classicy
 import { Unauthorized } from '../api';
 import { monitorPoll } from '../polls';
 import { useSharedPoll } from '../sharedPoll';
+import { useAppOpen } from '../hooks/useAppOpen';
 import { SystemInfoPanel } from '../components/SystemInfoPanel';
 import { ResourcesPanel } from '../components/ResourcesPanel';
 import { ProcessPanel } from '../components/ProcessPanel';
@@ -17,9 +18,9 @@ const INTERVALS = [1, 2, 5, 10, 30];
 export function MonitorApp({ onLogout }: { onLogout: () => void }) {
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ClassicyIcons.applications.systemProfiler.app);
 
-  // 页面级共享轮询（monitorPoll）：退出应用 / 关闭窗口不再停止（docs/tasks.md），
-  // 因此文档标题登录即更新、重开窗口即有最新数据。
-  const poll = useSharedPoll(monitorPoll);
+  // 仅在本应用启动期间订阅共享轮询：未启动 / Quit 后不发请求，重开窗口立即首拉
+  const open = useAppOpen(APP_ID);
+  const poll = useSharedPoll(monitorPoll, open);
   const m = poll.data?.metrics ?? null;
   const procs = poll.data?.processes ?? null;
 

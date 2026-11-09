@@ -17,6 +17,7 @@ import {
 } from '../api';
 import auditIcon from '../assets/icons/audit.svg?no-inline';
 import { usePolling } from '../hooks/usePolling';
+import { useAppOpen } from '../hooks/useAppOpen';
 import { quitMenuItem } from '../quitMenuItem';
 import { AuditAnomalies, AuditEventsTable, AuditOverview, AuditSourcesTable } from '../components/AuditPanels';
 import { AuditTrendChart, type AuditTrendPoint } from '../components/AuditTrendChart';
@@ -65,7 +66,9 @@ export function AuditApp({ onLogout }: { onLogout?: () => void }) {
   const [exportError, setExportError] = useState('');
 
   const query = useMemo(() => ({ days: Number(days), type, ok: result, ip, limit: 300 }), [days, type, result, ip]);
-  const poll = usePolling(() => fetchAuditLog(query), POLL_MS);
+  // 仅在本应用启动期间轮询 /api/audit：未启动 / Quit 后不发请求
+  const open = useAppOpen(APP_ID);
+  const poll = usePolling(() => fetchAuditLog(query), POLL_MS, open);
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 

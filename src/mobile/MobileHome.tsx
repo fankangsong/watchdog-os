@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ClassicyIcons, dispatch, useAppManager } from 'classicy';
-import { monitorPoll } from '../polls';
-import { useSharedPoll } from '../sharedPoll';
 import { homeIcons, isHomeVisible, primaryWindowId } from './shellModel';
 
 /** 首页底部状态条的时钟：独立组件 + 自身定时器，避免秒级刷新带动整个图标网格重渲染 */
@@ -22,12 +20,13 @@ function HomeClock() {
  * 与窗口共用同一个父节点，无法用 CSS 网格化；且它绑定的是鼠标事件（单击选中 / 双击打开 /
  * 拖拽框选），在触屏上双击判定与拖拽框选都不成立。这里读同一份 store 数据重排，
  * 打开动作沿用图标自带的 event/eventData，因此新增 app 不需要改这份代码。
+ *
+ * 主机名 / 状态灯原先取自 monitorPoll（/api/metrics）。现已严格门控：未启动任何
+ * App 时不订阅共享轮询，首页不发起请求，改用静态兜底文案与常亮状态灯。
  */
 export function MobileHome() {
   const icons = useAppManager((s) => s.System.Manager.Desktop.icons);
   const apps = useAppManager((s) => s.System.Manager.Applications.apps);
-  const monitor = useSharedPoll(monitorPoll);
-  const hostname = monitor.data?.metrics?.host?.hostname ?? '';
 
   const entries = useMemo(() => homeIcons(icons), [icons]);
 
@@ -55,7 +54,7 @@ export function MobileHome() {
         <img className="sp-m-home-logo" src={ClassicyIcons.applications.systemProfiler.app} alt="" />
         <div className="sp-m-home-brand">
           <h1 className="sp-m-home-title">WatchDog OS</h1>
-          <p className="sp-m-home-sub">{hostname || 'Server Console'}</p>
+          <p className="sp-m-home-sub">Server Console</p>
         </div>
       </div>
 
@@ -76,11 +75,8 @@ export function MobileHome() {
       </div>
 
       <div className="sp-m-status">
-        <span
-          className={monitor.error ? 'sp-m-led sp-m-led-off' : 'sp-m-led sp-m-led-on'}
-          aria-hidden="true"
-        />
-        <span className="sp-m-status-text">{hostname || 'WatchDog OS'}</span>
+        <span className="sp-m-led sp-m-led-on" aria-hidden="true" />
+        <span className="sp-m-status-text">WatchDog OS</span>
         <HomeClock />
       </div>
     </div>

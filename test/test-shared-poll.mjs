@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-/* 页面级共享轮询回归测试（src/sharedPoll.ts + src/polls.ts）：零依赖（esbuild 仅作 TS 转译，缺失时 SKIP）。
-   守护 docs/tasks.md 的「轮询接口只在 APP 启动时才工作，APP 退出就不再轮询」：
-     1. 零订阅者（退出应用 / 关闭窗口 / 组件卸载）后轮询继续——核心回归；
-     2. 订阅即启动并立即首拉；暂停停请求、恢复立即拉一次；改间隔立即生效；
+/* 应用级共享轮询回归测试（src/sharedPoll.ts + src/polls.ts）：零依赖（esbuild 仅作 TS 转译，缺失时 SKIP）。
+   守护「轮询接口只在所属 App 启动时才工作，App 退出就不再轮询」：
+     1. 零订阅者（应用未启动 / Quit / 组件卸载）后轮询停止——核心回归；重新订阅立即首拉并续轮；
+     2. 订阅即启动并立即首拉；useSharedPoll(enabled=false) 不注册订阅者、不发请求；
+        暂停停请求、恢复立即拉一次；改间隔立即生效；
      3. 401（会话失效）停止轮询，重新订阅（重登）后自动重启；
-     4. 慢接口不叠加请求；快照引用稳定；reload 语义（暂停中 no-op）；
+     4. 慢接口不叠加请求；快照引用稳定；reload 语义（暂停中 / 无订阅者时 no-op）；
      5. polls.ts 接线：monitor/docker/printer 各自命中正确的端点。 */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,8 +29,7 @@ function ok(name, cond, extra = '') {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------- mock fetch：按 URL 记录请求，可配置状态码 / 延迟 / 响应体 ---------- */
-/* 注意：共享轮询的单例「不因订阅者清零而停止」，前几个用例的轮询器会持续在跑，
-   故每个用例用独立 URL，且 count(url) 只统计该 URL 的请求，避免相互污染。 */
+/* 每个用例用独立 URL，且 count(url) 只统计该 URL 的请求，避免相互污染。 */
 function mockFetch(routes) {
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
@@ -108,7 +108,7 @@ const freshPolls = () => import(`${pathToFileURL(pollsBundle).href}?case=${++cas
 const IV = 250; // 测试用轮询间隔（createSharedPoll 下限 200ms）
 
 (async () => {
-  /* 1. 核心回归：最后一个订阅者退出后，轮询不得停止 */
+  /* 1. 核心回归：最后一个订阅者退出后，轮询必须停止 */
   {
     const U = './api/x1';
     const net = mockFetch({ [U]: { body: { v: 1 } } });
@@ -116,11 +116,31 @@ const IV = 250; // 测试用轮询间隔（createSharedPoll 下限 200ms）
     const poll = createSharedPoll(async () => (await fetch(U)).json(), { intervalMs: IV });
     const un = poll.subscribe(() => {});
     await sleep(120);
-    un(); // 组件卸载 / 应用退出：订阅者清零
+    un(); // 应用 Quit / 未启动：订阅者清零
     const before = net.count(U);
     await sleep(IV * 2 + 150);
     const after = net.count(U);
-    ok('零订阅者后轮询继续', after > before + 1, `请求数 ${before} → ${after}`);
+    ok('零订阅者后轮询停止', after === before, `请求数 ${before} → ${after}`);
+  }
+
+  /* 1b. 应用重新打开（新订阅）→ 立即首拉并续轮 */
+  {
+    const U = './api/x1b';
+    const net = mockFetch({ [U]: { body: { v: 1 } } });
+    const { createSharedPoll } = await freshShared();
+    const poll = createSharedPoll(async () => (await fetch(U)).json(), { intervalMs: IV });
+    const un = poll.subscribe(() => {});
+    await sleep(120);
+    un();
+    const before = net.count(U);
+    await sleep(IV * 2 + 150);
+    ok('零订阅者期间无请求', net.count(U) === before, `请求数 ${before} → ${net.count(U)}`);
+    const un2 = poll.subscribe(() => {});
+    await sleep(80);
+    ok('重新订阅后立即首拉', net.count(U) === before + 1, `请求数 ${before} → ${net.count(U)}`);
+    await sleep(IV * 2 + 150);
+    ok('重新订阅后续轮', net.count(U) > before + 1, `请求数 ${net.count(U)}`);
+    un2();
   }
 
   /* 2. 订阅即启动并立即首拉（不必等一个间隔） */
@@ -133,6 +153,23 @@ const IV = 250; // 测试用轮询间隔（createSharedPoll 下限 200ms）
     await sleep(600);
     un();
     ok('订阅即立即首拉', net.count(U) >= 1, `首拉后请求数 ${net.count(U)}`);
+  }
+
+  /* 2b. useSharedPoll 的 enabled 门控：false 不注册订阅者、不发请求；true 立即首拉 */
+  {
+    const U = './api/x2b';
+    const net = mockFetch({ [U]: { body: { v: 1 } } });
+    const { createSharedPoll, useSharedPoll } = await freshShared();
+    const poll = createSharedPoll(async () => (await fetch(U)).json(), { intervalMs: IV });
+    const s1 = useSharedPoll(poll, false);
+    await sleep(IV * 2 + 150);
+    ok('useSharedPoll(enabled=false) 不发请求', net.count(U) === 0, `请求数 ${net.count(U)}`);
+    ok('enabled=false 仍可读取快照', s1.snapshot.data === null);
+    const s2 = useSharedPoll(poll, true);
+    await sleep(120);
+    ok('useSharedPoll(enabled=true) 立即首拉', net.count(U) >= 1, `请求数 ${net.count(U)}`);
+    s1.unsubscribe();
+    s2.unsubscribe();
   }
 
   /* 3. 暂停停请求；恢复立即拉一次并继续轮询 */
@@ -225,7 +262,7 @@ const IV = 250; // 测试用轮询间隔（createSharedPoll 下限 200ms）
     un();
   }
 
-  /* 8. reload：运行中立即拉一次；暂停中 no-op */
+  /* 8. reload：运行中立即拉一次；暂停中 / 无订阅者时 no-op */
   {
     const U = './api/x8';
     const net = mockFetch({ [U]: { body: { v: 1 } } });
@@ -242,7 +279,12 @@ const IV = 250; // 测试用轮询间隔（createSharedPoll 下限 200ms）
     poll.reload();
     await sleep(60);
     ok('reload 暂停中 no-op', net.count(U) === atPause);
+    poll.setPaused(false);
     un();
+    const afterUn = net.count(U);
+    poll.reload();
+    await sleep(60);
+    ok('reload 无订阅者时 no-op', net.count(U) === afterUn, `${afterUn} → ${net.count(U)}`);
   }
 
   /* 9. polls.ts 接线：三个单例各自命中正确端点（订阅即首拉） */
@@ -258,7 +300,7 @@ const IV = 250; // 测试用轮询间隔（createSharedPoll 下限 200ms）
     const unD = polls.dockerPoll.subscribe(() => {});
     const unP = polls.printerPoll.subscribe(() => {});
     await sleep(150);
-    const urls = net.urls().filter((u) => !/\/x\d+$/.test(u)); // 排除前几个用例的遗留轮询
+    const urls = net.urls().filter((u) => !/\/x\d+b?$/.test(u)); // 排除前几个用例的遗留轮询
     ok(
       'polls.ts 端点接线',
       urls.includes('./api/metrics') &&

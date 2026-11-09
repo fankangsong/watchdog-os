@@ -10,6 +10,7 @@ import {
 } from 'classicy';
 import { fetchRunnerStatus, startRunnerBuild, stopRunnerBuild, Unauthorized } from '../api';
 import { usePolling } from '../hooks/usePolling';
+import { useAppOpen } from '../hooks/useAppOpen';
 import { quitMenuItem } from '../quitMenuItem';
 // ⚠️ 必须用 ?no-inline（仅 ?url 不够，它不绕过 assetsInlineLimit）让 Vite 输出独立文件 URL，
 // 否则 classicy 桌面图标遮罩会静默失效（见 docs/icon-pipeline.md §6.2）。
@@ -35,7 +36,9 @@ function fmtTime(ts: number): string {
 export function RunnerApp({ onLogout }: { onLogout?: () => void }) {
   // 轮询间隔：运行中 2s、空闲 10s（interval 变化会重启 usePolling 定时器）
   const [intervalMs, setIntervalMs] = useState(10000);
-  const poll = usePolling(fetchRunnerStatus, intervalMs);
+  // 仅在本应用启动期间轮询 /api/runner/status：未启动 / Quit 后不发请求
+  const open = useAppOpen(APP_ID);
+  const poll = usePolling(fetchRunnerStatus, intervalMs, open);
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
   const running = poll.data?.running === true;
