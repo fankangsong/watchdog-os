@@ -9,7 +9,9 @@
 // 重命名（可改扩展名）、删除、
 // 复制/剪切/粘贴（服务端递归复制，同名自动追加 copy 后缀）、Get Info、
 // 收藏夹（右键文件夹 Add/Remove from Favorites、工具栏按钮、菜单栏 Favorites 菜单）：
-// 以及图片/文本/Markdown 预览窗口。文件选择类命令走 Edit 菜单（Cut/Copy/Paste/Select All/Delete…）
+// 以及图片/文本/Markdown 预览窗口、打印（File > Print… / 右键菜单 / 预览窗口菜单）：
+// 打印前弹出 PrintDialog 选择打印机、纸张大小、彩色黑白与页码范围，再提交 CUPS。
+// 文件选择类命令走 Edit 菜单（Cut/Copy/Paste/Select All/Delete…）
 // 与快捷键（⌘C/⌘X/⌘V/⌘A/⌘⌫），与右键菜单三路等价。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react';
@@ -60,6 +62,7 @@ import { quitMenuItem } from '../quitMenuItem';
 import { CodeEditor } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 import { DocxPreview } from '../components/DocxPreview';
+import { PrintDialog } from '../components/PrintDialog';
 // 窗口操作按钮带内嵌图标（16x16 工具栏档，见 docs/icon-pipeline.md §1.2）：
 // 单色 currentColor 跟随按钮文字色，启用/禁用/按下三态自动一致
 import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
@@ -301,7 +304,7 @@ function hasFilePayload(dt: DataTransfer | null): boolean {
 }
 
 interface FmAlert {
-  alertType: 'caution' | 'stop';
+  alertType: 'note' | 'caution' | 'stop';
   label: string;
   message?: string;
   /** 指定默认按钮 id；有数据丢失风险的确认必须指向安全项（Cancel） */
@@ -342,6 +345,8 @@ export function FinderBrowser({
   const [alert, setAlert] = useState<FmAlert | null>(null);
   // Get Info 属性窗口：显示选中条目（或当前目录）的名称/路径/大小等
   const [infoEntry, setInfoEntry] = useState<FsEntry | null>(null);
+  // Print… 对话框：单选中的文件（null = 关闭）；同一时刻只开一个
+  const [printEntry, setPrintEntry] = useState<FsEntry | null>(null);
   // Get Info 路径行点击复制反馈（短暂显示 Copied ✓）
   const [infoCopied, setInfoCopied] = useState(false);
   // 地址栏：显示当前目录路径，回车快速跳转（Windows/Linux 路径原样交给后端 resolve 校验）
@@ -993,6 +998,9 @@ export function FinderBrowser({
       if (list.some((f) => f.type === 'file')) {
         items.push({ id: 'fm-cm-download', title: 'Download', onClickFunc: () => downloadEntries(list) });
       }
+      if (list.length === 1 && first.type === 'file') {
+        items.push({ id: 'fm-cm-print', title: 'Print…', onClickFunc: () => setPrintEntry(first) });
+      }
       items.push(
         { id: 'spacer' },
         // 剪切/复制绑定到菜单作用对象 list（而非渲染时的选中态），保证与点击目标一致
@@ -1406,6 +1414,13 @@ export function FinderBrowser({
               }
             },
           },
+          {
+            id: 'fm-m-print',
+            title: 'Print…',
+            // 打印作用于单个文件；多选/目录/无选中时保留菜单项置灰（不隐藏）
+            disabled: selectedEntries.length !== 1 || selectedEntries[0].type !== 'file',
+            onClickFunc: () => setPrintEntry(selectedEntries[0]),
+          },
         ],
       },
       {
@@ -1744,6 +1759,27 @@ export function FinderBrowser({
       />
       </ClassicyWindow>
 
+      {/* 打印对话框：主窗口 / 收藏夹窗口 / 预览窗口共用本实例渲染，id 带 winId 避免多实例冲突 */}
+      {printEntry && (
+        <PrintDialog
+          appId={APP_ID}
+          icon={ICON}
+          winId={winId}
+          entry={printEntry}
+          onClose={() => setPrintEntry(null)}
+          onLogout={handleLogout}
+          onSubmitted={(r) => {
+            const name = printEntry.name;
+            setPrintEntry(null);
+            setAlert({
+              alertType: 'note',
+              label: 'Print Job Submitted',
+              message: `“${name}” was sent to ${r.printer}${r.jobId ? ` (job #${r.jobId})` : ''}${r.pageRange ? ` · pages ${r.pageRange}` : ''}.`,
+              buttons: [{ id: 'ok', label: 'OK', role: 'default' }],
+            });
+          }}
+        />
+      )}
 
       {dialog && (
         <ClassicyWindow
@@ -1795,6 +1831,7 @@ export function FinderBrowser({
           winId={winIdFor(pv.path)}
           onEdit={(e) => openInEditor(e.path)}
           onDownload={() => downloadEntries([pv])}
+          onPrint={(e) => setPrintEntry(e)}
           onClose={() => setPreviews((p) => p.filter((x) => x.path !== pv.path))}
           onLogout={handleLogout}
         />
@@ -1868,6 +1905,7 @@ function PreviewWindow({
   winId,
   onEdit,
   onDownload,
+  onPrint,
   onClose,
   onLogout,
 }: {
@@ -1875,6 +1913,7 @@ function PreviewWindow({
   winId: string;
   onEdit: (entry: FsEntry) => void;
   onDownload: () => void;
+  onPrint: (entry: FsEntry) => void;
   onClose: () => void;
   onLogout: () => void;
 }) {
@@ -1945,6 +1984,7 @@ function PreviewWindow({
           },
           { id: 'fm-pv-m-download', title: 'Download', onClickFunc: onDownload },
           { id: 'spacer' },
+          { id: 'fm-pv-m-print', title: 'Print…', onClickFunc: () => onPrint(entry) },
           { id: 'fm-pv-m-close', title: 'Close Window', onClickFunc: onClose },
         ],
       },
@@ -1969,7 +2009,7 @@ function PreviewWindow({
         ],
       },
     ],
-    [aboutMenuItem, canEdit, isMd, source, entry, onEdit, onDownload, onClose]
+    [aboutMenuItem, canEdit, isMd, source, entry, onEdit, onDownload, onPrint, onClose]
   );
 
   return (

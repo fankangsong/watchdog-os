@@ -462,4 +462,6 @@ async function fsRoute(req, res, p, url) {
   }
 }
 
-module.exports = { fsRoute, FS_ROOTS };
+// fsResolve / fsAllowed 同时供打印接口使用：文件打印与文件浏览必须是同一套
+// 路径解析 + FS_ROOTS 白名单，避免在打印链路上出现第二条可绕过校验的路径。
+module.exports = { fsRoute, FS_ROOTS, fsResolve, fsAllowed };

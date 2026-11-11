@@ -19,6 +19,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { cfg } = require('../config');
 const { runCmd } = require('../lib/http');
+const { fsResolve, fsAllowed } = require('./fs');
 
 const IPP_TESTS = {
   printers: {
@@ -240,15 +241,10 @@ function buildTestPagePs(printerName) {
 }
 
 /**
- * 向指定打印机提交一张测试页。返回 { ok, printer, jobId, requestId, title } 或 { error, detail? }，
- * error 约定（由路由映射状态码）：'Bad printer name'→400、'Printer not found'→404、
- * 'CUPS unavailable'→503、其余（'Print failed' 等）→500。
+ * 打印机存在性探测：lpstat -p <name>（存在则输出 "printer <name> ..."，否则非零退出）。
+ * 返回 null 表示可用，否则返回 { error, detail }（测试页与文件打印共用同一判定）。
  */
-async function printTestPage(printerName) {
-  const name = String(printerName || '').trim();
-  if (!PRINTER_NAME_RE.test(name)) return { error: 'Bad printer name' };
-
-  /* 1. 打印机存在性探测：lpstat -p <name>（存在则输出 "printer <name> ..."，否则非零退出） */
+async function checkPrinter(name) {
   const st = await run('lpstat', ['-p', name], 8000, { LC_ALL: 'C' });
   if (!st.ok && st.code === 'ENOENT') {
     return { error: 'CUPS unavailable', detail: 'lpstat 不存在（未安装 CUPS）' };
@@ -259,6 +255,21 @@ async function printTestPage(printerName) {
   if (!st.ok || !st.out.includes(`printer ${name}`)) {
     return { error: 'Printer not found', detail: st.errText.trim().slice(0, 300) };
   }
+  return null;
+}
+
+/**
+ * 向指定打印机提交一张测试页。返回 { ok, printer, jobId, requestId, title } 或 { error, detail? }，
+ * error 约定（由路由映射状态码）：'Bad printer name'→400、'Printer not found'→404、
+ * 'CUPS unavailable'→503、其余（'Print failed' 等）→500。
+ */
+async function printTestPage(printerName) {
+  const name = String(printerName || '').trim();
+  if (!PRINTER_NAME_RE.test(name)) return { error: 'Bad printer name' };
+
+  /* 1. 打印机存在性探测 */
+  const printerErr = await checkPrinter(name);
+  if (printerErr) return printerErr;
 
   /* 2. 生成测试页文件（文件名含时间戳避免并发覆盖，提交完成后清理） */
   const file = path.join(os.tmpdir(), `watchdog-testpage-${name}-${Date.now()}.ps`);
@@ -285,4 +296,217 @@ async function printTestPage(printerName) {
   }
 }
 
-module.exports = { readPrinter, startPrinterTimer, printTestPage };
+/* ================= 打印文件（POST /api/printer/print） ================= */
+
+/** 纸张尺寸白名单：CUPS media（IPP 标准）/ PPD PageSize 关键字；不接收任意 -o 值防选项注入 */
+const PRINT_PAPER_SIZES = new Set(['A4', 'A3', 'A5', 'Letter', 'Legal', 'Executive', 'Tabloid', 'B5']);
+/**
+ * 色彩模式 → CUPS 选项。两种写法都传：
+ *  - print-color-mode 是 IPP Everywhere 标准关键字（CUPS ≥2.2）
+ *  - ColorModel 是 PPD 驱动（如本机 Gutenprint）的实际选项
+ * 二者语义一致（color↔RGB / monochrome↔Gray），不支持的一方会被 cupsd 忽略。
+ */
+const PRINT_COLOR_MODES = {
+  color: ['color', 'RGB'],
+  mono: ['monochrome', 'Gray'],
+};
+/** 页码范围：1-3、5、8- 等，逗号分隔；空串表示全部 */
+const PRINT_PAGE_RANGE_RE = /^\d+(-\d*)?(,\d+(-\d*)?)*$/;
+/** 单文件打印上限（只嗅探前 1KB，避免把巨型文件塞进 CUPS 队列） */
+const PRINT_MAX_SIZE = 50 * 1024 * 1024;
+
+/**
+ * 探测文件能否被 CUPS 直接打印（与 /usr/share/cups/mime 的 magic 判定对齐）：
+ * PDF / PostScript / 常见图片 / 纯文本；其余返回 false。
+ * 没有这一步，二进制（如 docx/压缩包）会被 lp 提交成功、却在过滤器阶段失败，
+ * 接口误报成功而队列里是一条 aborted 作业。仅读取前 1KB，大文件不整块入内存。
+ */
+async function isPrintableFile(abs) {
+  const fh = await fs.promises.open(abs, 'r');
+  try {
+    const buf = Buffer.alloc(1024);
+    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+    const head = buf.subarray(0, bytesRead);
+    if (head.length === 0) return true; // 空文件：打印一张空白页
+    const starts = (s) =>
+      head.length >= s.length && head.subarray(0, s.length).equals(Buffer.from(s, 'binary'));
+    if (starts('%PDF') || starts('%!PS')) return true;
+    if (
+      starts('\x89PNG') ||
+      starts('\xff\xd8\xff') ||
+      starts('GIF87a') ||
+      starts('GIF89a') ||
+      starts('BM') ||
+      head.subarray(0, 4).equals(Buffer.from([0x49, 0x49, 0x2a, 0x00])) || // TIFF little-endian
+      head.subarray(0, 4).equals(Buffer.from([0x4d, 0x4d, 0x00, 0x2a])) // TIFF big-endian
+    ) {
+      return true;
+    }
+    // 纯文本：前 1KB 内无 NUL、无控制字符（Tab/LF/CR 放行；≥0x80 视为 UTF-8 多字节放行）
+    for (const b of head) {
+      if (b === 0) return false;
+      if (b < 0x20 && b !== 0x09 && b !== 0x0a && b !== 0x0d) return false;
+    }
+    return true;
+  } finally {
+    await fh.close();
+  }
+}
+
+/** 拼装 lp 实参（纯函数，便于单测）：所有值都经调用方的白名单/正则校验 */
+function buildPrintArgs(name, title, paperSize, colorMode, pageRange, abs) {
+  const [mode, model] = PRINT_COLOR_MODES[colorMode];
+  const args = [
+    '-d', name,
+    '-t', title,
+    '-o', `media=${paperSize}`,
+    '-o', `print-color-mode=${mode}`,
+    '-o', `ColorModel=${model}`,
+  ];
+  if (pageRange) args.push('-o', `page-ranges=${pageRange}`);
+  args.push(abs);
+  return args;
+}
+
+/**
+ * 向指定打印机提交一个文件。body: { path, printer, paperSize, colorMode, pageRange }。
+ * 返回 { ok, printer, jobId, requestId, title, pageRange } 或 { error, detail? }。
+ * 路径校验复用 /api/fs 的 fsResolve + fsAllowed（同一套 FS_ROOTS 白名单）。
+ */
+async function printFile(body) {
+  const name = String((body && body.printer) || '').trim();
+  if (!PRINTER_NAME_RE.test(name)) return { error: 'Bad printer name' };
+  const paperSize = String((body && body.paperSize) || 'A4');
+  if (!PRINT_PAPER_SIZES.has(paperSize)) return { error: 'Bad paper size' };
+  const colorMode = String((body && body.colorMode) || 'color');
+  if (!PRINT_COLOR_MODES[colorMode]) return { error: 'Bad color mode' };
+  // 去掉空白后按白名单校验：page-ranges 会原样传给 lp，必须先挡掉任意 -o 注入
+  const pageRange = String((body && body.pageRange) || '').replace(/\s+/g, '');
+  if (pageRange && !PRINT_PAGE_RANGE_RE.test(pageRange)) return { error: 'Bad page range' };
+
+  const abs = fsResolve(body && body.path);
+  if (!abs || !fsAllowed(abs)) return { error: 'Path is outside the allowed roots' };
+  const st = await fs.promises.stat(abs).catch(() => null);
+  if (!st) return { error: 'File not found' };
+  if (!st.isFile()) return { error: 'Not a regular file' };
+  if (st.size > PRINT_MAX_SIZE) {
+    return { error: 'File too large to print', detail: `上限 ${PRINT_MAX_SIZE / 1024 / 1024}MB` };
+  }
+  let printable;
+  try {
+    printable = await isPrintableFile(abs);
+  } catch (e) {
+    return { error: 'File not readable', detail: (e && e.message) || String(e) };
+  }
+  if (!printable) {
+    return {
+      error: 'Unsupported file type',
+      detail: 'Only PDF, PostScript, images and plain text can be printed.',
+    };
+  }
+
+  const printerErr = await checkPrinter(name);
+  if (printerErr) return printerErr;
+
+  // 文档格式由 CUPS 按文件内容自动识别（mime.types magic），无需 -o document-format。
+  // execFile 无 shell，所有值都经上面的白名单/正则校验，文件名含空格也不会被拆词。
+  const title = path.basename(abs);
+  const lp = await run('lp', buildPrintArgs(name, title, paperSize, colorMode, pageRange, abs), 20000, {
+    LC_ALL: 'C',
+  });
+  if (!lp.ok && lp.code === 'ENOENT') {
+    return { error: 'CUPS unavailable', detail: 'lp 不存在（未安装 CUPS）' };
+  }
+  if (!lp.ok) return { error: 'Print failed', detail: (lp.errText || lp.out).trim().slice(0, 300) };
+  // 成功输出形如 "request id is L130-42 (1 file(s))"，作业号可关联到 Printer 面板队列
+  const m = lp.out.match(/request id is (\S+)-(\d+)/);
+  return { ok: true, printer: name, jobId: m ? m[2] : '', requestId: m ? m[1] : '', title, pageRange };
+}
+
+/* ================= 打印机恢复 / 队列任务控制 ================= */
+
+/**
+ * 队列任务动作 → CUPS 命令（纯函数，便于单测）：
+ *  - hold   （暂停）：lp -i <id> -H hold    挂起作业不再打印（可用 resume 解除）
+ *  - resume （恢复）：lp -i <id> -H resume  解除挂起，重新排队
+ *  - cancel （取消）：cancel <id>           Cancel-Job，中止作业但保留在打印历史中
+ *  - delete （删除）：cancel -x <id>        取消并删除作业数据文件（不留历史记录）
+ */
+function buildJobCommand(action, jobId) {
+  switch (action) {
+    case 'hold':
+      return { cmd: 'lp', args: ['-i', jobId, '-H', 'hold'] };
+    case 'resume':
+      return { cmd: 'lp', args: ['-i', jobId, '-H', 'resume'] };
+    case 'cancel':
+      return { cmd: 'cancel', args: [jobId] };
+    case 'delete':
+      return { cmd: 'cancel', args: ['-x', jobId] };
+    default:
+      return null;
+  }
+}
+
+/** CUPS 全局作业号为十进制正整数（ipptool 的 job-id 即此值）；拒绝其它字符防参数混淆 */
+const JOB_ID_RE = /^\d{1,10}$/;
+
+/**
+ * 恢复被暂停的打印机：cupsenable 解除「已停止」（cupsdisable 造成，printer-state=stopped），
+ * cupsaccept 恢复「拒收新任务」（cupsreject 造成，printer-is-accepting-jobs=false）。
+ * 两条命令都幂等，对正常打印机执行也无害；逐条执行避免同时对同一目标发两个管理请求。
+ */
+async function resumePrinter(printerName) {
+  const name = String(printerName || '').trim();
+  if (!PRINTER_NAME_RE.test(name)) return { error: 'Bad printer name' };
+
+  const printerErr = await checkPrinter(name);
+  if (printerErr) return printerErr;
+
+  const steps = [
+    ['cupsenable', [name]],
+    ['cupsaccept', [name]],
+  ];
+  for (const [cmd, args] of steps) {
+    const r = await run(cmd, args, 10000, { LC_ALL: 'C' });
+    if (!r.ok && r.code === 'ENOENT') {
+      return { error: 'CUPS unavailable', detail: `${cmd} 不存在（未安装 CUPS）` };
+    }
+    if (!r.ok) return { error: 'Resume failed', detail: (r.errText || r.out).trim().slice(0, 300) };
+  }
+  return { ok: true, printer: name };
+}
+
+/**
+ * 队列任务控制。body: { printer, jobId, action }。
+ * 校验（打印机名 / 作业号 / 动作白名单）都在触达 CUPS 之前完成，避免对任意作业执行命令。
+ */
+async function controlPrinterJob(body) {
+  const name = String((body && body.printer) || '').trim();
+  const jobId = String((body && body.jobId) || '').trim();
+  const action = String((body && body.action) || '').trim();
+  if (!PRINTER_NAME_RE.test(name)) return { error: 'Bad printer name' };
+  if (!JOB_ID_RE.test(jobId)) return { error: 'Bad job id' };
+  const cmd = buildJobCommand(action, jobId);
+  if (!cmd) return { error: 'Bad job action' };
+
+  const printerErr = await checkPrinter(name);
+  if (printerErr) return printerErr;
+
+  const r = await run(cmd.cmd, cmd.args, 10000, { LC_ALL: 'C' });
+  if (!r.ok && r.code === 'ENOENT') {
+    return { error: 'CUPS unavailable', detail: `${cmd.cmd} 不存在（未安装 CUPS）` };
+  }
+  if (!r.ok) return { error: 'Job action failed', detail: (r.errText || r.out).trim().slice(0, 300) };
+  return { ok: true, printer: name, jobId, action };
+}
+
+module.exports = {
+  readPrinter,
+  startPrinterTimer,
+  printTestPage,
+  printFile,
+  buildPrintArgs,
+  resumePrinter,
+  controlPrinterJob,
+  buildJobCommand,
+};

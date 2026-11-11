@@ -732,6 +732,17 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 /* 设置对话框底部说明（如偏好落盘路径）：小字、可换行，避免长路径撑破对话框 */
 .sp-dialog-note { padding-top: 2px; border-top: 1px solid rgba(0, 0, 0, 0.12); font-size: 11px; color: #555; word-break: break-all; }
 
+/* Files · Print… 对话框：文档抬头 + 左标签右控件的配置行 */
+.sp-print-doc { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(0, 0, 0, 0.12); font-size: 12px; }
+.sp-print-doc > img { width: 20px; height: 20px; flex: 0 0 auto; image-rendering: pixelated; }
+.sp-print-doc-name { flex: 1 1 auto; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-print-doc-size { flex: 0 0 auto; color: #555; }
+.sp-print-field { display: flex; align-items: center; gap: 8px; }
+.sp-print-field > label { flex: 0 0 76px; font-size: 12px; font-weight: 700; }
+.sp-print-field > :not(label) { flex: 1 1 auto; min-width: 0; }
+.sp-print-note { font-size: 11px; color: #555; }
+.sp-print-error { font-size: 11px; color: #a00; word-break: break-word; }
+
 /* 文本编辑器 */
 .sp-editor { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
 .sp-editor-body { display: flex; flex: 1 1 auto; min-height: 0; gap: 6px; }
@@ -1499,6 +1510,15 @@ html[data-wd-layout="mobile"] .sp-login-field input { height: 34px; }
 html[data-wd-layout="mobile"] .sp-login-actions > button { min-height: 34px; }
 html[data-wd-layout="mobile"] .sp-login-status { height: 26px; }
 html[data-wd-layout="mobile"] .sp-login-status-clock { font-size: 16px; }
+
+/* ---------- Printer：队列任务操作列 ----------
+   classicy 的 .classicyTableCell 是 padding:0，按钮需自带内边距；按钮默认 6px 外边距
+   会与 gap 叠加，这里清零。反馈文本 flex-basis:100% 换到第二行，避免挤压按钮。 */
+.sp-printer-job-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 2px 4px; }
+.sp-printer-job-actions .classicyButton { margin: 0; font-size: 11px; }
+.sp-printer-job-feedback { flex: 0 0 100%; font-size: 11px; line-height: 1.3; word-break: break-all; }
+.sp-printer-ok { color: #070; }
+.sp-printer-err { color: #a00; }
 
 /* ---------- 减少动效偏好 ---------- */
 @media (prefers-reduced-motion: reduce) {

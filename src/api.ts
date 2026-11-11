@@ -501,6 +501,78 @@ export async function printTestPage(printer: string): Promise<PrinterTestPageRes
   return data as PrinterTestPageResult;
 }
 
+/** POST /api/printer/print 的请求体：打印 Files 中选中的文件 */
+export interface PrintFileOptions {
+  /** 服务端 FS_ROOTS 白名单内的绝对路径 */
+  path: string;
+  /** CUPS 打印机名 */
+  printer: string;
+  /** media / PPD PageSize 关键字，见 server/api/printer.js 的 PRINT_PAPER_SIZES */
+  paperSize: string;
+  /** 'color' 彩色 / 'mono' 黑白 */
+  colorMode: 'color' | 'mono';
+  /** 页码范围（如 '1-3,5'、'8-'）；空串表示全部 */
+  pageRange: string;
+}
+
+export interface PrintFileResult {
+  ok: true;
+  printer: string;
+  jobId: string;
+  requestId: string;
+  title: string;
+  pageRange: string;
+}
+
+/** 提交文件打印任务：非 2xx 时把服务端 error/detail 合并进异常消息（lp 的失败原因在 detail 里） */
+export async function printFile(opts: PrintFileOptions): Promise<PrintFileResult> {
+  const r = await fetch('./api/printer/print', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(opts),
+  });
+  if (r.status === 401) throw unauthorized();
+  const data = (await r.json().catch(() => null)) as
+    | (PrintFileResult & { error?: string; detail?: string })
+    | null;
+  if (!r.ok) {
+    const msg = [data?.error, data?.detail].filter(Boolean).join('：') || `HTTP ${r.status}`;
+    throw new Error(msg);
+  }
+  return data as PrintFileResult;
+}
+
+/* ---------- Printer 控制接口（恢复打印机 / 队列任务控制）---------- */
+
+/** Printer 写接口公共 POST 封装：非 2xx 时把服务端 error/detail 合并进异常消息 */
+async function printerPost<T>(url: string, body: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 401) throw unauthorized();
+  const data = (await r.json().catch(() => null)) as (T & { error?: string; detail?: string }) | null;
+  if (!r.ok) {
+    const msg = [data?.error, data?.detail].filter(Boolean).join('：') || `HTTP ${r.status}`;
+    throw new Error(msg);
+  }
+  return data as T;
+}
+
+/** 恢复被暂停的打印机：解除「已停止」并恢复接收新任务 */
+export const resumePrinter = (printer: string) =>
+  printerPost<{ ok: true; printer: string }>('./api/printer/resume', { printer });
+
+/** 队列任务动作：hold 暂停 / resume 恢复（挂起）/ cancel 取消 / delete 删除 */
+export type PrinterJobAction = 'hold' | 'resume' | 'cancel' | 'delete';
+
+export const controlPrinterJob = (printer: string, jobId: string, action: PrinterJobAction) =>
+  printerPost<{ ok: true; printer: string; jobId: string; action: PrinterJobAction }>(
+    './api/printer/job',
+    { printer, jobId, action }
+  );
+
 /* ---------- Chat（Hermes 聊天代理，/api/chat/*）---------- */
 
 export interface ChatStatus {

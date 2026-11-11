@@ -12,7 +12,7 @@ const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, COOKIE_SECURE_MODE, ORIGIN_ALLOW_LI
 const { send, redirect, safeEqual, readBody } = require('./lib/http');
 const { signJwt, checkAuth } = require('./lib/auth');
 const { state } = require('./api/metrics');
-const { printTestPage } = require('./api/printer');
+const { printTestPage, printFile, resumePrinter, controlPrinterJob } = require('./api/printer');
 const { serveFile, serveIndex, servePwaFile } = require('./static');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
@@ -53,6 +53,34 @@ function originAllowed(req) {
   if (!host) return false;
   return o === `http://${host}` || o === `https://${host}`;
 }
+
+/** printer 模块返回的 error → HTTP 状态码（所有 printer 写接口共用；未列出的按 500） */
+const PRINTER_ERROR_STATUS = {
+  'Bad printer name': 400,
+  'Bad paper size': 400,
+  'Bad color mode': 400,
+  'Bad page range': 400,
+  'Bad job id': 400,
+  'Bad job action': 400,
+  'Not a regular file': 400,
+  'File too large to print': 400,
+  'File not readable': 400,
+  'Unsupported file type': 400,
+  'Invalid request body': 400,
+  'Path is outside the allowed roots': 403,
+  'File not found': 404,
+  'Printer not found': 404,
+  'CUPS unavailable': 503,
+};
+
+/** Printer API 路径白名单（统一 JWT 鉴权；GET 状态 / POST 各写接口） */
+const PRINTER_PATHS = [
+  '/api/printer',
+  '/api/printer/test-page',
+  '/api/printer/print',
+  '/api/printer/resume',
+  '/api/printer/job',
+];
 
 /**
  * 统一 401 出口：先落审计日志再回响应。
@@ -127,8 +155,8 @@ async function route(req, res, url) {
     return send(res, 200, { ok: true, expiresIn: JWT_EXPIRES }, { 'Set-Cookie': cookie });
   }
 
-  /* ---- Printer API（GET 状态 / POST 测试页，统一 JWT 鉴权）---- */
-  if (p === '/api/printer' || p === '/api/printer/test-page') {
+  /* ---- Printer API（GET 状态 / POST 测试页 / POST 打印文件 / POST 恢复打印机 / POST 任务控制，统一 JWT 鉴权）---- */
+  if (PRINTER_PATHS.includes(p)) {
     if (!checkAuth(req)) {
       return unauthorized(req, res);
     }
@@ -137,7 +165,11 @@ async function route(req, res, url) {
       if (!cfg.printer.enabled) return send(res, 503, { error: 'Printer disabled' });
       return send(res, 200, state.printer);
     }
-    // POST /api/printer/test-page：body { printer: "<名称>" }，提交 CUPS 测试页打印任务
+    // 以下均为 POST 写接口：
+    //  test-page：{ printer }                             提交 CUPS 测试页
+    //  print：    { path, printer, paperSize, colorMode, pageRange } 打印指定文件
+    //  resume：   { printer }                             解除「已停止 / 拒收新任务」
+    //  job：      { printer, jobId, action }              队列任务暂停/恢复/取消/删除
     if (req.method !== 'POST') return send(res, 404, { error: 'not found' });
     if (!cfg.printer.enabled) return send(res, 503, { error: 'Printer disabled' });
     let body;
@@ -146,11 +178,13 @@ async function route(req, res, url) {
     } catch {
       return send(res, 400, { error: 'Invalid request body' });
     }
-    const r = await printTestPage(body.printer);
-    if (r.error === 'Bad printer name') return send(res, 400, { error: r.error });
-    if (r.error === 'Printer not found') return send(res, 404, { error: r.error, detail: r.detail || '' });
-    if (r.error === 'CUPS unavailable') return send(res, 503, { error: r.error, detail: r.detail || '' });
-    if (r.error) return send(res, 500, { error: r.error, detail: r.detail || '' });
+    let r;
+    if (p === '/api/printer/test-page') r = await printTestPage(body.printer);
+    else if (p === '/api/printer/print') r = await printFile(body);
+    else if (p === '/api/printer/resume') r = await resumePrinter(body.printer);
+    else r = await controlPrinterJob(body);
+    const status = PRINTER_ERROR_STATUS[r.error] || 500;
+    if (r.error) return send(res, status, { error: r.error, detail: r.detail || '' });
     return send(res, 200, r);
   }
 

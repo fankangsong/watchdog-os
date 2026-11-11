@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ClassicyApp,
   ClassicyButton,
@@ -9,7 +9,16 @@ import {
   ClassicyWindow,
   useClassicyAboutMenu,
 } from 'classicy';
-import { printTestPage, Unauthorized, type PrinterInfo, type PrinterJob, type PrinterState } from '../api';
+import {
+  controlPrinterJob,
+  printTestPage,
+  resumePrinter,
+  Unauthorized,
+  type PrinterInfo,
+  type PrinterJob,
+  type PrinterJobAction,
+  type PrinterState,
+} from '../api';
 import { printerPoll } from '../polls';
 import { useSharedPoll } from '../sharedPoll';
 import { useAppOpen } from '../hooks/useAppOpen';
@@ -33,6 +42,23 @@ const JOB_STATE_TEXT: Record<string, string> = {
   aborted: '异常终止',
   completed: '已完成',
 };
+
+const JOB_ACTION_OK_TEXT: Record<PrinterJobAction, string> = {
+  hold: '任务已暂停',
+  resume: '任务已恢复',
+  cancel: '任务已取消',
+  delete: '任务已删除',
+};
+
+/** 一条操作反馈：按目标 key 就地展示在对应打印机行 / 任务行 */
+interface ActionFeedback {
+  key: string;
+  ok: boolean;
+  text: string;
+}
+
+const jobKey = (j: PrinterJob) => `job:${j.printer}-${j.id}`;
+const resumeKey = (name: string) => `resume:${name}`;
 
 function fmtTime(ms: number | null): string {
   if (!ms) return '—';
@@ -78,55 +104,156 @@ interface TestPageResult {
   text: string;
 }
 
-/** 打印机状态区（单台或多台逐行展示），每台附「打印测试页」按钮 */
+/** 打印机状态区（单台或多台逐行展示），每台附「打印测试页」按钮，暂停时附「恢复打印」 */
 function PrinterList({
   state,
   testingName,
   testResult,
   onTestPage,
+  onResume,
+  busy,
+  activeKey,
+  feedback,
 }: {
   state: PrinterState | null;
   testingName: string;
   testResult: TestPageResult | null;
   onTestPage: (name: string) => void;
+  onResume: (name: string) => void;
+  busy: boolean;
+  activeKey: string | null;
+  feedback: ActionFeedback | null;
 }) {
   if (!state) return <p className="sp-dim">Loading…</p>;
   if (!state.available) return <p className="sp-dim">{state.error || 'CUPS unavailable'}</p>;
   if (state.printers.length === 0) return <p className="sp-dim">未发现打印机</p>;
   return (
     <div style={{ padding: '8px 12px', display: 'grid', gap: 8, fontSize: 12 }}>
-      {state.printers.map((p) => (
-        <div key={p.name}>
-          <div>
-            <b>{p.name}</b>
-            <span style={{ color: '#666' }}>{p.model ? ` · ${p.model}` : ''}</span>
-          </div>
-          <div>工作状态：{printerStatus(p)}</div>
-          <div>
-            连接：{usbStatus(p)}
-            <span style={{ color: '#666', wordBreak: 'break-all' }}> · {p.deviceUri}</span>
-          </div>
-          <div style={{ marginTop: 2, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <ClassicyButton
-              buttonSize="small"
-              disabled={!!testingName || !p.accepting}
-              onClickFunc={() => onTestPage(p.name)}
-            >
-              {testingName === p.name ? '正在提交…' : '打印测试页'}
-            </ClassicyButton>
-            {testResult && testResult.printer === p.name && (
-              <span style={{ color: testResult.ok ? '#070' : '#a00', wordBreak: 'break-all' }}>
-                {testResult.text}
-              </span>
+      {state.printers.map((p) => {
+        // 已停止（cupsdisable）或拒收新任务（cupsreject）都视为暂停，提供一键恢复
+        const paused = p.state === 'stopped' || !p.accepting;
+        const rk = resumeKey(p.name);
+        return (
+          <div key={p.name}>
+            <div>
+              <b>{p.name}</b>
+              <span style={{ color: '#666' }}>{p.model ? ` · ${p.model}` : ''}</span>
+            </div>
+            <div>工作状态：{printerStatus(p)}</div>
+            <div>
+              连接：{usbStatus(p)}
+              <span style={{ color: '#666', wordBreak: 'break-all' }}> · {p.deviceUri}</span>
+            </div>
+            <div style={{ marginTop: 2, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <ClassicyButton
+                buttonSize="small"
+                disabled={!!testingName || !p.accepting}
+                onClickFunc={() => onTestPage(p.name)}
+              >
+                {testingName === p.name ? '正在提交…' : '打印测试页'}
+              </ClassicyButton>
+              {paused && (
+                <ClassicyButton
+                  buttonSize="small"
+                  disabled={busy}
+                  title="解除「已停止」并恢复接收新任务"
+                  onClickFunc={() => onResume(p.name)}
+                >
+                  {activeKey === rk ? '恢复中…' : '恢复打印'}
+                </ClassicyButton>
+              )}
+              {testResult && testResult.printer === p.name && (
+                <span style={{ color: testResult.ok ? '#070' : '#a00', wordBreak: 'break-all' }}>
+                  {testResult.text}
+                </span>
+              )}
+            </div>
+            {feedback && feedback.key === rk && (
+              <div
+                className={feedback.ok ? 'sp-printer-ok' : 'sp-printer-err'}
+                style={{ marginTop: 2, fontSize: 11, wordBreak: 'break-all' }}
+              >
+                {feedback.text}
+              </div>
             )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-function JobTable({ jobs, showCompletedAt }: { jobs: PrinterJob[]; showCompletedAt: boolean }) {
+/** 队列任务操作列：暂停/恢复 + 取消 + 删除，结果就地反馈在单元格内 */
+function JobActions({
+  job,
+  busy,
+  activeKey,
+  feedback,
+  onAction,
+}: {
+  job: PrinterJob;
+  busy: boolean;
+  activeKey: string | null;
+  feedback: ActionFeedback | null;
+  onAction: (j: PrinterJob, action: PrinterJobAction) => void;
+}) {
+  const key = jobKey(job);
+  const held = job.state === 'pending-held' || job.state === 'processing-stopped';
+  const toggle: PrinterJobAction = held ? 'resume' : 'hold';
+  return (
+    <div className="sp-printer-job-actions">
+      <ClassicyButton
+        buttonSize="small"
+        disabled={busy}
+        title={held ? '解除挂起，重新加入队列' : '挂起任务，暂停打印'}
+        onClickFunc={() => onAction(job, toggle)}
+      >
+        {held ? '恢复' : '暂停'}
+      </ClassicyButton>
+      <ClassicyButton
+        buttonSize="small"
+        disabled={busy}
+        title="中止任务（保留在打印历史中）"
+        onClickFunc={() => onAction(job, 'cancel')}
+      >
+        取消
+      </ClassicyButton>
+      <ClassicyButton
+        buttonSize="small"
+        disabled={busy}
+        title="中止任务并删除作业数据文件（不留历史记录）"
+        onClickFunc={() => onAction(job, 'delete')}
+      >
+        删除
+      </ClassicyButton>
+      {activeKey === key && <span className="sp-printer-job-feedback">处理中…</span>}
+      {feedback && feedback.key === key && (
+        <span
+          className={`sp-printer-job-feedback ${feedback.ok ? 'sp-printer-ok' : 'sp-printer-err'}`}
+          title={feedback.text}
+        >
+          {feedback.text}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function JobTable({
+  jobs,
+  showCompletedAt,
+  busy,
+  activeKey,
+  feedback,
+  onAction,
+}: {
+  jobs: PrinterJob[];
+  showCompletedAt: boolean;
+  busy?: boolean;
+  activeKey?: string | null;
+  feedback?: ActionFeedback | null;
+  onAction?: (j: PrinterJob, action: PrinterJobAction) => void;
+}) {
   const columns = useMemo<ClassicyTableColumn<PrinterJob>[]>(
     () => [
       { id: 'name', title: '文档', accessor: (j) => j.name },
@@ -158,8 +285,28 @@ function JobTable({ jobs, showCompletedAt }: { jobs: PrinterJob[]; showCompleted
         width: 160,
         render: (j) => fmtTime(showCompletedAt ? j.completedMs ?? j.createdMs : j.createdMs),
       },
+      ...(onAction
+        ? [
+            {
+              id: 'actions',
+              title: '操作',
+              accessor: () => '',
+              width: 160,
+              sortable: false,
+              render: (j) => (
+                <JobActions
+                  job={j}
+                  busy={!!busy}
+                  activeKey={activeKey ?? null}
+                  feedback={feedback ?? null}
+                  onAction={onAction}
+                />
+              ),
+            } as ClassicyTableColumn<PrinterJob>,
+          ]
+        : []),
     ],
-    [showCompletedAt]
+    [showCompletedAt, onAction, busy, activeKey, feedback]
   );
 
   if (jobs.length === 0) {
@@ -177,6 +324,38 @@ export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
   /** 正在提交测试页的打印机名（空串 = 空闲）；结果就地展示在对应打印机行 */
   const [testingName, setTestingName] = useState('');
   const [testResult, setTestResult] = useState<TestPageResult | null>(null);
+
+  /** 恢复打印机 / 队列任务操作的通用状态：busyKey 锁住全部按钮，feedback 就地展示结果 */
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
+
+  const runAction = useCallback(
+    async (key: string, fn: () => Promise<unknown>, okText: string) => {
+      setBusyKey(key);
+      setFeedback(null);
+      try {
+        await fn();
+        setFeedback({ key, ok: true, text: okText });
+        printerPoll.reload(); // CUPS 状态已变，立即刷新队列 / 历史
+      } catch (e) {
+        setFeedback({ key, ok: false, text: e instanceof Error ? e.message : String(e) });
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    []
+  );
+
+  const onResume = useCallback(
+    (name: string) => runAction(resumeKey(name), () => resumePrinter(name), '已恢复打印'),
+    [runAction]
+  );
+
+  const onJobAction = useCallback(
+    (j: PrinterJob, action: PrinterJobAction) =>
+      runAction(jobKey(j), () => controlPrinterJob(j.printer, j.id, action), JOB_ACTION_OK_TEXT[action]),
+    [runAction]
+  );
 
   const onTestPage = async (name: string) => {
     setTestingName(name);
@@ -214,6 +393,7 @@ export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
   );
 
   const state = poll.data;
+  const busy = busyKey !== null || testingName !== '';
 
   return (
     <ClassicyApp id={APP_ID} name={APP_NAME} icon={ClassicyIcons.system.printer} defaultWindow="printer-main">
@@ -227,16 +407,32 @@ export function PrinterApp({ onLogout }: { onLogout?: () => void }) {
         zoomable
         collapsable
         closable
-        initialSize={[860, 560]}
+        initialSize={[920, 560]}
         initialPosition={['center', 'center']}
         minimumSize={[620, 380]}
         appMenu={appMenu}
       >
         <ClassicyControlGroup label={`Printers (${state?.printers?.length ?? 0})`}>
-          <PrinterList state={state} testingName={testingName} testResult={testResult} onTestPage={onTestPage} />
+          <PrinterList
+            state={state}
+            testingName={testingName}
+            testResult={testResult}
+            onTestPage={onTestPage}
+            onResume={onResume}
+            busy={busy}
+            activeKey={busyKey}
+            feedback={feedback}
+          />
         </ClassicyControlGroup>
         <ClassicyControlGroup label={`Queue (${state?.activeJobs?.length ?? 0})`}>
-          <JobTable jobs={state?.activeJobs ?? []} showCompletedAt={false} />
+          <JobTable
+            jobs={state?.activeJobs ?? []}
+            showCompletedAt={false}
+            busy={busy}
+            activeKey={busyKey}
+            feedback={feedback}
+            onAction={onJobAction}
+          />
         </ClassicyControlGroup>
         <ClassicyControlGroup label={`History (${state?.history?.length ?? 0})`}>
           <JobTable jobs={state?.history ?? []} showCompletedAt />
