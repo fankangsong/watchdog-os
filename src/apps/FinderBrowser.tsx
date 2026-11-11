@@ -9,12 +9,17 @@
 // 重命名（可改扩展名）、删除、
 // 复制/剪切/粘贴（服务端递归复制，同名自动追加 copy 后缀）、Get Info、
 // 收藏夹（右键文件夹 Add/Remove from Favorites、工具栏按钮、菜单栏 Favorites 菜单）：
-// 以及图片/文本/Markdown 预览窗口、打印（File > Print… / 右键菜单 / 预览窗口菜单）：
+// 以及图片/文本/Markdown 预览窗口（图片可缩放：Ctrl/⌘+滚轮、双击、底部缩放条、
+// View 菜单，放大后可拖动平移）、打印（File > Print… / 右键菜单 / 预览窗口菜单）：
 // 打印前弹出 PrintDialog 选择打印机、纸张大小、彩色黑白与页码范围，再提交 CUPS。
 // 文件选择类命令走 Edit 菜单（Cut/Copy/Paste/Select All/Delete…）
 // 与快捷键（⌘C/⌘X/⌘V/⌘A/⌘⌫），与右键菜单三路等价。
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type {
+  DragEvent as ReactDragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from 'react';
 import {
   ClassicyAlert,
   ClassicyBalloonHelp,
@@ -68,6 +73,11 @@ import { PrintDialog } from '../components/PrintDialog';
 import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
 import fmUpIcon from '../assets/icons/fm-up.svg?no-inline';
 import fmFavIcon from '../assets/icons/fm-fav.svg?no-inline';
+// 图片预览缩放条（Zoom Out / Zoom In / Fit to Window），同为 16x16 双色档
+import fmZoomOutIcon from '../assets/icons/fm-zoom-out.svg?no-inline';
+import fmZoomInIcon from '../assets/icons/fm-zoom-in.svg?no-inline';
+import fmFitIcon from '../assets/icons/fm-fit.svg?no-inline';
+import fmActualIcon from '../assets/icons/fm-actual.svg?no-inline';
 // 应用图标：自绘 32x32 像素画（Mac OS 9 窗口 + 蓝色文件夹 + 探出的白纸），
 // 由 tools/pixel-icon.py 的 build_files() 生成
 import filesIcon from '../assets/icons/files.svg?no-inline';
@@ -83,6 +93,10 @@ const FAV_ICON = ClassicyIcons.system.folders.favorites;
 /** 主窗口 id（根列表视图起步） */
 export const MAIN_WIN_ID = 'fm-main';
 const MAX_PREVIEWS = 3;
+/** 图片预览缩放范围（相对原图像素）与每次点按/滚轮的缩放倍数 */
+const ZOOM_MIN = 0.05;
+const ZOOM_MAX = 16;
+const ZOOM_STEP = 1.25;
 /** 新建文本文件的默认名（对话框内可改，含扩展名） */
 const DEFAULT_NEW_FILE = 'untitled.txt';
 /** 视图偏好持久化键（icons | list） */
@@ -1955,7 +1969,157 @@ function PreviewWindow({
   }, [entry.path, entry.previewable, onLogout]);
 
   const isMd = entry.previewable === 'markdown';
+  const isImage = entry.previewable === 'image';
   const canEdit = entry.previewable === 'text' || isMd;
+
+  // ---- 图片缩放 / 平移 ----
+  // 两种模式：fitMode（默认，等比缩放到不超出预览区，小图保持 100%）与手动 scale。
+  // 图片按「原图像素 × 缩放」显式定宽高（而不是 transform: scale）——只有真实尺寸变化
+  // 才会产生溢出，滚动容器才能正确出现滚动条并支持拖动平移。
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+  const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
+  const [scale, setScale] = useState(1);
+  const [fitMode, setFitMode] = useState(true);
+  const [panning, setPanning] = useState(false);
+  const imgBoxRef = useRef<HTMLDivElement | null>(null);
+  // 缩放后需要补偿的滚动量：在 useLayoutEffect（DOM 已按新尺寸更新、尚未绘制）里写入，
+  // 保证「光标下的像素」在缩放前后不动，不会闪一下再跳
+  const pendingScrollRef = useRef<{ left: number; top: number } | null>(null);
+
+  /** 贴合窗口的缩放比例：只缩不放（小图按 100% 显示） */
+  const fitScale = useMemo(() => {
+    if (!imgSize || !boxSize.w || !boxSize.h) return 1;
+    return Math.min(1, boxSize.w / imgSize.w, boxSize.h / imgSize.h);
+  }, [imgSize, boxSize]);
+  const zoom = fitMode ? fitScale : scale;
+
+  // 预览区尺寸：窗口缩放 / 改大小后贴合比例要重算（ResizeObserver 比 window.resize 准，
+  // 覆盖窗口本体拖动改尺寸的情形）
+  useEffect(() => {
+    const box = imgBoxRef.current;
+    if (!isImage || !box) return;
+    const measure = () => setBoxSize({ w: box.clientWidth, h: box.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [isImage, state.loading, state.error, entry.path]);
+
+  useLayoutEffect(() => {
+    const box = imgBoxRef.current;
+    const p = pendingScrollRef.current;
+    if (!box || !p) return;
+    box.scrollLeft = p.left;
+    box.scrollTop = p.top;
+    pendingScrollRef.current = null;
+  }, [zoom]);
+
+  /**
+   * 缩放到 next（相对原图像素）。anchor 为视口坐标的光标位置——给了就「以光标为不动点」，
+   * 没给则以预览区中心为不动点。贴合态下内容可能小于可视区并被居中，故先换算成内容坐标
+   * 再按比例映射回滚动量。
+   */
+  const zoomTo = useCallback(
+    (next: number, anchor?: { x: number; y: number }) => {
+      const target = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+      const cur = fitMode ? fitScale : scale;
+      if (!fitMode && Math.abs(target - cur) < 1e-4) return; // 已到边界，不产生无意义的重渲染
+      const box = imgBoxRef.current;
+      if (box && imgSize) {
+        const rect = box.getBoundingClientRect();
+        const ax = anchor ? anchor.x - rect.left - box.clientLeft : box.clientWidth / 2;
+        const ay = anchor ? anchor.y - rect.top - box.clientTop : box.clientHeight / 2;
+        const r = target / cur;
+        const offX = Math.max(0, (box.clientWidth - imgSize.w * cur) / 2);
+        const offY = Math.max(0, (box.clientHeight - imgSize.h * cur) / 2);
+        pendingScrollRef.current = {
+          left: (box.scrollLeft + ax - offX) * r + Math.max(0, (box.clientWidth - imgSize.w * target) / 2) - ax,
+          top: (box.scrollTop + ay - offY) * r + Math.max(0, (box.clientHeight - imgSize.h * target) / 2) - ay,
+        };
+      }
+      setFitMode(false);
+      setScale(target);
+    },
+    [fitMode, fitScale, scale, imgSize]
+  );
+
+  const zoomBy = useCallback(
+    (factor: number, anchor?: { x: number; y: number }) => zoomTo((fitMode ? fitScale : scale) * factor, anchor),
+    [fitMode, fitScale, scale, zoomTo]
+  );
+
+  const zoomToFit = useCallback(() => setFitMode(true), []);
+  const zoomToActual = useCallback(() => zoomTo(1), [zoomTo]);
+  /** 双击手势：贴合态 → 100%，已手动缩放 → 回到贴合 */
+  const toggleFitActual = useCallback(() => {
+    if (fitMode) zoomTo(1);
+    else setFitMode(true);
+  }, [fitMode, zoomTo]);
+
+  // Ctrl/⌘ + 滚轮缩放。不用 React 的 onWheel：它在根节点上是 passive 监听，
+  // preventDefault 无效，浏览器会把 Ctrl+滚轮当成整页缩放
+  useEffect(() => {
+    const box = imgBoxRef.current;
+    if (!isImage || !box) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return; // 普通滚轮保留原生滚动（放大后滚动查看局部）
+      e.preventDefault();
+      zoomBy(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, { x: e.clientX, y: e.clientY });
+    };
+    box.addEventListener('wheel', onWheel, { passive: false });
+    return () => box.removeEventListener('wheel', onWheel);
+  }, [isImage, state.loading, state.error, entry.path, zoomBy]);
+
+  /** 放大后内容溢出容器时，按住左键拖动平移（用滚动量实现，松手位置即焦点不变） */
+  const startPan = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
+    const box = imgBoxRef.current;
+    if (!box || e.button !== 0) return;
+    if (box.scrollWidth <= box.clientWidth && box.scrollHeight <= box.clientHeight) return;
+    // 不 preventDefault：原生图片拖拽与文本选择分别由 img[draggable=false] 和 user-select
+    // 拦住，而 preventDefault 会连带阻止点击聚焦，缩放快捷键就失去作用域
+    const start = { x: e.clientX, y: e.clientY, left: box.scrollLeft, top: box.scrollTop };
+    const onMove = (ev: MouseEvent) => {
+      const b = imgBoxRef.current;
+      if (!b) return;
+      b.scrollLeft = start.left - (ev.clientX - start.x);
+      b.scrollTop = start.top - (ev.clientY - start.y);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      setPanning(false);
+    };
+    setPanning(true);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  // 缩放快捷键：与 View 菜单声明一致（⌘+ / ⌘− / ⌘0 / ⌘9）。
+  // classicy 的 keyboardShortcut 仅作展示，这里在「焦点在图片预览区」时补齐真实绑定，
+  // 避免多个预览窗口同时响应
+  const onImageKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!isImage) return; // 文本 / Markdown / PDF 预览不接管缩放键
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(ZOOM_STEP);
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        zoomBy(1 / ZOOM_STEP);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        zoomToActual();
+      } else if (e.key === '9') {
+        e.preventDefault();
+        zoomToFit();
+      }
+    },
+    [isImage, zoomBy, zoomToActual, zoomToFit]
+  );
+
+  /** 内容超出可视区才启用拖拽平移（贴合态永远不超出）；+0.5 吸收亚像素误差 */
+  const canPan = !!imgSize && (imgSize.w * zoom > boxSize.w + 0.5 || imgSize.h * zoom > boxSize.h + 0.5);
 
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 
@@ -2006,10 +2170,61 @@ function PreviewWindow({
             checked: isMd && source,
             onClickFunc: () => setSource(true),
           },
+          { id: 'spacer' },
+          // 缩放：仅图片可用（其它预览类型保留置灰项）。checked 必须显式声明，
+          // 否则 classicy 不渲染勾选列，同菜单内标题左起点会不齐
+          {
+            id: 'fm-pv-m-zoomin',
+            title: 'Zoom In',
+            keyboardShortcut: '⌘+',
+            disabled: !isImage,
+            checked: false,
+            onClickFunc: () => zoomBy(ZOOM_STEP),
+          },
+          {
+            id: 'fm-pv-m-zoomout',
+            title: 'Zoom Out',
+            keyboardShortcut: '⌘−',
+            disabled: !isImage,
+            checked: false,
+            onClickFunc: () => zoomBy(1 / ZOOM_STEP),
+          },
+          {
+            id: 'fm-pv-m-actual',
+            title: 'Actual Size',
+            keyboardShortcut: '⌘0',
+            disabled: !isImage,
+            checked: isImage && !fitMode && Math.abs(scale - 1) < 1e-3,
+            onClickFunc: zoomToActual,
+          },
+          {
+            id: 'fm-pv-m-fit',
+            title: 'Fit to Window',
+            keyboardShortcut: '⌘9',
+            disabled: !isImage,
+            checked: isImage && fitMode,
+            onClickFunc: zoomToFit,
+          },
         ],
       },
     ],
-    [aboutMenuItem, canEdit, isMd, source, entry, onEdit, onDownload, onPrint, onClose]
+    [
+      aboutMenuItem,
+      canEdit,
+      isMd,
+      source,
+      isImage,
+      fitMode,
+      scale,
+      entry,
+      onEdit,
+      onDownload,
+      onPrint,
+      onClose,
+      zoomBy,
+      zoomToActual,
+      zoomToFit,
+    ]
   );
 
   return (
@@ -2030,7 +2245,64 @@ function PreviewWindow({
         appMenu={appMenu}
         onCloseFunc={onClose}
       >
-        <div className="sp-fm-preview">
+        {/* 缩放快捷键挂在预览区容器上：焦点在图片区或缩放条按钮上都生效（点过 +/- 之后
+            焦点在按钮上，若只绑图片区快捷键就失效），非图片预览由 handler 内部直接返回 */}
+        <div className="sp-fm-preview" onKeyDown={onImageKeyDown}>
+          {/* 图片缩放条：整条在图片上方（不压图片、不随图片滚动），
+              −/+ 为图标按钮（悬停/读屏靠 title + aria-label 补语义） */}
+          {isImage && !state.loading && !state.error && (
+            <div className="sp-fm-zoom-bar">
+              <ClassicyButton
+                buttonSize="small"
+                padding="sm"
+                margin="sm"
+                disabled={zoom <= ZOOM_MIN + 1e-6}
+                onClickFunc={() => zoomBy(1 / ZOOM_STEP)}
+                title="Zoom Out (⌘−)"
+                aria-label="Zoom Out"
+              >
+                <img className="sp-tb-icon" src={fmZoomOutIcon} alt="" />
+              </ClassicyButton>
+              <span className="sp-fm-zoom-value" title="Zoom level (double-click the image to toggle Fit / 100%)">
+                {Math.round(zoom * 100)}%
+              </span>
+              <ClassicyButton
+                buttonSize="small"
+                padding="sm"
+                margin="sm"
+                disabled={zoom >= ZOOM_MAX - 1e-6}
+                onClickFunc={() => zoomBy(ZOOM_STEP)}
+                title="Zoom In (⌘+)"
+                aria-label="Zoom In"
+              >
+                <img className="sp-tb-icon" src={fmZoomInIcon} alt="" />
+              </ClassicyButton>
+              <ClassicyButton
+                buttonSize="small"
+                padding="sm"
+                margin="sm"
+                disabled={fitMode}
+                onClickFunc={zoomToFit}
+                title="Fit to Window (⌘9)"
+              >
+                {/* 带文字标签的图标加 sp-tb-icon-labeled：抵消图标画布左侧的透明边，
+                    让「图标 + 文字」整组在按钮里真正视觉居中 */}
+                <img className="sp-tb-icon sp-tb-icon-labeled" src={fmFitIcon} alt="" />
+                Fit
+              </ClassicyButton>
+              <ClassicyButton
+                buttonSize="small"
+                padding="sm"
+                margin="sm"
+                disabled={!fitMode && Math.abs(scale - 1) < 1e-3}
+                onClickFunc={zoomToActual}
+                title="Actual Size (⌘0)"
+              >
+                <img className="sp-tb-icon sp-tb-icon-labeled" src={fmActualIcon} alt="" />
+                1:1
+              </ClassicyButton>
+            </div>
+          )}
           {state.loading ? (
             <div className="sp-fm-preview-body">
               <span className="sp-dim">Loading…</span>
@@ -2039,9 +2311,37 @@ function PreviewWindow({
             <div className="sp-fm-preview-body">
               <span className="sp-pulse">{state.error}</span>
             </div>
-          ) : entry.previewable === 'image' ? (
-            <div className="sp-fm-preview-body sp-fm-img">
-              <img src={fsRawUrl(entry.path)} alt={entry.name} />
+          ) : isImage ? (
+            // 滚动容器（sp-fm-img）+ 内层画布：内层用 max-content/最小 100% 承担居中，
+            // 这样放大溢出的部分两个方向都能滚到（flex 居中会裁掉左上角）
+            <div
+              ref={imgBoxRef}
+              className={`sp-fm-preview-body sp-fm-img${canPan ? ' sp-fm-img-pan' : ''}${
+                panning ? ' sp-fm-img-panning' : ''
+              }`}
+              // 可聚焦：缩放快捷键只在焦点落在本窗口预览区（图片 / 缩放条）时生效，
+              // 多个预览窗口因此互不干扰；handler 挂在 .sp-fm-preview 上，这里只管聚焦
+              tabIndex={0}
+              onMouseDown={startPan}
+              onDoubleClick={toggleFitActual}
+            >
+              <div className="sp-fm-img-canvas">
+                <img
+                  src={fsRawUrl(entry.path)}
+                  alt={entry.name}
+                  draggable={false}
+                  onLoad={(e) => {
+                    const el = e.currentTarget;
+                    setImgSize({ w: el.naturalWidth, h: el.naturalHeight });
+                  }}
+                  // 量到原图尺寸前先隐藏：否则大图会以原尺寸闪现一帧（滚动条也跟着跳）
+                  style={
+                    imgSize
+                      ? { width: imgSize.w * zoom, height: imgSize.h * zoom }
+                      : { visibility: 'hidden' }
+                  }
+                />
+              </div>
             </div>
           ) : entry.previewable === 'pdf' ? (
             <div className="sp-fm-preview-body sp-fm-pdf">

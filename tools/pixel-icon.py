@@ -16,11 +16,15 @@
   src/assets/icons/disk.svg       同上（无外框，独立盒式磁带：黑壳 + 白标签 + 左右两个绿色磁带卷 + 驱动孔 / 螺丝）
   src/assets/icons/converter.svg  同上（无外框，参考 Chat：蓝 → / 琥珀 ← 两个大箭头前后叠放）
   src/assets/icons/files.svg      同上（无外框，参考 macOS 经典打开文件夹：橙黄 tab + 浅黄大圆角面板）
-  src/assets/icons/editor.svg     同上（无外框，参考 Chat：深蓝后本 + 琥珀前本前后叠放）
+  src/assets/icons/editor.svg     同上（无外框，白纸文稿 + 右上折角 + 灰色占位文本行）
   src/assets/icons/watchdog.svg   同上（独立 8 齿钢灰齿轮 + 中心绿运行灯；登录页/手机首页复用）
   src/assets/icons/fm-back.svg    16x16, viewBox="0 0 16 16"（窗口操作按钮带内嵌图标）
   src/assets/icons/fm-up.svg      同上
   src/assets/icons/fm-fav.svg     同上
+  src/assets/icons/fm-zoom-in.svg  同上（图片预览缩放条：加号 / 横杠 / 窗口框+小画面 / 实心方块）
+  src/assets/icons/fm-zoom-out.svg 同上
+  src/assets/icons/fm-fit.svg      同上
+  src/assets/icons/fm-actual.svg   同上
   tools/preview/*.png             预览（非交付物，可删）
   tools/files-icon-redesign.html  Files 图标设计稿（新/旧网格对照，自包含，随脚本重生成）
   tools/icons-redesign.html       5 应用图标集设计稿（新/旧 32px + 16px 对照，同上）
@@ -1336,51 +1340,47 @@ def build_converter():
 
 
 def build_editor():
-    """Editor：无窗口外框，参考 Chat / Converter 的前后叠放 —— 两本笔记本封面。
+    """Editor：白纸文稿 + 右上折角 + 灰色占位文本行（无外框，透明底）。
 
-    用户要求「参考这个风格」（即新版 Converter 的 Chat 式构图）重做笔记本封面：
-    透明底、无 Mac OS 9 窗口，后本深蓝偏左上（x2..21 / y2..18）、前本琥珀偏右下
-    （x10..29 / y10..26），重叠 10 行；前本外铺一圈 1px K 描边框把自己从后层
-    「切」出来，和 Chat 前白气泡压后蓝气泡、Converter 前琥珀箭头压后蓝箭头同一手法。
+    第十一轮（用户给了参考图并明确「去掉图标中蓝色的部分，形式上参考图片的方式：
+    文稿 + 占位文字」）：整页只留一张纸，等于把上一版的「后本深蓝 + 前本琥珀笔记本」
+    两个主体一起砍掉，只保留「文稿」这一个语义。蓝、琥珀两色系一律不再出现 ——
+    参考图里的浅蓝只是截图底色，不是图标内容。旧版保留为 build_editor_v3()。
 
-    前本是主角，封面细节全在它身上：深棕书脊 + 亮棱、弹性绑带 + 小扣、两道
-    压印标题线、底沿垂出的红书签带；后本只留高光/暗部与一条白文本线呼应 Chat
-    气泡。压印线与书签带 ≥2px，16px 缩略不会消失。
+    几何：纸面 x5..26 / y3..28（22×26，比例 0.85，接近参考图的竖版 A 系）；
+    右上角切 5px 斜角，斜边是 5 个逐行右移 1px 的 K 像素（x22..26 / y4..8）；
+    折角本体是斜边左下方的 L 三角（逐行 1..5px 宽），读作「折回纸面的一角」，
+    与斜边一起构成参考图里那种「纸角翻起」的观感。
+
+    文本行统一 1px 高、隔行一条，左起 x8、右止 x23，共 8 行；第 4、7、8 行短一截，
+    像段落收尾而不是条形码。
+
+    ⚠️ 文本行必须落在**奇数行**（y11/13/…/25）。preview() 的 16px 档是 2×2 多数票
+    降采样，平票时取 2×2 里左上角那颗像素：行落在偶数 y 时，每个 2×2 块的上半行
+    就是文本行，平票后判成 M —— 16px 下整张纸糊成一坨灰面（实测就是这个效果）。
+    落在奇数 y 时上半行恒为白，平票判白，16px 只剩干净的空白纸 + 折角缺口。
     """
     g = blank()
 
-    # 后本（深蓝，偏左上）x2..21 / y2..18：N 外框 + b 面 + h/m 浮雕
-    fill(g, 2, 2, 20, 17, 'N')
-    fill(g, 3, 3, 18, 15, 'b')
-    hline(g, 3, 3, 18, 'h')
-    vline(g, 3, 3, 15, 'h')
-    hline(g, 3, 17, 18, 'm')
-    vline(g, 20, 3, 15, 'm')
-    fill(g, 3, 3, 3, 15, 'N')          # 书脊
-    vline(g, 6, 3, 15, 'h')            # 书脊亮棱
-    hline(g, 8, 5, 10, 'W')            # 两条白压印线（呼应 Chat 气泡的文本线）
-    hline(g, 8, 7, 7, 'W')
+    # 纸面：W 铺底（y4..8 让出折角所在的右缘，y9 起铺满）
+    fill(g, 6, 4, 15, 5, 'W')
+    fill(g, 6, 9, 20, 19, 'W')
 
-    # 前本整圈 K 描边框 x9..30 / y9..27：前后分层线
-    fill(g, 9, 9, 22, 19, 'K')
+    # 折角：斜边左下的 L 三角，逐行加宽 1px
+    for i in range(5):
+        hline(g, 21, 4 + i, i + 1, 'L')
 
-    # 前本（琥珀，偏右下）x10..29 / y10..26
-    fill(g, 10, 10, 20, 17, 'Y')
-    hline(g, 10, 10, 20, 'y')
-    vline(g, 10, 10, 17, 'y')
-    hline(g, 10, 26, 20, 'o')
-    vline(g, 29, 10, 17, 'o')
-    fill(g, 10, 10, 3, 17, 'a')        # 深棕书脊 x10..12
-    vline(g, 10, 10, 17, 'o')
-    vline(g, 13, 10, 17, 'y')          # 亮棱
-    fill(g, 25, 10, 2, 17, 'K')        # 弹性绑带
-    fill(g, 25, 23, 2, 2, 'D')         # 小扣
-    fill(g, 16, 15, 7, 2, 'o')         # 压印标题线
-    fill(g, 16, 19, 5, 2, 'o')
+    # 占位文本行（短行模拟段落收尾；奇数行，见 docstring 的 16px 降采样说明）
+    for i, w in enumerate((16, 16, 16, 12, 16, 16, 14, 9)):
+        hline(g, 8, 11 + i * 2, w, 'M')
 
-    # 红书签带从底沿垂出
-    fill(g, 21, 26, 3, 4, 'r')
-    hline(g, 21, 29, 3, 'E')
+    # 纸边 + 折角斜边：K 最后画，压在最上层
+    hline(g, 5, 3, 17, 'K')            # 顶边 x5..21
+    vline(g, 5, 4, 25, 'K')            # 左边 y4..28
+    hline(g, 5, 28, 22, 'K')           # 底边 x5..26
+    vline(g, 26, 9, 20, 'K')           # 右边 y9..28
+    for i in range(5):
+        fill(g, 22 + i, 4 + i, 1, 1, 'K')      # 斜边阶梯
     return g
 
 
@@ -1523,6 +1523,54 @@ def build_fm_fav(edge='N', tone='b', thickness=1):
         '.XX......XX.',
     ], 2, 2)
     return face(g, edge=edge, fill=tone, thickness=thickness, core=(4, 5, 11, 8))
+
+
+def build_fm_zoom_in(edge='N', tone='b', thickness=1):
+    """Zoom In：加号（横竖各 10x4，臂厚 4px），与 Zoom Out 同一支蓝/同一臂厚。
+
+    尺寸一律取偶数（10x4）并让 bbox 落在 3..12（中心 7.5 = 画布中心）：奇数尺寸
+    （11x5 从 2 起）中心落在 7，相对画布偏 0.5px，缩放条里两枚图标并排时看着不齐。
+    臂厚 4 而非 5：face() 只把「与非剪影像素相邻」的外圈刷成描边色，4px 臂留 2px
+    蓝芯；再细到 3px 只剩 1px 蓝芯，深蓝描边会占满整条臂，读作黑杠。
+    """
+    g = blank()
+    fill(g, 3, 6, 10, 4, 'K')      # 横臂 x3..12 / y6..9
+    fill(g, 6, 3, 4, 10, 'K')      # 竖臂 x6..9 / y3..12
+    return face(g, edge=edge, fill=tone, thickness=thickness)
+
+
+def build_fm_zoom_out(edge='N', tone='b', thickness=1):
+    """Zoom Out：横杠（10x4），与 Zoom In 同尺寸同中心（7.5/7.5），只少一条竖臂。"""
+    g = blank()
+    fill(g, 3, 6, 10, 4, 'K')
+    return face(g, edge=edge, fill=tone, thickness=thickness)
+
+
+def build_fm_fit(edge='N', tone='b', thickness=1):
+    """Fit to Window：窗口框（1px 环，12x12）+ 居中的蓝色画面（8x8，与框留 1px 透明缝）。
+
+    16px 1:1 下「画面」必须够大才认得出：6x6 只剩 4x4 蓝芯，读作框里一个小点；
+    放到 8x8 后蓝面 6x6，与框只隔 1px 亮缝，才看得出「画面贴着窗口内缘」。
+    """
+    g = blank()
+    fill(g, 2, 2, 12, 1, 'K')      # 上框
+    fill(g, 2, 13, 12, 1, 'K')     # 下框
+    fill(g, 2, 2, 1, 12, 'K')      # 左框
+    fill(g, 13, 2, 1, 12, 'K')     # 右框
+    fill(g, 4, 4, 8, 8, 'K')       # 中央画面（x4..11 / y4..11，贴着框留 1px 缝）
+    return face(g, edge=edge, fill=tone, thickness=thickness)
+
+
+def build_fm_actual(edge='N', tone='b', thickness=1):
+    """Actual Size：实心方块（10x10，中心 7.5/7.5），不加窗口框。
+
+    与 Fit 图标成对：Fit 是「窗口框 + 缩进的小画面」（画面比窗口小），
+    Actual 是「画面本身」——去掉框、整块铺满，表示按原始像素 1:1 显示。
+    16px 下不塞任何内部细节，靠「有框 / 无框」区分，缩略后也不糊。
+    """
+    g = blank()
+    fill(g, 3, 3, 10, 10, 'K')     # x3..12 / y3..12，四周各留 3px 透明边
+    return face(g, edge=edge, fill=tone, thickness=thickness)
 
 
 def build_home(edge='N', tone='b', thickness=1):
@@ -2113,9 +2161,9 @@ if __name__ == '__main__':
     print('design sheet: %d bytes -> %s' % (sheet_size, sheet))
     icon_set = [
         dict(name='Editor', key='editor',
-             desc='参考 Chat：无外框，两本笔记本封面前后叠放',
+             desc='参考图风格：无外框，白纸文稿 + 右上折角 + 灰色占位文本行',
              old='',
-             reason='按新版 Converter 的 Chat 式构图重做：去掉窗口外框，后本深蓝偏左上、前本琥珀偏右下重叠 10 行，前本整圈 K 描边框把自己从后层上切出来。封面细节（深棕书脊 + 亮棱、弹性绑带 + 小扣、压印标题线、红书签带）全在前本；后本留 h/m 浮雕与一条白文本线呼应 Chat 气泡。',
+             reason='按用户参考图（白纸 + 折角 + 几行灰色占位文字）重做，并按要求去掉图标里的蓝色：整页只留一张纸 —— K 勾纸边、W 铺纸面、L 折角、M 占位文本行，蓝 / 琥珀两色系一律不再出现（参考图的浅蓝只是截图底色）。旧版「后本深蓝 + 前本琥珀笔记本封面」作为对照。',
              new=build_editor(), legacy=build_editor_v3()),
         dict(name='Converter', key='converter',
              desc='参考 Chat：去掉外框，两个大箭头前后叠放相互交换',
@@ -2150,6 +2198,11 @@ if __name__ == '__main__':
     emit(build_fm_back(), 'fm-back')
     emit(build_fm_up(), 'fm-up')
     emit(build_fm_fav(), 'fm-fav')
+    # 16 档：图片预览缩放条（Zoom In / Zoom Out / Fit to Window）
+    emit(build_fm_zoom_in(), 'fm-zoom-in')
+    emit(build_fm_zoom_out(), 'fm-zoom-out')
+    emit(build_fm_fit(), 'fm-fit')
+    emit(build_fm_actual(), 'fm-actual')
     # 16 档：移动外壳「返回首页」悬浮键（手机布局，见 docs/mobile-adaptation.md）
     emit(build_home(), 'home')
     print('preview dir: %s' % PREVIEW_DIR)

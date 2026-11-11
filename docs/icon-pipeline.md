@@ -63,7 +63,7 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 
 ### 1.2 16×16 档：窗口操作按钮带内嵌图标
 
-按钮带（design-spec §3.2）的 push 文字按钮可携带**前置图标**（Back / Up / Favorites 三枚，`src/assets/icons/fm-*.svg`）。规格与约定：
+按钮带（design-spec §3.2）的 push 文字按钮可携带**前置图标**（Back / Up / Favorites 三枚，另有图片预览缩放条的 Zoom Out / Zoom In / Fit / Actual Size 四枚，均在 `src/assets/icons/fm-*.svg`）。规格与约定：
 
 | 项 | 值 | 依据 |
 |---|---|---|
@@ -97,7 +97,11 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 .sp-toolbar .classicyButton:disabled .sp-tb-icon { filter: grayscale(1); opacity: 0.5; }
 ```
 
-`:has()` 把影响面限制在带图标的按钮上，无图标按钮（如 WatchDog OS 的 Refresh Now）布局零变化。接入后仍需过 §4 检查清单（`npm run build` 后确认 dist 产物是独立 `.svg` 文件而非 data URI）。
+`:has()` 把影响面限制在带图标的按钮上，无图标按钮（如 WatchDog OS 的 Refresh Now）布局零变化。图片预览的缩放条 `.sp-fm-zoom-bar` **不在** `.sp-toolbar` 内（它排在图片上方、没有工具带底色），四条规则各带一份 `.sp-fm-zoom-bar .classicyButton…` 选择器。
+
+**图标 + 文字标签的按钮**（缩放条的 Fit / Actual Size）另需 `.sp-tb-icon-labeled`：图标画布（16×16）里字形 bbox 是 12×12，左右各留 2px 透明边，右侧那 2px 会计入「图标与文字的间距」，左侧那 2px 却算作按钮内边距，整组于是右移 2px。该类用 `margin-left: -2px` 抵消，成组内容才视觉居中；纯图标按钮（Zoom In / Out、Back / Up / Favorites）不加此类，图标靠自身画布居中即可。
+
+接入后仍需过 §4 检查清单（`npm run build` 后确认 dist 产物是独立 `.svg` 文件而非 data URI）。
 
 ---
 
@@ -137,7 +141,7 @@ classicy 内置图标是**内联 PNG data URI**，不是 SVG。解析其 PNG IHD
 
 | 能力 | 说明 |
 |---|---|
-| 构建 | `build_terminal()` / `build_chat()` / `build_docker()` / `build_runner()` / `build_blog()` / `build_audit()` / `build_disk()` / `build_converter()` / `build_files()`（32 档）与 `build_fm_back()` / `build_fm_up()` / `build_fm_fav()` / `build_home()`（16 档）—— 用 `fill` / `hline` / `roundbox` / `blit` 画网格；异形主体（鲸、三角、放大镜镜片、文件夹 tab）用 `sil_rect()` / 距离场搭形 + `bevel()` 上立体色 + `outline()` 描外框 |
+| 构建 | `build_terminal()` / `build_chat()` / `build_docker()` / `build_runner()` / `build_blog()` / `build_audit()` / `build_disk()` / `build_converter()` / `build_files()`（32 档）与 `build_fm_back()` / `build_fm_up()` / `build_fm_fav()` / `build_fm_zoom_in()` / `build_fm_zoom_out()` / `build_fm_fit()` / `build_fm_actual()` / `build_home()`（16 档）—— 用 `fill` / `hline` / `roundbox` / `blit` 画网格；异形主体（鲸、三角、放大镜镜片、文件夹 tab）用 `sil_rect()` / 距离场搭形 + `bevel()` 上立体色 + `outline()` 描外框 |
 | 双色面 | `face(g, edge='C', fill='W', thickness=1, min_area=3, core=None)` —— 只画剪影，再由它上「描边色 + 面」（§1.2）：距离变换算外圈、`core` 收面范围、`'X'` 强制实心。16 档 `build_fm_*()` 传 `edge='N', fill='b'` |
 | 尺寸切换 | `set_size(32/16)` —— 全部绘制/输出函数调用时读全局 `W/H`，构建前切一次即可；`to_svg` / `verify` / `preview` 随之自适应 |
 | 合并 | `merge_rects()` 贪心最大同色矩形（先横向游程、再纵向扩展） |
