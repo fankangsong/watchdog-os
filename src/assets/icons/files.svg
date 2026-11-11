@@ -1,8 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" shape-rendering="crispEdges">
-<path fill="#ffffff" d="M5 9h22v1h-22z"/>
-<path fill="#ffeaa8" d="M4 9h1v15h-1zM27 9h1v15h-1zM2 10h2v14h-2zM5 10h22v14h-22zM28 10h2v14h-2zM2 24h1v4h-1zM29 24h1v4h-1zM3 26h1v2h-1zM28 26h1v2h-1zM4 27h1v2h-1zM27 27h1v2h-1zM5 28h1v1h-1zM26 28h1v1h-1z"/>
-<path fill="#f2d488" d="M6 4h7v1h-7zM3 24h26v2h-26zM4 26h24v1h-24zM5 27h22v1h-22z"/>
-<path fill="#ffc233" d="M5 4h1v4h-1zM13 4h1v4h-1zM3 5h2v3h-2zM6 5h7v3h-7zM14 5h2v3h-2z"/>
-<path fill="#e8b84b" d="M6 28h20v1h-20z"/>
-<path fill="#c09434" d="M5 3h9v1h-9zM2 6h1v2h-1zM16 6h1v3h-1zM4 8h12v1h-12zM17 8h11v1h-11zM1 11h1v16h-1zM30 11h1v16h-1zM4 29h24v1h-24z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" shape-rendering="crispEdges" role="img" aria-labelledby="files-title">
+  <title id="files-title">Files</title>
+  <!-- Two offset sheets make the multi-file silhouette readable at small sizes. -->
+  <g id="back-file">
+    <path fill="#79511f" d="M10 2h16v1h1v21h-2V4H10v5H9V3h1z"/>
+    <path fill="#ffe9a3" d="M11 4h13v7h-4V9h-9z"/>
+    <path fill="#c68a2d" d="M24 5h1v17h-1z"/>
+  </g>
+  <g id="middle-file">
+    <path fill="#79511f" d="M7 5h17v1h1v21h-2V7H8v5H6V6h1z"/>
+    <path fill="#ffe9a3" d="M9 7h13v5h-3v3H9z"/>
+    <path fill="#c68a2d" d="M22 8h1v17h-1z"/>
+  </g>
+  <!-- A compact folder front preserves the original pixel-art character. -->
+  <g id="folder-front">
+    <path fill="#79511f" d="M5 8h9v1h2v1h1v1h12v1h1v16h-1v1h-1v1H4v-1H3v-1H2V12h1v-1h1V9h1z"/>
+    <path fill="#f7c948" d="M6 10h8v1h2v2h11v13h-1v1h-1v1H5v-1H4V13h1v-1h1z"/>
+    <path fill="#ffe9a3" d="M5 13h22v2H5zM6 11h7v1H6z"/>
+    <path fill="#c68a2d" d="M25 15h2v11h-1v1h-1v1H5v-1h20z"/>
+    <path fill="#79511f" d="M3 28h25v1H3z"/>
+  </g>
 </svg>
