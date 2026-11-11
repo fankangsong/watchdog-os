@@ -12,7 +12,7 @@ import diskIcon from '../assets/icons/disk.svg?no-inline';
 
 const APP_ID = 'srv-disk.app';
 const APP_NAME = 'Disks';
-/** 应用图标：自绘 SVG（窗口 + 硬盘盘片 + 容量条），见 src/assets/icons/disk.svg */
+/** 应用图标：自绘 SVG（独立盒式磁带：黑壳 + 白色标签 + 两个绿色磁带卷），见 src/assets/icons/disk.svg */
 const ICON = diskIcon;
 
 // 磁盘容量：复用 monitorPoll（/api/metrics 已含 state.disks，后端每 10s statfs 采样），
