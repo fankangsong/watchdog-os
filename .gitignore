@@ -12,7 +12,7 @@ tools/preview/
 login.yaml
 
 .trae/
-.codebuddy/
+.codebuddy
 .workbuddy/
 .playwright-cli/
 # CDP 探针产物：chrome profile（可能落有会话 Cookie）与页面截图，禁止入库
@@ -20,3 +20,4 @@ login.yaml
 # 含敏感凭据的本地文件，禁止入库
 .tmp-server.err
 .env.bak-blog
+.idea
