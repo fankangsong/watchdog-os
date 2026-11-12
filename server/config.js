@@ -142,6 +142,13 @@ const cfg = {
     enabled: envBool('PRINTER_ENABLED', true),
     interval: envInt('PRINTER_INTERVAL', 10000), // 采集间隔 ms
     historyLimit: envInt('PRINTER_HISTORY_LIMIT', 200), // 历史条数上限（CUPS Get-Jobs 单次最多 500）
+    historyInterval: envInt('PRINTER_HISTORY_INTERVAL', 60000), // 历史采集间隔 ms（变化慢，与状态轮询解耦）
+    /* USB 链路探测方式：auto=sysfs 优先、不可读才回退 lpinfo；sysfs=只读 sysfs；lpinfo=旧行为。
+     * sysfs 读的是 /sys/bus/usb/devices，毫秒级且不会 detach 内核 usblp 驱动；
+     * lpinfo -v 会拉起全部 backend 枚举（本机实测 2.8s）并让 usb 后端卸载/重挂 usblp。 */
+    probe: envStr('PRINTER_PROBE', 'auto'),
+    /* 可选：限定 VID:PID（JSON 数组，如 ["04b8:007c"]）。留空 = 自动识别打印机类接口（bInterfaceClass=07）。 */
+    usbIds: envJsonArray('PRINTER_USB_IDS', []),
   },
 
   /* Hermes 聊天代理：转发到 OpenAI 兼容上游。apiKey 等仅服务端持有，不回传任何响应 */

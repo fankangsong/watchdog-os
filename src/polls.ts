@@ -1,4 +1,4 @@
-import { fetchDocker, fetchMetrics, fetchPrinter, fetchProcesses } from './api';
+import { fetchDocker, fetchMetrics, fetchPrinter, fetchPrinterHistory, fetchProcesses } from './api';
 import { createSharedPoll } from './sharedPoll';
 
 /**
@@ -20,3 +20,6 @@ export const monitorPoll = createSharedPoll(
 export const dockerPoll = createSharedPoll(fetchDocker, { intervalMs: 5000 });
 
 export const printerPoll = createSharedPoll(fetchPrinter, { intervalMs: 5000 });
+
+/** 打印历史：变化慢，60s 一轮（服务端也是 60s 采集，避免无意义的重复拉取） */
+export const printerHistoryPoll = createSharedPoll(fetchPrinterHistory, { intervalMs: 60000 });

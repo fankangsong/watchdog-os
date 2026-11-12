@@ -432,6 +432,39 @@ export const stopBlogBuild = () =>
 
 /* ---------- Printer（CUPS 打印机与任务监控）---------- */
 
+/** 物理链路：unknown 表示探测手段不可用，不等于未连接 */
+export interface PrinterLink {
+  state: 'connected' | 'disconnected' | 'unknown';
+  /** sysfs / lpinfo / cups / none */
+  source: string;
+  /** USB 设备在 sysfs 中的路径，如 1-1.2 */
+  devicePath: string;
+  /** 内核 usblp 是否已绑定（打印中 CUPS 会临时占用，可能为 false） */
+  driverBound: boolean;
+  serial: string;
+  /** 同型号多台且 device-uri 无序列号时无法唯一确定 */
+  ambiguous: boolean;
+  detail: string;
+  /** 本次状态开始时间 / 最近一次确认在位时间（ms） */
+  since: number;
+  lastSeen: number;
+}
+
+/** 打印能力：由 CUPS 状态推导，与链路层解耦 */
+export interface PrinterReady {
+  state: 'ready' | 'offline' | 'paused' | 'error' | 'unknown';
+  reasons: string[];
+  detail: string;
+}
+
+/** 本轮链路探测的元信息 */
+export interface PrinterProbe {
+  method: string;
+  durationMs: number;
+  degraded: boolean;
+  error: string;
+}
+
 export interface PrinterInfo {
   name: string;
   model: string;
@@ -442,11 +475,17 @@ export interface PrinterInfo {
   /** CUPS 的附加状态说明（如 "Unable to open USB device"） */
   stateMessage: string;
   accepting: boolean;
+  /** CUPS 队列长度（queued-job-count） */
+  queuedJobCount: number;
   deviceUri: string;
+  /** usb / network / other */
+  transport: 'usb' | 'network' | 'other';
   /** device-uri 为 usb:// 即配置为 USB 连接 */
   usbConfigured: boolean;
-  /** 与 lpinfo -v 枚举的物理设备比对得出：USB 线是否已连接 */
+  /** 兼容字段：等价于 link.state === 'connected'（探测失败时为 false） */
   usbConnected: boolean;
+  link: PrinterLink;
+  ready: PrinterReady;
 }
 
 /** 一条打印任务（打印中 / 历史通用） */
@@ -466,13 +505,21 @@ export interface PrinterJob {
 export interface PrinterState {
   available: boolean;
   collectedAt?: number;
+  probe?: PrinterProbe;
   printers: PrinterInfo[];
   activeJobs: PrinterJob[];
+  error?: string;
+}
+
+/** GET /api/printer/history：历史独立采集（服务端默认 60s 一轮） */
+export interface PrinterHistory {
+  collectedAt?: number;
   history: PrinterJob[];
   error?: string;
 }
 
 export const fetchPrinter = () => request<PrinterState>('./api/printer');
+export const fetchPrinterHistory = () => request<PrinterHistory>('./api/printer/history');
 
 /** POST /api/printer/test-page 成功响应（jobId 为 CUPS 作业号字符串） */
 export interface PrinterTestPageResult {

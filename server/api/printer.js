@@ -9,7 +9,11 @@
  *      which-jobs=completed     → 打印历史
  *    属性：job-name（文档名）、job-originating-user-name（用户）、
  *    job-originating-host-name（发起打印的设备 IP）、time-at-creation/completed、job-k-octets
- *  - lpinfo -v：列出当前物理可用的设备 URI，与打印机 device-uri 精确比对 → USB 线是否已连接
+ *  - USB 链路（printer.link）：默认读 /sys/bus/usb/devices 判断设备是否在位（毫秒级、无副作用），
+ *    探测手段不可读时才回退 lpinfo -v（会拉起全部 CUPS backend 枚举，并让 usb 后端卸载/重挂
+ *    内核 usblp 驱动，因此不再放在常规采集路径上）
+ *  - 打印能力（printer.ready）：由 CUPS 的 printer-state / printer-state-reasons 推导，
+ *    与链路层解耦——「线插着但队列暂停/缺纸/离线」各不相同
  */
 'use strict';
 
@@ -88,8 +92,279 @@ function parseIppTool(out) {
 /** 打印机/任务状态枚举 → 文案 */
 const IPP_PRINTER_STATES = { 3: 'idle', 4: 'processing', 5: 'stopped' };
 
+/* ================= 链路探测：USB 走 sysfs，失败才回退 lpinfo ================= */
+
+const USB_SYSFS_DIR = '/sys/bus/usb/devices';
+/** 探测方式：auto = sysfs 优先、不可读才回退 lpinfo；sysfs = 只用 sysfs；lpinfo = 旧行为 */
+const PROBE_MODES = new Set(['auto', 'sysfs', 'lpinfo']);
+/** CUPS 的 printer-state-reasons 里「需要人处理」的原因码 → ready=error */
+const ERROR_REASONS = new Set([
+  'media-jam',
+  'media-empty',
+  'media-needed',
+  'media-low',
+  'toner-empty',
+  'toner-low',
+  'marker-supply-empty',
+  'marker-supply-low',
+  'cover-open',
+  'door-open',
+  'input-tray-missing',
+  'output-area-full',
+]);
+/** 链路状态历史：printerName → { state, since, lastSeen }。进程内状态，服务重启后 since 重新计时 */
+const linkHistory = new Map();
+
+/** device-uri → 连接方式 */
+function transportOf(uri) {
+  if (!uri) return 'other';
+  if (uri.startsWith('usb://')) return 'usb';
+  return /^(ipp|ipps|dnssd|socket|lpd|http|https):\/\//.test(uri) ? 'network' : 'other';
+}
+
+/** 从 device-uri 的 ?serial= 取序列号（URI 中可能是百分号编码） */
+function uriSerial(uri) {
+  const m = /[?&]serial=([^&]*)/i.exec(uri || '');
+  if (!m) return '';
+  try {
+    return decodeURIComponent(m[1]).trim();
+  } catch {
+    return m[1].trim();
+  }
+}
+
+/** 读 sysfs 文本；设备在枚举与读取之间被拔掉时返回空串，不视为探测失败 */
+async function readSysfs(file) {
+  try {
+    return (await fs.promises.readFile(file, 'utf8')).trim();
+  } catch {
+    return '';
+  }
+}
+
+async function sysfsExists(fp) {
+  try {
+    await fs.promises.access(fp);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 扫描 /sys/bus/usb/devices，挑出充当打印机的设备（接口类 07，或已绑定 usbmisc/lpN）。
+ * 只有根目录不可读时才抛错——那才是「探测手段不可用」；单台设备读不到按已拔出处理。
+ * 返回 [{ devicePath, vid, pid, serial, manufacturer, product, driverBound }]
+ */
+async function scanUsbPrinters() {
+  const names = await fs.promises.readdir(USB_SYSFS_DIR);
+  const found = [];
+  await Promise.all(
+    names.map(async (name) => {
+      // 设备节点形如 1-1.2；带 ':' 的是接口节点，usbN 是总线根目录，均跳过
+      if (!name.includes('-') || name.includes(':')) return;
+      const dir = path.join(USB_SYSFS_DIR, name);
+      const [vid, pid] = await Promise.all([
+        readSysfs(path.join(dir, 'idVendor')),
+        readSysfs(path.join(dir, 'idProduct')),
+      ]);
+      if (!vid || !pid) return; // 枚举期间被拔掉
+      const ifaces = (await fs.promises.readdir(dir).catch(() => [])).filter((n) => n.includes(':'));
+      let printerIface = false;
+      let driverBound = false;
+      for (const iface of ifaces) {
+        const ifaceDir = path.join(dir, iface);
+        if ((await readSysfs(path.join(ifaceDir, 'bInterfaceClass'))) === '07') printerIface = true;
+        if (await sysfsExists(path.join(ifaceDir, 'usbmisc'))) driverBound = true;
+      }
+      if (!printerIface && !driverBound) return; // 非打印机设备（键鼠/存储等）
+      const [serial, manufacturer, product] = await Promise.all([
+        readSysfs(path.join(dir, 'serial')),
+        readSysfs(path.join(dir, 'manufacturer')),
+        readSysfs(path.join(dir, 'product')),
+      ]);
+      found.push({
+        devicePath: name,
+        vid: vid.toLowerCase(),
+        pid: pid.toLowerCase(),
+        serial,
+        manufacturer,
+        product,
+        driverBound,
+      });
+    })
+  );
+  return found;
+}
+
+/**
+ * 把 device-uri 匹配到物理设备：
+ *  - 配了 PRINTER_USB_IDS 时先按 VID:PID 过滤（多台同型号时缩小范围）
+ *  - URI 带 serial 时按 serial 精确匹配，不一致视为「插的不是这台」
+ *  - URI 无 serial：唯一候选直接匹配；多候选取第一台并标记 ambiguous
+ */
+function matchUsbDevice(devices, uri, usbIds) {
+  const filter = usbIds && usbIds.length ? usbIds : null;
+  const pool = filter ? devices.filter((d) => filter.includes(`${d.vid}:${d.pid}`)) : devices;
+  const serial = uriSerial(uri);
+  if (serial) {
+    const hit = pool.find((d) => d.serial && d.serial.toLowerCase() === serial.toLowerCase());
+    if (hit) return { device: hit, ambiguous: false, detail: '' };
+    // 区分两种「没匹配上」：过滤器把所有设备排除了，还是序列号对不上
+    const detail =
+      filter && pool.length === 0 && devices.length > 0
+        ? 'PRINTER_USB_IDS 未匹配到任何在位设备'
+        : 'device-uri 的序列号与在位设备不一致';
+    return { device: null, ambiguous: false, detail };
+  }
+  if (pool.length === 1) return { device: pool[0], ambiguous: false, detail: '' };
+  if (pool.length === 0) return { device: null, ambiguous: false, detail: '' };
+  return { device: pool[0], ambiguous: true, detail: `同型号设备 ${pool.length} 台，按序列号无法唯一确定` };
+}
+
+/** sysfs 匹配结果 → link 对象 */
+function linkFromMatch(m) {
+  if (!m.device) {
+    return {
+      state: 'disconnected',
+      source: 'sysfs',
+      devicePath: '',
+      driverBound: false,
+      serial: '',
+      ambiguous: false,
+      detail: m.detail,
+    };
+  }
+  return {
+    state: 'connected',
+    source: 'sysfs',
+    devicePath: m.device.devicePath,
+    driverBound: m.device.driverBound,
+    serial: m.device.serial,
+    ambiguous: m.ambiguous,
+    detail: m.detail,
+  };
+}
+
+/** 未知态：探测手段不可用（≠ 没插），前端用灰色展示 */
+function unknownLink(source, detail) {
+  return {
+    state: 'unknown',
+    source,
+    devicePath: '',
+    driverBound: false,
+    serial: '',
+    ambiguous: false,
+    detail,
+  };
+}
+
+/**
+ * 探测 USB 打印机链路。返回 { probe, links }：probe 说明本次用了什么手段、耗时、是否降级。
+ * sysfs 根目录不可读 → auto 模式回退 lpinfo 并置 degraded；两者都失败才是 unknown。
+ */
+async function probeUsbLinks(printers) {
+  const started = Date.now();
+  const usbPrinters = printers.filter((p) => p.usbConfigured);
+  const probe = { method: 'none', durationMs: 0, degraded: false, error: '' };
+  const links = new Map();
+  if (usbPrinters.length === 0) {
+    probe.durationMs = Date.now() - started;
+    return { probe, links };
+  }
+
+  const mode = PROBE_MODES.has(cfg.printer.probe) ? cfg.printer.probe : 'auto';
+  if (mode !== 'lpinfo') {
+    try {
+      const devices = await scanUsbPrinters();
+      for (const p of usbPrinters) {
+        links.set(p.name, linkFromMatch(matchUsbDevice(devices, p.deviceUri, cfg.printer.usbIds)));
+      }
+      probe.method = 'sysfs';
+      probe.durationMs = Date.now() - started;
+      return { probe, links };
+    } catch (e) {
+      probe.error = `sysfs 不可读：${(e && e.message) || e}`;
+      probe.degraded = mode === 'auto';
+      if (mode === 'sysfs') {
+        for (const p of usbPrinters) links.set(p.name, unknownLink('sysfs', probe.error));
+        probe.method = 'sysfs';
+        probe.durationMs = Date.now() - started;
+        return { probe, links };
+      }
+    }
+  }
+
+  /* 回退路径：只在 sysfs 不可用（或显式配 lpinfo）时执行 */
+  const out = await runCmd('lpinfo', ['-v'], 8000);
+  probe.method = 'lpinfo';
+  probe.durationMs = Date.now() - started;
+  if (out === null) {
+    probe.degraded = true;
+    probe.error = probe.error || 'lpinfo 不可用';
+    for (const p of usbPrinters) links.set(p.name, unknownLink('none', probe.error));
+    return { probe, links };
+  }
+  const live = new Set();
+  for (const line of out.split('\n')) {
+    const m = line.match(/^(?:direct|network)\s+(\S+)/);
+    if (m) live.add(m[1]);
+  }
+  for (const p of usbPrinters) {
+    // 打印中 CUPS 后端独占设备，lpinfo 枚举不到，此时链路必然通（仅回退路径沿用旧行为）
+    const connected = live.has(p.deviceUri) || p.state === 'processing';
+    links.set(p.name, {
+      state: connected ? 'connected' : 'disconnected',
+      source: 'lpinfo',
+      devicePath: '',
+      driverBound: false,
+      serial: uriSerial(p.deviceUri),
+      ambiguous: false,
+      detail: '',
+    });
+  }
+  return { probe, links };
+}
+
+/** 记录链路状态首次出现时间（since）与最近一次确认在位时间（lastSeen） */
+function withHistory(name, link, now) {
+  const prev = linkHistory.get(name);
+  if (!prev || prev.state !== link.state) {
+    linkHistory.set(name, {
+      state: link.state,
+      since: now,
+      lastSeen: link.state === 'connected' ? now : prev ? prev.lastSeen : 0,
+    });
+  } else if (link.state === 'connected') {
+    prev.lastSeen = now;
+  }
+  const rec = linkHistory.get(name);
+  return { ...link, since: rec.since, lastSeen: rec.lastSeen };
+}
+
+/** 打印能力层：链路之外「能不能打」，与 link 解耦 */
+function deriveReady(p) {
+  const reasons = String(p.stateReasons || '')
+    .split(',')
+    .map((r) => r.trim())
+    .filter((r) => r && r !== 'none');
+  const detail = p.stateMessage || '';
+  if (reasons.includes('offline-report')) return { state: 'offline', reasons, detail };
+  if (!p.accepting || p.state === 'stopped') return { state: 'paused', reasons, detail };
+  if (reasons.some((r) => ERROR_REASONS.has(r))) return { state: 'error', reasons, detail };
+  if (p.state === 'idle' || p.state === 'processing') return { state: 'ready', reasons, detail };
+  return { state: 'unknown', reasons, detail };
+}
+
 async function readPrinter() {
-  const fail = (msg) => ({ available: false, printers: [], activeJobs: [], history: [], error: msg });
+  const fail = (msg) => ({
+    available: false,
+    probe: { method: 'none', durationMs: 0, degraded: false, error: msg },
+    printers: [],
+    activeJobs: [],
+    history: [],
+    error: msg,
+  });
   if (!cfg.printer.enabled) return fail('Printer disabled');
 
   /* 1. 打印机列表与状态 */
@@ -108,78 +383,109 @@ async function readPrinter() {
       stateReasons: g['printer-state-reasons'] || '',
       stateMessage: g['printer-state-message'] || '',
       accepting: g['printer-is-accepting-jobs'] === 'true',
+      queuedJobCount: parseInt(g['queued-job-count'], 10) || 0,
       deviceUri: uri,
-      // USB 配置以 device-uri 判断；是否物理连接需与 lpinfo 枚举的设备比对
+      transport: transportOf(uri),
+      // USB 配置以 device-uri 判断；是否物理在位见 link（sysfs 探测）
       usbConfigured: uri.startsWith('usb://'),
       usbConnected: false,
     });
   }
 
-  /* 2. lpinfo -v：当前物理在线的设备 URI（USB 已插入才会出现在列表中） */
-  const lpinfoOut = await runCmd('lpinfo', ['-v'], 8000);
-  const liveUris = new Set();
-  if (lpinfoOut) {
-    for (const line of lpinfoOut.split('\n')) {
-      const m = line.match(/^(?:direct|network)\s+(\S+)/);
-      if (m) liveUris.add(m[1]);
-    }
-    for (const p of printers) {
-      // 打印中（processing）时 CUPS USB 后端独占设备，lpinfo 枚举不到它——此时链路必然是通的，直接视为已连接
-      if (p.usbConfigured) p.usbConnected = liveUris.has(p.deviceUri) || p.state === 'processing';
-    }
+  /* 2. 链路探测：USB 走 sysfs（毫秒级、不触碰设备），探测手段不可用时才回退 lpinfo */
+  const { probe, links } = await probeUsbLinks(printers);
+  const now = Date.now();
+  for (const p of printers) {
+    p.link = withHistory(
+      p.name,
+      links.get(p.name) || { state: 'unknown', source: 'cups', detail: p.stateMessage || '' },
+      now
+    );
+    p.ready = deriveReady(p);
+    // 旧字段保留一个版本（前端迁移期）：只表示「确认在位」，探测失败时为 false，看 link.state 区分
+    p.usbConnected = p.link.state === 'connected';
   }
 
-  /* 3. 打印中队列与历史：Get-Jobs 必须指向具体打印机，故逐台并行查询后合并 */
-  const readJobs = async (key, printerName) => {
-    const out = await runCmd(
-      'ipptool',
-      ['-tv', `ipp://localhost/printers/${encodeURIComponent(printerName)}`, IPP_TEST_FILES[key]],
-      10000
-    );
-    if (out === null) return [];
-    const jobs = [];
-    for (const g of parseIppTool(out)) {
-      if (g['job-id'] == null) continue;
-      jobs.push({
-        id: g['job-id'],
-        printer: printerName,
-        name: g['job-name'] || '(未命名)',
-        user: g['job-originating-user-name'] || '-',
-        host: g['job-originating-host-name'] || '-',
-        state: g['job-state'] || '',
-        sizeKB: parseInt(g['job-k-octets'], 10) || 0,
-        createdMs: (parseInt(g['time-at-creation'], 10) || 0) * 1000,
-        completedMs: (parseInt(g['time-at-completed'], 10) || 0) * 1000 || null,
-      });
-    }
-    return jobs;
-  };
-  const names = printers.map((p) => p.name);
-  const [activeLists, doneLists] = await Promise.all([
-    Promise.all(names.map((n) => readJobs('jobsActive', n))),
-    Promise.all(names.map((n) => readJobs('jobsDone', n))),
-  ]);
-  const activeJobs = activeLists.flat();
-  // 历史：多打印机时按完成时间倒序合并，截取上限
-  const history = doneLists
-    .flat()
-    .sort((a, b) => (b.completedMs || b.createdMs) - (a.completedMs || a.createdMs))
-    .slice(0, Math.max(1, cfg.printer.historyLimit));
+  /* 3. 打印中队列（历史单独走 /api/printer/history，不跟随 10s 轮询） */
+  const activeJobs = (await Promise.all(printers.map((p) => readJobs('jobsActive', p.name)))).flat();
 
   return {
     available: true,
     collectedAt: Date.now(),
+    probe,
     printers,
     activeJobs,
-    history: history.slice(0, Math.max(1, cfg.printer.historyLimit)),
     error: '',
   };
+}
+
+/** Get-Jobs：必须指向具体打印机，逐台查询后由调用方合并 */
+async function readJobs(key, printerName) {
+  const out = await runCmd(
+    'ipptool',
+    ['-tv', `ipp://localhost/printers/${encodeURIComponent(printerName)}`, IPP_TEST_FILES[key]],
+    10000
+  );
+  if (out === null) return [];
+  const jobs = [];
+  for (const g of parseIppTool(out)) {
+    if (g['job-id'] == null) continue;
+    jobs.push({
+      id: g['job-id'],
+      printer: printerName,
+      name: g['job-name'] || '(未命名)',
+      user: g['job-originating-user-name'] || '-',
+      host: g['job-originating-host-name'] || '-',
+      state: g['job-state'] || '',
+      sizeKB: parseInt(g['job-k-octets'], 10) || 0,
+      createdMs: (parseInt(g['time-at-creation'], 10) || 0) * 1000,
+      completedMs: (parseInt(g['time-at-completed'], 10) || 0) * 1000 || null,
+    });
+  }
+  return jobs;
+}
+
+/**
+ * 打印历史（GET /api/printer/history）：变化慢，独立采集、独立缓存，
+ * 不再随 10s 状态轮询重复传输，也不进入 /api/metrics 的聚合响应。
+ */
+async function readPrinterHistory() {
+  const now = Date.now();
+  if (!cfg.printer.enabled) return { collectedAt: now, history: [], error: 'Printer disabled' };
+  const printersOut = await runCmd('ipptool', ['-tv', IPP_TESTS.printers.uri, IPP_TEST_FILES.printers], 10000);
+  if (printersOut === null) return { collectedAt: now, history: [], error: 'CUPS 不可用（未安装 ipptool / cupsd 未运行）' };
+  const names = parseIppTool(printersOut)
+    .map((g) => g['printer-name'])
+    .filter(Boolean);
+  const lists = await Promise.all(names.map((n) => readJobs('jobsDone', n)));
+  const history = lists
+    .flat()
+    .sort((a, b) => (b.completedMs || b.createdMs) - (a.completedMs || a.createdMs))
+    .slice(0, Math.max(1, cfg.printer.historyLimit));
+  return { collectedAt: Date.now(), history, error: '' };
 }
 
 /** 启动 printer 采集定时器并写入共享 state（入口调用；语义与原 server.js 模块加载期行为一致） */
 function startPrinterTimer(state) {
   readPrinter().then((p) => (state.printer = p));
   setInterval(async () => (state.printer = await readPrinter()), Math.max(5000, cfg.printer.interval));
+}
+
+/** 历史缓存：留在模块内而不是共享 state，避免进入 /api/metrics 的聚合响应 */
+let historyCache = { collectedAt: 0, history: [], error: '' };
+
+/** 启动历史采集定时器：默认 60s，与 10s 状态轮询解耦 */
+function startPrinterHistoryTimer() {
+  const tick = async () => {
+    historyCache = await readPrinterHistory();
+  };
+  tick();
+  setInterval(tick, Math.max(15000, cfg.printer.historyInterval));
+}
+
+/** 最近一次历史采集结果（GET /api/printer/history） */
+function getPrinterHistory() {
+  return historyCache;
 }
 
 /* ================= 打印测试页（POST /api/printer/test-page） ================= */
@@ -503,6 +809,8 @@ async function controlPrinterJob(body) {
 module.exports = {
   readPrinter,
   startPrinterTimer,
+  startPrinterHistoryTimer,
+  getPrinterHistory,
   printTestPage,
   printFile,
   buildPrintArgs,

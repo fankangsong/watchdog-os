@@ -26,7 +26,7 @@ const http = require('http');
 const { cfg, BASE } = require('./config');
 const { send } = require('./lib/http');
 const { state, startCollectTimers } = require('./api/metrics');
-const { startPrinterTimer } = require('./api/printer');
+const { startPrinterTimer, startPrinterHistoryTimer } = require('./api/printer');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
 const blog = require('./api/blog');
@@ -70,6 +70,7 @@ server.listen(cfg.port, cfg.host, () => {
    不得阻止监听或波及其他接口（终端不可用时 /api/terminal/* 返回 503，其余接口照常）。 */
 startCollectTimers();
 startPrinterTimer(state);
+startPrinterHistoryTimer();
 // 登录审计：建目录 + 清理过期日文件；失败只 warn（日志不可写时登录照常，只是没有审计记录）
 try {
   audit.startAudit();

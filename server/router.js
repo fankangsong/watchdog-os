@@ -12,7 +12,7 @@ const { cfg, BASE, COOKIE_NAME, JWT_EXPIRES, COOKIE_SECURE_MODE, ORIGIN_ALLOW_LI
 const { send, redirect, safeEqual, readBody } = require('./lib/http');
 const { signJwt, checkAuth } = require('./lib/auth');
 const { state } = require('./api/metrics');
-const { printTestPage, printFile, resumePrinter, controlPrinterJob } = require('./api/printer');
+const { printTestPage, printFile, resumePrinter, controlPrinterJob, getPrinterHistory } = require('./api/printer');
 const { serveFile, serveIndex, servePwaFile } = require('./static');
 const terminal = require('./api/terminal');
 const runner = require('./api/runner');
@@ -73,9 +73,10 @@ const PRINTER_ERROR_STATUS = {
   'CUPS unavailable': 503,
 };
 
-/** Printer API 路径白名单（统一 JWT 鉴权；GET 状态 / POST 各写接口） */
+/** Printer API 路径白名单（统一 JWT 鉴权；GET 状态 / 历史 / POST 各写接口） */
 const PRINTER_PATHS = [
   '/api/printer',
+  '/api/printer/history',
   '/api/printer/test-page',
   '/api/printer/print',
   '/api/printer/resume',
@@ -164,6 +165,11 @@ async function route(req, res, url) {
     if (p === '/api/printer') {
       if (!cfg.printer.enabled) return send(res, 503, { error: 'Printer disabled' });
       return send(res, 200, state.printer);
+    }
+    // 历史独立接口：由后台 60s 采集一次并缓存，GET 直接回缓存（不阻塞在 CUPS 查询上）
+    if (p === '/api/printer/history') {
+      if (!cfg.printer.enabled) return send(res, 503, { error: 'Printer disabled' });
+      return send(res, 200, getPrinterHistory());
     }
     // 以下均为 POST 写接口：
     //  test-page：{ printer }                             提交 CUPS 测试页
