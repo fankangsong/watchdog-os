@@ -664,8 +664,14 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
    若像原先那样直接在 flex 容器里居中，放大溢出的左上部分会被裁掉且滚不到 */
 .sp-fm-img { display: block; overflow: auto; background: repeating-conic-gradient(var(--color-system-01) 0% 25%, var(--color-white) 0% 50%) 50% / 16px 16px; user-select: none; }
 .sp-fm-img:focus { outline: none; }
-.sp-fm-img-canvas { display: flex; width: max-content; min-width: 100%; height: max-content; min-height: 100%; align-items: center; justify-content: center; }
-.sp-fm-img img { max-width: 100%; max-height: 100%; object-fit: contain; -webkit-user-drag: none; }
+/* 高度不写 height:max-content：块级盒 auto 高度本来就等于内容高，加上 min-height:100% 已足够撑满并居中；
+   显式 max-content 反而在 Safari 下让画布高度不随图片缩放更新（按钮/滚轮放大后图片不变）。 */
+.sp-fm-img-canvas { display: flex; width: max-content; min-width: 100%; min-height: 100%; align-items: center; justify-content: center; }
+/* 图片尺寸完全由 JS 写入 width/height（原图像素 × 缩放），这里不能再留 max-width/max-height
+   百分比上限：画布是 max-content + min-width:100%，Safari 会把 100% 解析到画布当前宽度，
+   放大时把图片钳回容器宽度（按钮/滚轮/菜单全部失效）；Chrome 不计此项，故只在 Safari 复现。
+   flex 也必须取消收缩，否则同样会被画布宽度压回去。 */
+.sp-fm-img img { flex: 0 0 auto; max-width: none; max-height: none; -webkit-user-drag: none; }
 /* 放大后内容溢出才启用抓手（未溢出时不该暗示可拖动） */
 .sp-fm-img-pan { cursor: grab; }
 .sp-fm-img-panning { cursor: grabbing; }
