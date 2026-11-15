@@ -56,3 +56,22 @@ export function fmtClock(ms: number): string {
 export const AUDIT_OK_COLOR = '#1f9d55';
 export const AUDIT_FAIL_COLOR = '#dc2626';
 export const AUDIT_UNAUTH_COLOR = '#2563eb';
+
+/* ---------- 财务账本 Ledger（追加，原有导出保持不变） ---------- */
+
+/** 金额「分」→「元」，固定两位小数（后端金额一律以分为单位，展示时才转元）。 */
+export function formatCent(cent: number): string {
+  return (cent / 100).toFixed(2);
+}
+
+/**
+ * 财务语义色，遵循中国习惯：收入 / 上涨用红色系，支出 / 下跌用绿色系，净额用中性蓝。
+ * 仅用于图表与金额数字（canvas 无法读 CSS 变量）；窗口 chrome 一律走 classicy 主题变量。
+ */
+export const LEDGER_INCOME_COLOR = '#c0392b'; // 收入 / 上涨：红
+export const LEDGER_EXPENSE_COLOR = '#1f9d55'; // 支出 / 下跌：绿
+export const LEDGER_NET_COLOR = '#2b6cb0'; // 净额：中性蓝
+/** canvas 中性色回退：正常情况从 classicy 主题 CSS 变量实时读取，缺失时才用这些值。 */
+export const LEDGER_CHART_GRID = '#cccccc';
+export const LEDGER_CHART_TEXT = '#393939';
+export const LEDGER_CHART_DIM = '#808080';

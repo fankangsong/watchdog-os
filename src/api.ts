@@ -1168,3 +1168,361 @@ export async function downloadAuditCsv(q: AuditQuery): Promise<void> {
     URL.revokeObjectURL(url);
   }, 4000);
 }
+
+/* ============================ 财务账本 Ledger ============================ *
+ * 所有接口走相对路径 ./api/ledger/...（兼容 basePath 子路径部署），
+ * 401 统一走 unauthorized() → 全局登出；错误体里的 error 字段透出给用户看。
+ * 服务端只返回脱敏后的 memoClean，绝不返回 memoRaw。
+ * ======================================================================== */
+
+export interface LedgerAccount {
+  accountId: number;
+  accountNoMasked: string;
+  bankName: string | null;
+  cardType: string | null;
+  currency: string;
+}
+
+export interface LedgerCategory {
+  categoryId: number;
+  code: string;
+  domain: string;
+  level1: string;
+  level2: string | null;
+  label: string;
+  includeInStats: number;
+  sortNo: number;
+}
+
+export interface LedgerMeta {
+  accounts: LedgerAccount[];
+  categories: LedgerCategory[];
+  years: string[];
+  months: string[];
+  channels: string[];
+  txnTypes: string[];
+  domains: string[];
+}
+
+export interface LedgerStats {
+  txnCount: number;
+  incomeCount: number;
+  expenseCount: number;
+  dateMin: string | null;
+  dateMax: string | null;
+  lockedCount: number;
+  transferPairs: number;
+  categoryCount: number;
+  ruleCount: number;
+  accountCount: number;
+  fileName: string;
+  sizeBytes: number;
+  mtime: string | null;
+  journalMode: string;
+}
+
+export interface LedgerStatus {
+  enabled: boolean;
+  available: boolean;
+  engine: string;
+  nodeVersion: string;
+  experimentalWarning: boolean;
+  dbPath: string;
+  stats: LedgerStats | null;
+  backup: { dir: string; count: number; lastAt: string | null };
+  reason: string;
+}
+
+export interface LedgerFilters {
+  account?: number | 'all';
+  year?: string | 'all';
+  month?: string | 'all';
+  day?: string;
+  from?: string;
+  to?: string;
+  category?: string | 'all';
+  domain?: string | 'all';
+  direction?: 'IN' | 'OUT' | 'all';
+  scope?: 'net' | 'all';
+  q?: string;
+  sort?: 'txn_ts' | 'txn_date' | 'amount';
+  order?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+  dim?: 'period' | 'category';
+  grain?: 'year' | 'month';
+  topN?: number;
+}
+
+export interface LedgerTxn {
+  txnId: number;
+  txnDate: string;
+  txnTime: string;
+  txnTs: string;
+  accountNoMasked: string | null;
+  direction: 'IN' | 'OUT';
+  incomeCent: number;
+  expenseCent: number;
+  amountSignedCent: number;
+  balanceCent: number;
+  txnType: string;
+  memoClean: string | null;
+  counterparty: string | null;
+  channel: string | null;
+  categoryCode: string | null;
+  categoryLabel: string | null;
+  domain: string | null;
+  source: string | null;
+  confidence: number | null;
+  locked: number;
+  isInternalTransfer: number;
+}
+
+export interface LedgerTxnResult {
+  rows: LedgerTxn[];
+  total: number;
+  limit: number;
+  offset: number;
+  summary: {
+    incomeCent: number;
+    expenseCent: number;
+    netCent: number;
+    incomeCount: number;
+    expenseCount: number;
+  };
+}
+
+export interface LedgerReportRow {
+  period?: string;
+  categoryCode?: string;
+  categoryLabel?: string;
+  domain?: string;
+  level1?: string;
+  includeInStats?: number;
+  incomeCent: number;
+  expenseCent: number;
+  netCent?: number;
+  incomeCount?: number;
+  expenseCount?: number;
+  txnCount: number;
+  expensePct?: number;
+}
+
+export interface LedgerReportResult {
+  dim: string;
+  grain: string;
+  scope: string;
+  filters: Record<string, unknown>;
+  rows: LedgerReportRow[];
+  totals: {
+    incomeCent: number;
+    expenseCent: number;
+    netCent: number;
+    txnCount: number;
+    incomeCount: number;
+    expenseCount: number;
+  };
+  generatedAt: number;
+}
+
+export interface LedgerPreviewRow {
+  lineNo: number;
+  rowHash: string;
+  txnDate: string;
+  txnTime: string;
+  direction: 'IN' | 'OUT';
+  amountCent: number;
+  incomeCent: number;
+  expenseCent: number;
+  balanceCent: number;
+  txnType: string;
+  memoClean: string;
+  counterparty: string | null;
+  channel: string;
+  categoryGuess: string;
+  status: 'new' | 'exists' | 'conflict';
+}
+
+export interface LedgerPreviewResult {
+  filename: string;
+  account: {
+    accountNoMasked: string;
+    bankName: string;
+    currency: string;
+    periodStart: string | null;
+    periodEnd: string | null;
+    exportedAt: string | null;
+  };
+  declared: Record<string, number | null>;
+  actual: Record<string, number>;
+  checked: { declaredMatch: boolean; balanceChainWithinFile: boolean; chainErrors: string[] };
+  warnings: string[];
+  rowCount: number;
+  counts: { new: number; exists: number; conflict: number };
+  rows: LedgerPreviewRow[];
+}
+
+export interface LedgerBackup {
+  name: string;
+  kind: 'manual' | 'auto-before-import' | 'auto-before-restore';
+  createdAt: string;
+  sizeBytes: number;
+  txnCount: number | null;
+  dateMin: string | null;
+  dateMax: string | null;
+  lockedCount: number | null;
+  transferPairs: number | null;
+  sha256: string | null;
+  isPreRestoreSafety: boolean;
+}
+
+export interface LedgerCommitResult {
+  batchId: number;
+  inserted: number;
+  skipped: number;
+  conflicts: number;
+  classified: number;
+  lowConfidence: number;
+  transferPairs: number;
+  autoBackup: LedgerBackup | null;
+  stats: { txnCount: number };
+  warnings: string[];
+}
+
+export interface LedgerRestoreResult extends LedgerStats {
+  restored: boolean;
+  preRestoreBackup: LedgerBackup;
+  warnings: string[];
+}
+
+/** 与后端共用的请求封装：401 全局登出，其余错误透出 {error} 文本。 */
+async function ledgerRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(url, init);
+  if (r.status === 401) throw unauthorized();
+  if (!r.ok) {
+    let msg = `HTTP ${r.status}`;
+    try {
+      const d = (await r.json()) as { error?: string };
+      if (d && d.error) msg = d.error;
+    } catch { /* 非 JSON 错误体沿用状态码 */ }
+    throw new Error(msg);
+  }
+  return r.json() as Promise<T>;
+}
+
+async function ledgerDownload(url: string, init?: RequestInit): Promise<void> {
+  const r = await fetch(url, init);
+  if (r.status === 401) throw unauthorized();
+  if (!r.ok) {
+    let msg = `HTTP ${r.status}`;
+    try {
+      const d = (await r.json()) as { error?: string };
+      if (d && d.error) msg = d.error;
+    } catch { /* 忽略 */ }
+    throw new Error(msg);
+  }
+  const blob = await r.blob();
+  const cd = r.headers.get('content-disposition') || '';
+  const m = /filename="([^"]+)"/.exec(cd);
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = m ? m[1] : `ledger-${new Date().toISOString().slice(0, 10)}.db`;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  window.setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(href);
+  }, 4000);
+}
+
+function ledgerQs(f: LedgerFilters): string {
+  const p = new URLSearchParams();
+  const keys: (keyof LedgerFilters)[] = [
+    'account', 'year', 'month', 'day', 'from', 'to', 'category', 'domain',
+    'direction', 'scope', 'q', 'sort', 'order', 'limit', 'offset',
+    'dim', 'grain', 'topN',
+  ];
+  for (const k of keys) {
+    const v = f[k];
+    if (v === undefined || v === null || v === '' || v === 'all') continue;
+    p.set(k, String(v));
+  }
+  return p.toString();
+}
+
+const jsonPost = (body: unknown): RequestInit => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
+export const fetchLedgerStatus = () => ledgerRequest<LedgerStatus>('./api/ledger/status');
+export const fetchLedgerMeta = () => ledgerRequest<LedgerMeta>('./api/ledger/meta');
+
+export const previewImport = (filename: string, text: string) =>
+  ledgerRequest<LedgerPreviewResult>('./api/ledger/import/preview', jsonPost({ filename, text }));
+
+export const commitImport = (filename: string, text: string, selected: string[]) =>
+  ledgerRequest<LedgerCommitResult>(
+    './api/ledger/import/commit', jsonPost({ filename, text, selected })
+  );
+
+export const fetchImportBatches = (limit = 20) =>
+  ledgerRequest<{ batches: Array<Record<string, unknown>> }>(`./api/ledger/import/batches?limit=${limit}`);
+
+export const fetchLedgerTxns = (f: LedgerFilters) =>
+  ledgerRequest<LedgerTxnResult>(`./api/ledger/transactions?${ledgerQs(f)}`);
+
+export const downloadLedgerTxnsCsv = (f: LedgerFilters) =>
+  ledgerDownload(`./api/ledger/transactions.csv?${ledgerQs(f)}`);
+
+export const setLedgerCategory = (txnIds: number[], categoryCode: string, unlock = false) =>
+  ledgerRequest<{ updated: number; locked: boolean }>('./api/ledger/classification', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ txnIds, categoryCode, unlock }),
+  });
+
+export const fetchLedgerReport = (f: LedgerFilters) =>
+  ledgerRequest<LedgerReportResult>(`./api/ledger/report?${ledgerQs(f)}`);
+
+export const downloadLedgerReportCsv = (f: LedgerFilters) =>
+  ledgerDownload(`./api/ledger/report.csv?${ledgerQs(f)}`);
+
+export const fetchLedgerDbInfo = () =>
+  ledgerRequest<LedgerStats & { backupDir: string; backupCount: number; backupKeep: number }>(
+    './api/ledger/db/info'
+  );
+
+export const fetchLedgerBackups = (limit = 50) =>
+  ledgerRequest<{ backups: LedgerBackup[]; dir: string; keep: number }>(
+    `./api/ledger/db/backups?limit=${limit}`
+  );
+
+export const createLedgerBackup = () =>
+  ledgerRequest<{ backup: LedgerBackup }>('./api/ledger/db/backup', jsonPost({ kind: 'manual' }));
+
+export const downloadLedgerBackup = (name: string) =>
+  ledgerDownload(`./api/ledger/db/backup?name=${encodeURIComponent(name)}`);
+
+export const downloadCurrentDb = () => ledgerDownload('./api/ledger/db/current.db');
+
+export const deleteLedgerBackup = (name: string) =>
+  ledgerRequest<{ deleted: string }>(
+    `./api/ledger/db/backup?name=${encodeURIComponent(name)}`, { method: 'DELETE' }
+  );
+
+export const restoreLedgerBackup = (name: string) =>
+  ledgerRequest<LedgerRestoreResult>(
+    './api/ledger/db/restore', jsonPost({ name, confirm: true })
+  );
+
+/** 上传本地 .db 文件恢复：raw body 直传二进制（项目无 multipart）。 */
+export const uploadLedgerBackup = (file: File) =>
+  ledgerRequest<LedgerRestoreResult>('./api/ledger/db/restore?upload=1', {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream' },
+    body: file,
+  });

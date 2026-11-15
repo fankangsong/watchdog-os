@@ -30,6 +30,7 @@ node test/test-favorites-store.mjs   # 收藏夹 store 竞态回归（esbuild �
 node test/test-finder-prefs-store.mjs # Files 偏好 store 回归（默认展开/切换落盘去重/加载竞态；同上转译方式）
 node test/test-shared-poll.mjs       # 页面级共享轮询回归（同上；覆盖零订阅者续轮/暂停/401 重启/慢接口防叠加）
 node test/test-session-store.mjs      # 退出登录收尾回归（本地会话存储清理 / 单次导航 / 401 同路径 / 存储被禁仍收尾）
+python tools/pixel-icon.py --ledger  # 单独重生成 Ledger 钱币图标 + 三案设计稿（不动其它已验收图标；不带参数则全量重生成所有图标）
 # 以下两个连接「已在运行的服务」，需带 PASSWORD 环境变量
 $env:PASSWORD='<访问密码>'; node test/test-smoke.js       # 端到端冒烟（默认 BASE_HOST=http://localhost:3000）
 $env:PASSWORD='<访问密码>'; node test/test-basepath.js    # basePath 子路径冒烟（默认 BASE_HOST=http://localhost:3001）

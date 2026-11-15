@@ -1554,3 +1554,144 @@ html[data-wd-layout="mobile"] .sp-login-status-clock { font-size: 16px; }
 @media (prefers-reduced-motion: reduce) {
   .sp-m-home { animation: none; }
 }
+
+/* ==================================================================
+   财务账本 Ledger（sp-ledger-*，追加段，不覆盖已有规则）
+   颜色一律走 classicy 主题 CSS 变量；金额 / 图表语义色集中在 format.ts。
+   ================================================================== */
+
+/* 窗口内容三段式：Tabs 内容区 + 状态栏。
+   classicy 的 .classicyWindowContentsInner 默认 display:block（height:100%），
+   且本窗口 scrollable={false} 会让 .classicyWindowContents 带上
+   .classicyWindowNoScroll（overflow:hidden !important）。若内层不是 flex 列，
+   .sp-ledger-body 的 flex:1 就拿不到确定高度、会随内容撑到 1700+px，
+   于是 .sp-ledger-tab-scroll 的 overflow:auto 产生不了滚动条，超长内容被整段裁掉。
+   这里只对本窗口（含 .sp-ledger-body 直接子元素）生效，不影响其它 App。 */
+.classicyWindowContents:has(.sp-ledger-body) {
+  display: flex;
+  flex-direction: column;
+}
+.classicyWindowContentsInner:has(> .sp-ledger-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  /* 覆盖 classicy 的 height:100%：移动端窗口内容区是 height:auto 的 flex 项，
+     百分比高度会退化成 auto，只有用 flex:1 才能在两种布局下都拿到确定高度 */
+  height: auto;
+  min-height: 0;
+}
+.sp-ledger-body,
+.sp-ledger-tabs-host,
+.sp-ledger-tabs-host .classicyTabContainer,
+.sp-ledger-tabs-host .classicyTabsHolder,
+.sp-ledger-tabs-host .classicyTabActiveContent,
+.sp-ledger-tab-body,
+.sp-ledger-tab-scroll { box-sizing: border-box; }
+.sp-ledger-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sp-ledger-tabs-host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.sp-ledger-tabs-host .classicyTabContainer { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sp-ledger-tabs-host .classicyTabsHolder { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sp-ledger-tabs-host .classicyTabActiveContent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sp-ledger-tabs-host .classicyTabHiddenContent { display: none; }
+/* Tab 标签可读性：classicy 的 size="small" 把按钮压到 16px / 9px 字号，
+   文字下沿会被 .classicyTabsHolder 的上边框切掉半截（用户反馈「tab 看不到文字」）。
+   组件已改用默认 medium 尺寸；这里再锁死按钮行不被 flex 压缩，并收紧行高，
+   保证窗口被拉小时标签仍完整可见。 */
+.sp-ledger-tabs-host .classicyTabButtonsRow { flex: 0 0 auto; }
+.sp-ledger-tabs-host .classicyTabButton,
+.sp-ledger-tabs-host .classicyTabButtonLabel { line-height: 1; }
+.sp-ledger-tabs-host .classicyTabButtonLabel { color: var(--color-black); }
+.sp-ledger-pad { padding: 8px 12px; }
+
+/* 单个 Tab 内部：工具条 / 滚动内容 / 状态栏 */
+.sp-ledger-tab-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sp-ledger-toolbar { flex: 0 0 auto; }
+.sp-ledger-toolbar-wrap { flex-wrap: wrap; row-gap: 6px; }
+.sp-ledger-tab-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+/* 滚动容器内的分组框保持自然高度：默认 flex-shrink:1 会把子项压扁，
+   导致 scrollHeight 不超出 clientHeight，滚动条反而不会出现 */
+.sp-ledger-tab-scroll > * { flex: 0 0 auto; }
+.sp-ledger-note { font-size: 11px; color: var(--color-system-05); }
+
+/* 指标 / 信息卡片（仿 .sp-audit-cards） */
+.sp-ledger-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; padding: 8px 12px; }
+.sp-ledger-card { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 8px; background: var(--color-white); border: 1px solid var(--color-system-05); }
+.sp-ledger-card-value { font-size: 16px; font-weight: 700; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-ledger-card-label { font-size: 11px; color: var(--color-system-05); text-transform: uppercase; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-ledger-ok { color: var(--color-system-06); }
+.sp-ledger-bad { color: var(--color-error); font-weight: 700; }
+
+/* 核对明细 / 警告 */
+.sp-ledger-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 12px 8px; font-size: 11px; color: var(--color-system-06); }
+.sp-ledger-check { font-family: Menlo, Consolas, monospace; }
+.sp-ledger-warnings { padding: 2px 12px 8px; font-size: 11px; color: var(--color-error); }
+
+/* 状态标签：new / exists / conflict + 备份类型 */
+.sp-ledger-badge { display: inline-block; padding: 0 5px; font-size: 10px; font-weight: 700; white-space: nowrap; border: 1px solid var(--color-system-05); }
+.sp-ledger-badge-new { color: var(--color-black); background: var(--color-theme-02); }
+.sp-ledger-badge-exists { color: var(--color-system-05); background: var(--color-system-01); }
+.sp-ledger-badge-conflict { color: var(--color-white); background: var(--color-error); border-color: var(--color-black); }
+.sp-ledger-badge-manual { color: var(--color-black); background: var(--color-system-02); }
+.sp-ledger-badge-auto { color: var(--color-black); background: var(--color-theme-02); }
+.sp-ledger-badge-safety { color: var(--color-white); background: var(--color-system-06); border-color: var(--color-black); }
+
+/* 表格 / 金额 / 行内操作 */
+.sp-ledger-table { max-height: 340px; overflow: auto; border: 1px solid var(--color-system-04); }
+.sp-ledger-num { font-family: Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.sp-ledger-mono { font-family: Menlo, Consolas, monospace; font-size: 11px; }
+.sp-ledger-row-actions { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; }
+.sp-ledger-row-actions .classicyButton { margin: 0; font-size: 11px; }
+.sp-ledger-summary { display: flex; flex-wrap: wrap; gap: 16px; padding: 6px 12px; font-size: 12px; color: var(--color-system-07); background: var(--color-system-01); border: 1px solid var(--color-system-04); }
+.sp-ledger-summary b { font-family: Menlo, Consolas, monospace; }
+
+/* 图表：手写 canvas，容器定高，canvas 铺满；dpr 由组件处理 */
+.sp-ledger-legend { display: flex; gap: 14px; padding: 2px 12px 6px; font-size: 11px; color: var(--color-system-06); }
+.sp-ledger-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }
+.sp-ledger-charts { display: flex; flex-direction: column; gap: 12px; padding: 2px 12px 12px; }
+.sp-ledger-chart-block { display: flex; flex-direction: column; gap: 4px; }
+.sp-ledger-chart-title { font-size: 11px; font-weight: 700; color: var(--color-system-06); }
+.sp-ledger-chart { position: relative; width: 100%; height: 150px; }
+.sp-ledger-chart canvas { display: block; width: 100%; height: 100%; background: var(--color-white); border: 1px solid var(--color-system-04); }
+.sp-ledger-chart-line { height: 130px; }
+/* 可交互图表：hover 数值浮层 + 点击下钻 */
+.sp-ledger-chart-interactive canvas { cursor: pointer; }
+.sp-ledger-chart-tip {
+  position: absolute; z-index: 5; pointer-events: none;
+  min-width: 164px; padding: 6px 8px;
+  font-size: 11px; line-height: 1.6;
+  color: var(--color-black); background: var(--color-white);
+  border: 1px solid var(--color-system-07);
+  box-shadow: 2px 2px 0 0 var(--color-system-05);
+}
+.sp-ledger-chart-tip-title { margin-bottom: 2px; font-weight: 700; }
+.sp-ledger-chart-tip i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: -1px; }
+.sp-ledger-chart-tip b { font-family: Menlo, Consolas, monospace; font-weight: 700; }
+.sp-ledger-chart-tip-hint { margin-top: 3px; padding-top: 3px; font-size: 10px; color: var(--color-system-05); border-top: 1px solid var(--color-system-04); }
+/* 点击柱状图后的下钻明细面板 */
+.sp-ledger-drill { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; background: var(--color-white); border: 2px solid var(--color-system-06); }
+.sp-ledger-drill-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--color-system-07); }
+.sp-ledger-drill-head b { font-family: Menlo, Consolas, monospace; }
+
+/* 危险操作区（外部 .db 恢复） */
+.sp-ledger-danger { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; background: var(--color-system-01); border: 2px solid var(--color-error); }
+.sp-ledger-danger-title { font-size: 12px; font-weight: 700; color: var(--color-error); }
+.sp-ledger-danger-hint { margin: 0; font-size: 11px; color: var(--color-system-06); }
+
+/* 恢复确认文案 */
+.sp-ledger-confirm-msg { font-size: 12px; line-height: 1.5; }
+.sp-ledger-confirm-msg p { margin: 2px 0; }
+.sp-ledger-confirm-safe { color: var(--color-system-07); font-weight: 700; }
+/* ClassicyAlert 不暴露按钮 className：用 aria-label 精确锁定本确认框，
+   把「非默认按钮」（覆盖并恢复）标为危险色，Cancel 保持默认安全外观。 */
+.classicyAlert[aria-label*="非常危险"] .classicyAlertButtons .classicyButton:not(.classicyButtonDefault) {
+  color: var(--color-white);
+  background: var(--color-error);
+  border-color: var(--color-black);
+}
+
+/* 状态栏（双区）：左上下文 / 右操作与全局信息 */
+.sp-ledger-status { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 10px; font-size: 11px; color: var(--color-system-07); background: var(--color-system-01); border-top: var(--window-border-size) solid var(--color-system-05); }
+.sp-ledger-status-err { color: var(--color-error); font-weight: 700; }
+.sp-ledger-status-actions { display: flex; align-items: center; gap: 6px; }
+.sp-ledger-status-actions .classicyButton { margin: 0; font-size: 11px; }
+.sp-ledger-status .sp-ledger-mono { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-system-05); }

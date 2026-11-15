@@ -386,6 +386,17 @@ async function route(req, res, url) {
     return p === '/api/usage/deepseek' ? getDeepseekUsage(req, res) : getBigmodelUsage(req, res);
   }
 
+  /* ---- 财务账本 API（CSV 增量导入 / 多维查询 / 报表 / SQLite 备份恢复，统一 JWT 鉴权）----
+     刻意块内惰性 require：顶部 require 会牵连 node:sqlite，导致 Node<22.5 的环境启动即崩，
+     而账本只是可选功能。401 优先于 503：未登录者不能据此探测功能开关。 */
+  if (p === '/api/ledger' || p.startsWith('/api/ledger/')) {
+    if (!checkAuth(req)) {
+      return unauthorized(req, res);
+    }
+    const { ledgerRoute } = require('./api/ledger');
+    return ledgerRoute(req, res, p, url);
+  }
+
   /* ---- 静态页面 ---- */
   // SPA：所有页面路径统一返回 index.html，登录 / 仪表盘由前端按鉴权态切换
   if (p === '/' || p === '/index.html' || p === '/login') {

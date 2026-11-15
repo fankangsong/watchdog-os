@@ -171,6 +171,19 @@ const cfg = {
     envFile: envStr('USAGE_ENV_FILE', '/root/.hermes/.env'),
     timeoutMs: envInt('USAGE_TIMEOUT_MS', 15000),
   },
+
+  /* 财务账本（Ledger）：复用 bank-ledger/ledger.db，由 node:sqlite 直读直写。
+     需要 Node >=22.5（node:sqlite 为内置实验模块）；不可用时仅账本功能 503，服务本身照常启动。 */
+  ledger: {
+    enabled: envBool('LEDGER_ENABLED', true),
+    dbPath: envStr('LEDGER_DB', ''), // 留空 = <项目根>/bank-ledger/ledger.db
+    maxImportBytes: envInt('LEDGER_MAX_IMPORT_BYTES', 8 * 1024 * 1024), // CSV 文本 / 请求体上限
+    busyTimeoutMs: envInt('LEDGER_IMPORT_BUSY_TIMEOUT_MS', 5000),
+    backupDir: envStr('LEDGER_BACKUP_DIR', ''), // 留空 = ~/.watchdog-os/ledger-backups
+    backupKeep: envClampedInt('LEDGER_BACKUP_KEEP', 20, 1, 200),
+    maxBackupBytes: envInt('LEDGER_MAX_BACKUP_BYTES', 50 * 1024 * 1024), // 上传 .db 上限
+    autoBackupOnImport: envBool('LEDGER_AUTO_BACKUP_ON_IMPORT', true),
+  },
 };
 
 /* 访问密码 fail-fast：无内置默认口令，必须显式配置。
@@ -252,6 +265,20 @@ const ORIGIN_ALLOW_LIST = envStr('PUBLIC_ORIGIN', '')
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
 const PUBLIC_DIR = DIST_DIR;
 
+/* 财务账本路径：库默认复用 Python 工具链产出的 bank-ledger/ledger.db；
+   备份默认放用户主目录（.gitignore 已整目录忽略 bank-ledger，备份不进版本控制）。 */
+function expandHome(p) {
+  if (!p) return p;
+  if (p === '~' || p === '~/') return os.homedir();
+  if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
+const LEDGER_DIR = path.join(ROOT_DIR, 'bank-ledger');
+const LEDGER_DB_PATH = path.resolve(expandHome(cfg.ledger.dbPath) || path.join(LEDGER_DIR, 'ledger.db'));
+const LEDGER_BACKUP_DIR = path.resolve(
+  expandHome(cfg.ledger.backupDir) || path.join(os.homedir(), '.watchdog-os', 'ledger-backups')
+);
+
 module.exports = {
   cfg,
   BASE,
@@ -262,4 +289,7 @@ module.exports = {
   ORIGIN_ALLOW_LIST,
   DIST_DIR,
   PUBLIC_DIR,
+  LEDGER_DIR,
+  LEDGER_DB_PATH,
+  LEDGER_BACKUP_DIR,
 };

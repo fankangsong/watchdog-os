@@ -23,6 +23,7 @@ import { ChatApp } from './apps/ChatApp';
 import { ConverterApp } from './apps/ConverterApp';
 import { AuditApp } from './apps/AuditApp';
 import { DiskApp } from './apps/DiskApp';
+import { LedgerApp } from './apps/LedgerApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 const APPLE_MENU_SHORTCUTS_ID = 'sp-menu-shortcuts';
@@ -146,6 +147,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
         <ConverterApp onLogout={onLogout} />
         <AuditApp onLogout={onLogout} />
         <DiskApp onLogout={onLogout} />
+        <LedgerApp onLogout={onLogout} />
         {/* 设置面板必须留在 ClassicyDesktop 内部：主题 CSS 变量（--color-system-*）
             由 classicy 以内联样式注入在 .classicyDesktop 上，挂到根节点外侧会全部
             取不到 → 背景/标题条变透明。 */}

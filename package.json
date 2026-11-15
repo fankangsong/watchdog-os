@@ -4,8 +4,8 @@
   "description": "Watchdog OS",
   "main": "server/index.js",
   "scripts": {
-    "dev": "concurrently -k -n server,vite -c blue,green \"node server/index.js\" \"vite\"",
-    "dev:server": "node server/index.js",
+    "dev": "concurrently -k -n server,vite -c blue,green \"node --watch server/index.js\" \"vite\"",
+    "dev:server": "node --watch server/index.js",
     "dev:client": "vite",
     "build": "vite build",
     "preview": "vite preview",
@@ -54,7 +54,7 @@
     "vite": "^6.2.0"
   },
   "engines": {
-    "node": ">=18.15"
+    "node": ">=22.5"
   },
   "license": "MIT"
 }

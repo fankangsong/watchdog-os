@@ -18,6 +18,7 @@
   src/assets/icons/files.svg      同上（无外框，参考 macOS 经典打开文件夹：橙黄 tab + 浅黄大圆角面板）
   src/assets/icons/editor.svg     同上（无外框，白纸文稿 + 右上折角 + 灰色占位文本行）
   src/assets/icons/watchdog.svg   同上（独立 8 齿钢灰齿轮 + 中心绿运行灯；登录页/手机首页复用）
+  src/assets/icons/ledger.svg     同上（独立金币：厚度 + 16 齿滚花 + ¥ 压印；Ledger 账本）
   src/assets/icons/fm-back.svg    16x16, viewBox="0 0 16 16"（窗口操作按钮带内嵌图标）
   src/assets/icons/fm-up.svg      同上
   src/assets/icons/fm-fav.svg     同上
@@ -28,6 +29,11 @@
   tools/preview/*.png             预览（非交付物，可删）
   tools/files-icon-redesign.html  Files 图标设计稿（新/旧网格对照，自包含，随脚本重生成）
   tools/icons-redesign.html       5 应用图标集设计稿（新/旧 32px + 16px 对照，同上）
+  tools/ledger-icon-design.html  Ledger 三案设计稿（金币 ¥ / 一叠币 / 方孔钱，32px + 16px 对照）
+  tools/preview/ledger-{stack,cash}.svg   Ledger 两个备选方案的可直接换用 SVG
+
+  单独重生成 Ledger（不动其它已验收图标）：
+      python tools/pixel-icon.py --ledger
 
 重设计记录（2026-11-09）：
   Files —— 旧版「平蓝板 + 两条孤立横纹 + 4 行白纸」在 16px 缩略下糊成带黑点的
@@ -95,6 +101,18 @@
        像瞳孔，而盒带的「横向长条 + 两个并排圆」才是不可混淆的剪影。
 
 
+
+  Ledger（2026-11-15）—— 用户「为 ledger 设计一个钱币的图标」。旧 ledger.svg 是单色
+     简笔账本 + 柱状图，与桌面彩色像素体系不同源，也没纳入本脚本；本轮一并补齐。
+     三案共用 _coin_face()（后层深铜厚度 + 16 齿滚花外缘 + 内凸缘 + K 外框 + 左上
+     metal 高光），差异只在中心：A 压印 8x10 的 ¥、C 挖 6x6 透明方孔；B 不共用它，
+     改成 4 个扁椭圆自下而上叠压的侧视币堆，走纯横向剪影。
+     ⚠️ 三个踩坑：① 像素圆顶点会留一颗 4 邻域无同伴的孤立 K，远看像币顶长了天线，
+     在 _coin_face 里统一清掉；② 一叠币最初用「矩形横条 + 每 3px 一道滚花」拼侧壁，
+     16px 读成砖墙 / 百叶窗，第二版换椭圆亮顶面又读成抽屉把手，第三版才改成扁椭圆
+     叠压，靠后一枚的整圈描边在前一枚内部压出下弯的弧形层界；③ 同心圆在 32px 上
+     天然像瞳孔（Disks 盘片已被否决过），所以中心一律不放圆点，改用 ¥ 横杠 / 方孔 /
+     横向层叠破形。A 已落地，B/C 的 SVG 留在 tools/preview/ 供换用。
 
 统一可读性约定：关键元素 ≥2px、对齐偶数坐标，保证 2×2 多数票降采样到 16px 后
 仍是清晰色块；1px 细节只允许作为 32px 专属（如旧的 watchdog 点状网格）。
@@ -171,6 +189,9 @@ PALETTE = {
     'J': '#ffc233',     # tab 橙黄基色（比 Y 更亮、更贴参考图）
     'V': '#ffeaa8',     # 前片顶部浅黄高光
     # 前片主体用 y (#f2d488)，底部渐变压回 Y / o，外框用 o（暖色，不用 K 硬黑边）
+    # --- Ledger（钱币：复用 Blog 铅笔那支琥珀 y/Y/o，补一深一浅两档做金属反光）---
+    'Q': '#8a6520',     # 深铜：币厚侧面 / 币缘齿纹 / 压印字（比 o 再压暗一档）
+    'j': '#fff2c0',     # 币面高光：左上反光点（比 y 更亮，只作 32px 专属细节）
     # --- 按钮内嵌图标（16 档工具栏字形，双色：N 深蓝描边 + b 蓝面）---
     'C': 'currentColor',  # 跟随宿主元素文字色（本组图标不用它，保留给将来的单色字形）
     # 本组取 'N' + 'b'（与对话气泡同一支蓝）：固定色，不随按钮文字变化。
@@ -1474,6 +1495,136 @@ def build_files():
     return g
 
 
+# ---------------------------------------------------------------- Ledger（钱币，32 档）
+# 账本应用的语义是「人民币 / 记账」，桌面上其它图标都不是圆形，一枚金币的剪影独一份。
+# 但 32px 上的同心圆极易读成「瞳孔」（build_disk 的盘片就是这么被否决的），所以三案
+# 一律避开「深色盘面 + 中心圆点」：A 用横跨币面的 ¥ 两道横杠、B 用横向层叠剪影、
+# C 用中央方孔，都靠非圆形的中心特征破掉瞳孔感。配色复用 Blog 铅笔那支琥珀 y/Y/o，
+# 只补 Q（深铜侧边 / 齿纹 / 压印）与 j（左上 metal 高光）两档，桌面暖色不跳。
+def _coin_face(g, cx, cy, r, hole=False):
+    """画一枚正面金币：后层深铜厚度 -> 前层币面 -> 齿纹外缘 -> 内凸缘 -> K 外框。
+
+    返回前层剪影，供调用方继续在币面中心压字 / 开孔。左侧受光 j/y、右下 o 暗部，
+    外缘 r-1.5 一圈按 16 等分做滚花齿纹（Q），是它在 16px 下仍读作「硬币」的关键。
+    """
+    # 后层：下移 2.5px 的深铜圆，只在底部露出一条弧 = 币厚
+    for y in range(H):
+        for x in range(W):
+            if math.hypot(x + 0.5 - cx, y + 0.5 - (cy + 2.5)) <= r:
+                g[y][x] = 'Q'
+
+    sil = [[False] * W for _ in range(H)]
+    for y in range(H):
+        for x in range(W):
+            if math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= r:
+                sil[y][x] = True
+
+    for y in range(H):
+        for x in range(W):
+            if not sil[y][x]:
+                continue
+            dx, dy = x + 0.5 - cx, y + 0.5 - cy
+            d, s = math.hypot(dx, dy), dx + dy
+            if d > r - 1.5:                       # 外缘 2px：暗铜 + 16 齿滚花
+                # 试过把齿改成亮 y：32px 上碎成一片闪点、16px 反而把描边衬得更跳，
+                # 已否决。暗齿与 o 环同色系，读作连续的滚花币缘，是最终版。
+                g[y][x] = 'Q' if abs(math.sin(math.atan2(dy, dx) * 8)) > 0.90 else 'o'
+            elif d > r - 2.6:                     # 内凸缘 1px：亮黄
+                g[y][x] = 'y'
+            elif s < -8:                          # 左上 metal 高光（刻意收窄，避免浅色桌面上过曝成缺角）
+                g[y][x] = 'j'
+            elif s < -4:
+                g[y][x] = 'y'
+            elif s > 4:                           # 右下背光
+                g[y][x] = 'o'
+            else:
+                g[y][x] = 'Y'
+    outline(g, sil, 'K')                          # 顺带把前 / 后层「切」开
+    # 像素圆的顶点只会落在一颗像素上，outline 会在它正上方留一颗四周无同伴的 K，
+    # 远看像币顶长了根小天线。把这种孤立描边点清掉（连续的环不受影响）。
+    for y in range(1, H - 1):
+        for x in range(1, W - 1):
+            if g[y][x] == 'K' and all(g[y + dy][x + dx] != 'K'
+                                      for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1))):
+                g[y][x] = '.'
+    return sil
+
+
+def build_ledger():
+    """Ledger（推荐 · 金币 ¥）：带厚度的正面金币，币面压印人民币符号。
+
+    中心 ¥ 用 8x10 像素网格手写（禁用 <text>/<font>，见 7.4），从偶数坐标 (12,10)
+    起，中心正好落在币心 (15.5, 14.5)。两道横杠是刻意加粗的：它们把中心从「圆点」
+    变成「字」，是避开瞳孔读感的第一道保险；16px 缩略后仍留有 2~3px 横向笔画。
+    """
+    g = blank()
+    _coin_face(g, 15.5, 14.5, 12.0)
+
+    yen = [
+        '##....##',
+        '.##..##.',
+        '..####..',
+        '...##...',
+        '...##...',
+        '.######.',
+        '...##...',
+        '.######.',
+        '...##...',
+        '...##...',
+    ]
+    blit(g, [row.replace('#', 'Q') for row in yen], 12, 10)
+    return g
+
+
+def build_ledger_stack():
+    """Ledger 备选 · 一叠侧视金币：4 个扁椭圆自下而上叠压。
+
+    不再用「矩形横条 + 滚花」拼侧壁 —— 前两版分别读成砖墙和抽屉把手。改成真实
+    硬币堆的画法：每枚币本身就是一个 rx=11.5 / ry=3.6 的扁椭圆，从最下一枚开始
+    逐枚向上画，后一枚的整圈 K 描边压在前一枚内部，自然形成下弯的弧形层界。
+    4 枚圆心 y=22.5/18/13.5/9，间距 4.5px，每枚露出约 4px，2x2 降采样后仍是
+    4 条完整弧带。语义偏「储蓄 / 账目累计」，与 A 的正面单币靠剪影区分。
+    """
+    g = blank()
+    for cy in (22.5, 18.0, 13.5, 9.0):          # 自下而上
+        sil = [[False] * W for _ in range(H)]
+        for y in range(H):
+            for x in range(W):
+                if ((x + 0.5 - 15.5) / 11.5) ** 2 + ((y + 0.5 - cy) / 3.6) ** 2 <= 1.0:
+                    sil[y][x] = True
+        # 不用 bevel：它会把「左缘」也刷成高光，叠压后在左侧留下一串孤立浅色点。
+        # 改成只按 y 做水平分层（顶 y / 中 Y / 底 o），层界靠 outline 的 K 弧线承担。
+        for y in range(H):
+            for x in range(W):
+                if sil[y][x]:
+                    dy = y + 0.5 - cy
+                    g[y][x] = 'y' if dy < -1.6 else ('o' if dy > 1.6 else 'Y')
+        outline(g, sil, 'K')
+    # 最上一枚的顶面压印（32px 专属细节，2x2 降采样会并回币面）
+    hline(g, 12, 9, 8, 'o')
+    return g
+
+
+def build_ledger_cash():
+    """Ledger 备选 · 方孔钱：外圆内方，中式古钱剪影。
+
+    中央 8x8 的方孔直接挖成透明（不是深色圆点），是三案里 16px 缩略最稳的一个：
+    圆 + 中央方洞的剪影不会与任何桌面图标混淆。孔沿按左上 y 高光 / 右下 Q 暗边
+    做冲压倒角，外圈沿用 _coin_face 的同一套齿纹与厚度，保证三案像同一套图标。
+    """
+    g = blank()
+    _coin_face(g, 15.5, 14.5, 12.0)
+
+    # 方孔：8x8 K 框 + 6x6 透明，中心 (15.5,15.5)
+    fill(g, 12, 12, 8, 8, 'K')
+    fill(g, 13, 13, 6, 6, '.')
+    hline(g, 12, 12, 8, 'y')                     # 孔上沿 / 左沿受光
+    vline(g, 12, 12, 8, 'y')
+    hline(g, 12, 19, 8, 'Q')                     # 孔下沿 / 右沿背光
+    vline(g, 19, 12, 8, 'Q')
+    return g
+
+
 # ---------------------------------------------------------------- 16 档：窗口操作按钮带内嵌图标
 # 规格见 docs/icon-pipeline.md §1.2：16x16 网格 1:1 渲染（.sp-tb-icon）。
 # 双色：'N'（#1b3d72 深蓝描边）+ 'b'（#4a86d8 蓝面）——沿用水泡图标的同一支蓝。
@@ -2105,6 +2256,141 @@ def write_icon_set_sheet(apps):
     return path, len(html)
 
 
+# ---------------------------------------------------------------- Ledger 设计稿
+# 与 skills/pixelart Mode 1 一致：字符串数组 + 语义调色板，CSS Grid 逐像素渲染，
+# 单文件零依赖。32px 8x / 16px 缩略 8x / 32px 原尺寸三档同源，都从落盘 SVG 的
+# 字符网格 dump，改图标后重跑 `--ledger` 即可刷新，不需要手改 HTML。
+LEDGER_SHEET_TMPL = r'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger · 钱币图标设计 · Pixel Art</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { min-height: 100vh; padding: 40px 24px 60px; background: #e9e9ee; color: #23232b;
+    font: 13px/1.7 ui-monospace, "SFMono-Regular", Consolas, "Microsoft YaHei", monospace; }
+  .sheet { max-width: 1020px; margin: 0 auto; }
+  header { border-bottom: 2px solid #23232b; padding-bottom: 14px; margin-bottom: 24px; }
+  h1 { font-size: 22px; letter-spacing: .04em; }
+  .sub { color: #6a6a78; margin-top: 4px; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: #fafafd; border: 1px solid #c3c3cf; padding: 16px; }
+  .card.pick { border: 2px solid #2a62b2; padding: 15px; }
+  h2 { font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .badge { background: #2a62b2; color: #fff; font-size: 10px; padding: 1px 7px; }
+  .desc { color: #6a6a78; font-size: 12px; margin-top: 6px; min-height: 76px; }
+  .stage-row { display: flex; gap: 14px; align-items: flex-end; margin-top: 12px; flex-wrap: wrap; }
+  .stage-box { text-align: center; }
+  .stage { display: grid; image-rendering: pixelated; border: 1px solid #c3c3cf;
+    background: #fff; background-image: conic-gradient(#c0c0ca 0 25%, #e2e2ea 0 50%, #c0c0ca 0 75%, #e2e2ea 0);
+    background-size: 16px 16px; }
+  .stage i { display: block; }
+  .cap { color: #6a6a78; font-size: 10px; margin-top: 5px; }
+  section.notes { margin-top: 26px; background: #fafafd; border: 1px solid #c3c3cf; padding: 18px 22px; }
+  section.notes h3 { font-size: 13px; margin-bottom: 8px; }
+  ol { padding-left: 20px; } li { margin-bottom: 6px; font-size: 12px; color: #50505e; }
+  .rules { margin-top: 14px; border-top: 1px dashed #c3c3cf; padding-top: 12px; font-size: 12px; color: #50505e; }
+  code { background: #e6e6ee; padding: 1px 5px; }
+  footer { margin-top: 18px; color: #6a6a78; font-size: 11px; }
+  @media (max-width: 860px) { .cards { grid-template-columns: 1fr; } .desc { min-height: 0; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <h1>Ledger · 钱币图标设计</h1>
+    <div class="sub">32×32 · string-array pixel art · Mac OS 9 / Platinum · 生成自 tools/pixel-icon.py --ledger</div>
+  </header>
+  <div class="cards">
+    <figure class="card pick" data-key="coin">
+      <h2>A · 金币 ¥ <span class="badge">已落地</span></h2>
+      <p class="desc">正面金币 + 底部 2px 深铜厚度，16 齿滚花外缘、内凸缘、左上 metal 高光；中心压印 8×10 像素「¥」。两道横杠把中心从圆点变成字，避开同心圆的瞳孔读感。</p>
+      <div class="stage-row">
+        <div class="stage-box"><div class="stage s32"></div><div class="cap">32px · 8× 放大</div></div>
+        <div class="stage-box"><div class="stage s16"></div><div class="cap">16px 缩略 · 8×</div></div>
+        <div class="stage-box"><div class="stage s1"></div><div class="cap">桌面原尺寸</div></div>
+      </div>
+    </figure>
+    <figure class="card" data-key="stack">
+      <h2>B · 一叠金币</h2>
+      <p class="desc">4 个扁椭圆自下而上叠压，后一枚的整圈描边压在前一枚内部，自然形成下弯的弧形层界。纯横向剪影，根本不会读成眼睛；语义偏「储蓄 / 账目累计」。</p>
+      <div class="stage-row">
+        <div class="stage-box"><div class="stage s32"></div><div class="cap">32px · 8× 放大</div></div>
+        <div class="stage-box"><div class="stage s16"></div><div class="cap">16px 缩略 · 8×</div></div>
+        <div class="stage-box"><div class="stage s1"></div><div class="cap">桌面原尺寸</div></div>
+      </div>
+    </figure>
+    <figure class="card" data-key="cash">
+      <h2>C · 方孔钱</h2>
+      <p class="desc">外圆内方，中央 6×6 直接挖成透明孔，孔沿做左上亮 / 右下暗的冲压倒角。中式古钱剪影独一份，16px 缩略最稳；外圈齿纹与厚度与 A 同源。</p>
+      <div class="stage-row">
+        <div class="stage-box"><div class="stage s32"></div><div class="cap">32px · 8× 放大</div></div>
+        <div class="stage-box"><div class="stage s16"></div><div class="cap">16px 缩略 · 8×</div></div>
+        <div class="stage-box"><div class="stage s1"></div><div class="cap">桌面原尺寸</div></div>
+      </div>
+    </figure>
+  </div>
+  <section class="notes">
+    <h3>设计约束与取舍</h3>
+    <ol>
+      <li><b>避开瞳孔</b>：32px 上的同心圆极易读成眼睛（Disks 的盘面就是这么被否决的）。三案分别用 ¥ 横杠 / 横向层叠 / 中央方孔破掉「深色盘面 + 中心圆点」。</li>
+      <li><b>配色不跳</b>：复用 Blog 铅笔、Converter 箭头那支琥珀 <code>y / Y / o</code>，只新增 <code>Q</code> #8a6520（深铜侧边 / 齿纹 / 压印）与 <code>j</code> #fff2c0（左上高光）两档。与 Files 的暖黄文件夹靠形状（圆 / 层叠 / 方孔）而非色相区分。</li>
+      <li><b>2px 栅格</b>：关键元素 ≥2px、起点对齐偶数坐标；¥ 从 (12,10) 起、方孔从 (12,12) 起，2×2 多数票降采样到 16px 后仍是清晰色块。齿纹、压印线是 32px 专属，缩略后并回币面。</li>
+      <li><b>光源左上</b>：高光在顶/左、暗边在底/右，不加投影；外框 1px <code>K</code> 同时把币面与厚度层「切」开，和 Chat 前气泡压后气泡同一手法。</li>
+    </ol>
+    <div class="rules">规范（docs/design-spec.md §7.4）：<code>viewBox 0 0 32 32</code>、仅 <code>&lt;path&gt;</code> 无 <code>&lt;text&gt;/&lt;font&gt;</code>、<code>shape-rendering="crispEdges"</code>、体积 &lt; 4 KB；import 必须带 <code>?no-inline</code>。</div>
+  </section>
+  <footer>换图标后老用户需清 <code>localStorage.classicyDesktopState</code> 才能看到新图标。备选方案 SVG 见 tools/preview/ledger-stack.svg 与 ledger-cash.svg。</footer>
+</div>
+<script>
+/*__ART__*/
+function render(el, art, scale) {
+  el.style.gridTemplateColumns = 'repeat(' + art.width + ', ' + scale + 'px)';
+  el.style.gridAutoRows = scale + 'px';
+  const frag = document.createDocumentFragment();
+  art.pixels.forEach(function (row) {
+    for (const ch of row) {
+      const px = document.createElement('i');
+      px.style.background = art.palette[ch] || 'transparent';
+      frag.appendChild(px);
+    }
+  });
+  el.appendChild(frag);
+}
+ART.forEach(function (a) {
+  const card = document.querySelector('[data-key="' + a.key + '"]');
+  render(card.querySelector('.s32'), a.p32, 8);
+  render(card.querySelector('.s16'), a.p16, 8);
+  render(card.querySelector('.s1'), a.p32, 1);
+});
+</script>
+</body>
+</html>
+'''
+
+
+def write_ledger_sheet(designs):
+    """三案对照设计稿（自包含 HTML，技能 Mode 1 输出格式）。"""
+    import json
+    palette = {k: v for k, v in PALETTE.items() if v and v != 'currentColor'}
+    out = []
+    for key, grid in designs:
+        rows = [''.join(r) for r in grid]
+        out.append({
+            'key': key,
+            'p32': {'width': W, 'height': H, 'palette': palette, 'pixels': rows},
+            'p16': {'width': 16, 'height': 16, 'palette': palette,
+                    'pixels': shrink_chars(rows)},
+        })
+    html = LEDGER_SHEET_TMPL.replace(
+        '/*__ART__*/', 'const ART = ' + json.dumps(out, ensure_ascii=False) + ';')
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ledger-icon-design.html')
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(html)
+    return path, len(html)
+
+
 # ---------------------------------------------------------------- 主流程
 def emit(g, name):
     print('=== %s ===' % name)
@@ -2144,6 +2430,27 @@ if __name__ == '__main__':
     os.makedirs(ICON_DIR, exist_ok=True)
     # 32 档：桌面/标题栏图标
     set_size(32)
+    # 只重生成 Ledger 及其三案设计稿，不动其它已验收图标（改设计稿时反复用）
+    if '--ledger' in sys.argv:
+        os.makedirs(PREVIEW_DIR, exist_ok=True)
+        designs = [('coin', build_ledger()),
+                   ('stack', build_ledger_stack()),
+                   ('cash', build_ledger_cash())]
+        emit(designs[0][1], 'ledger')
+        for key, grid in designs[1:]:
+            svg, _ = to_svg(grid, 'ledger-' + key)
+            variant = os.path.join(PREVIEW_DIR, 'ledger-%s.svg' % key)
+            with open(variant, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(svg)
+            print('variant svg: %d bytes -> %s' % (os.path.getsize(variant), variant))
+            preview(grid, 'ledger-' + key)
+        sheet, sheet_size = write_ledger_sheet(designs)
+        print('ledger design sheet: %d bytes -> %s\n' % (sheet_size, sheet))
+        seen, problems = lint_imports()
+        print('imports: %s（扫描 %d 处）' % ('FAIL' if problems else 'PASS', seen))
+        for p in problems:
+            print('  - ' + p)
+        sys.exit(1 if problems else 0)
     emit(build_terminal(), 'terminal')
     emit(build_chat(), 'chat')
     emit(build_docker(), 'docker')
@@ -2154,6 +2461,7 @@ if __name__ == '__main__':
     emit(build_converter(), 'converter')
     emit(build_editor(), 'editor')
     emit(build_watchdog(), 'watchdog')
+    emit(build_ledger(), 'ledger')
     files_new = build_files()
     emit(files_new, 'files')
     # 设计稿必须在 32 档下生成（shrink_chars / ART 的 width、height 读全局 W/H）

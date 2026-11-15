@@ -21,3 +21,6 @@ login.yaml
 .tmp-server.err
 .env.bak-blog
 .idea
+
+# bank-ledger：银行流水原始数据、数据库与报表含个人信息，禁止入库
+bank-ledger
