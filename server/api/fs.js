@@ -71,6 +71,18 @@ function fsResolve(raw) {
   return path.resolve(p);
 }
 
+/**
+ * 解析 JSON body 里的路径：与 fsResolve 相同的规范化，但**不做 URL 解码**。
+ * JSON body 是结构化数据，文件名里的 `%` 是字面量（`50% off.zip`）；
+ * 对它 decodeURIComponent 会解码成 `  off.zip`，孤立的 `%` 直接抛错导致 403。
+ */
+function fsResolveRaw(raw) {
+  if (raw == null) return null;
+  const p = String(raw).trim().replace(/\u0000/g, '');
+  if (!p) return null;
+  return path.resolve(p);
+}
+
 /** 校验绝对路径位于允许的根之内（Windows 根比较不区分大小写） */
 function fsAllowed(abs) {
   const norm = process.platform === 'win32' ? abs.toLowerCase() : abs;
@@ -196,6 +208,19 @@ async function fsReadText(abs) {
   const buf = await fsp.readFile(abs);
   if (buf.subarray(0, 8192).includes(0)) return { ...meta, binary: true };
   return { ...meta, content: buf.toString('utf8') };
+}
+
+/** 目标已存在时按 Finder 惯例追加编号：name 2 / name 3 …（后缀插在扩展名前，不覆盖既有文件）；超限返回 null。
+ *  与 fsFreeDest 的区别：浏览器下载/复制用 " copy"，解压出的文件夹用 " 2"（对齐 macOS 归档工具习惯）。 */
+async function fsFreeNumbered(dir, name) {
+  if (!(await fsp.stat(path.join(dir, name)).catch(() => null))) return path.join(dir, name);
+  const ext = path.extname(name);
+  const stem = ext ? name.slice(0, -ext.length) : name;
+  for (let i = 2; i <= 1000; i++) {
+    const dest = path.join(dir, `${stem} ${i}${ext}`);
+    if (!(await fsp.stat(dest).catch(() => null))) return dest;
+  }
+  return null;
 }
 
 /** 递归复制文件/目录（顺序执行，避免大目录一次性阻塞事件循环）。
@@ -464,4 +489,14 @@ async function fsRoute(req, res, p, url) {
 
 // fsResolve / fsAllowed 同时供打印接口使用：文件打印与文件浏览必须是同一套
 // 路径解析 + FS_ROOTS 白名单，避免在打印链路上出现第二条可绕过校验的路径。
-module.exports = { fsRoute, FS_ROOTS, fsResolve, fsAllowed };
+// 归档接口（archive.js）复用同一套校验与命名工具，不再复制第二份白名单逻辑。
+module.exports = {
+  fsRoute,
+  FS_ROOTS,
+  fsResolve,
+  fsResolveRaw,
+  fsAllowed,
+  fsIsRoot,
+  fsSafeName,
+  fsFreeNumbered,
+};

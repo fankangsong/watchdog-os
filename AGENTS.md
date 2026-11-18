@@ -22,6 +22,7 @@ npm run secret:rotate                 # 生成新 JWT_SECRET 并写回 .env（--
 node scripts/check-commit-env.mjs     # 提交前检查 .env 中的值 / 硬编码密钥（.githooks/pre-commit 自动调用）
 node test/test-fs-api.js            # 文件管理 API 冒烟测试（自起自停 server 子进程）
 node test/test-runner-api.js        # Runner API 冒烟测试（自起自停 server 子进程，无 bash 时跳过）
+node test/test-archive-api.js        # 压缩/解压 API 冒烟测试（NDJSON 进度流、Zip Slip、并发单槽、abort 清理、压缩↔解压往返）
 node test/test-audit-log-api.js      # 登录审计 API 冒烟测试（临时 LOGIN_LOG_DIR：埋点/脱敏/401 去重/统计/CSV/保留期清理）
 node test/test-chat-api.js          # Hermes 聊天代理 API 冒烟测试（自起 mock 上游）
 node test/test-chat-sessions-api.js # Hermes 会话 API 冒烟测试
@@ -94,6 +95,7 @@ node server/index.js
 | 登录审计 | `LOGIN_LOG_ENABLED` / `LOGIN_LOG_DIR` / `LOGIN_LOG_RETENTION_DAYS` / `LOGIN_LOG_MAX_ENTRIES` / `LOGIN_LOG_BRUTE_THRESHOLD` / `LOGIN_LOG_BRUTE_WINDOW_MIN` / `LOGIN_LOG_401_DEDUPE_SEC` | `true` / 空（= `~/.watchdog-os/login-log`）/ `30` / `20000` / `5` / `10` / `60` |
 | 草稿     | `DRAFT_DIR` / `DRAFT_MAX_ENTRIES`（收敛到 1~500）/ `DRAFT_RETENTION_DAYS`（收敛到 1~3650）                                      | 空（= `~/.watchdog-os/drafts`）/ `50` / `30`                                     |
 | 文件管理 | `FS_ROOTS`（`path.delimiter` 分隔；**与 `DISK_MOUNTS` 语义不同**：前者是文件管理器权限白名单，后者是监控采样目标）             | 按平台默认                                                                       |
+| 归档     | `ARCHIVE_TAR_PATH` / `ARCHIVE_UNZIP_PATH` / `ARCHIVE_ZIP_PATH`（留空 = 自动探测；非空 = 只用指定路径，不回落）                 | 空                                                                               |
 | 终端     | `TERMINAL_ENABLED` / `TTYD_PATH` / `TTYD_PORT` / `TTYD_ARGS`(JSON 数组) / `TTYD_CWD`（留空 = `~`）/ `TTYD_WSL`                     | `false` / `ttyd` / `7681` / `["bash"]` / 空 / `false`                           |
 | Runner   | `RUNNER_ENABLED` / `RUNNER_SCRIPT`（必配绝对路径）/ `RUNNER_SHELL` / `RUNNER_MAX_LOG_BYTES`                                    | `false` / `''` / `bash` / `5242880`                                              |
 | 打印机   | `PRINTER_ENABLED` / `PRINTER_INTERVAL` / `PRINTER_HISTORY_LIMIT`                                                               | `true` / `10000` / `200`                                                         |
@@ -145,7 +147,7 @@ config.js # 配置加载（.env，唯一来源）+ basePath 规范化
 router.js # API 路由分发与 WS 升级处理
 static.js # 静态资源服务（只服务 dist/：serveIndex 返回 SPA 入口，dist 缺失时 503 提示构建）
 lib/ # http.js 基础工具 / auth.js JWT 鉴权 / userdata.js 用户数据文件（~/.watchdog-os/data.json）读写 / drafts.js 草稿文件存储（~/.watchdog-os/drafts）
-api/ # metrics / printer / terminal / runner / chat / fs / drafts（编辑器草稿缓存）/ audit（登录审计：JSONL 落盘 + 统计 + CSV）
+api/ # metrics / printer / terminal / runner / chat / fs / archive（压缩/解压）/ drafts（编辑器草稿缓存）/ audit（登录审计：JSONL 落盘 + 统计 + CSV）
 src/ # React 前端源码
 apps/ # 桌面应用窗口：MonitorApp（监控）、DockerApp（容器）、ImcolinApp、TerminalApp（终端）、FinderApp（Files，文件管理器）、EditorApp（文本编辑器）、RunnerApp（脚本任务构建）、PrinterApp（打印机）、ChatApp（聊天）、ConverterApp（HEIC 转 JPEG）、AuditApp（登录审计日志）
 components/ # 展示组件：Gauge、HistoryChart、DockerTable、CodeEditor（CodeMirror 6 封装）、MarkdownPreview、各信息面板、AuditPanels / AuditTrendChart（审计表格与趋势图）
@@ -216,9 +218,17 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - 后端 `server/api/fs.js` 的 `/api/fs/*` 全部零依赖实现且统一走 `checkAuth`：`list`（列目录，不传 path 返回允许根列表）、`read`（文本读取，2MB 上限 + NUL 字节二进制嗅探）、`raw`（原始流：仅图片内联供 `<img>` 预览，其余一律 `attachment` 下载防内联 XSS）、`write`（PUT 文本保存；`?create=1` 为新建语义，已存在返回 409）、`upload`（POST raw body 流式上传，50MB 上限，`?overwrite=1` 覆盖）、`mkdir` / `delete`（递归）/ `rename`、`copy`（POST `{ path, dir }` 递归复制文件/目录：同名**不覆盖**，按 Finder 惯例自动追加 ` copy` / ` copy 2` 后缀——扩展名前插入；目标目录位于源目录内部（含自身）时 400 防递归；根目录禁止复制；符号链接按链接本身复制，Windows 无权限时回退复制目标内容；失败清理半截副本）、`favorites`（GET/PUT，持久化到用户目录 `~/.watchdog-os/data.json`——与项目目录解耦，同步脚本/重部署不丢收藏；经 `server/lib/userdata.js` 合并写：保留文件内其它键，临时文件 + rename 原子写）
 - 安全约定：所有路径经 `path.resolve` 规范化并校验在允许根内（`FS_ROOTS` 环境变量可覆盖，默认 Windows 为项目盘符 + C 盘、POSIX 为 `/`）；根目录禁止删除/重命名/复制；文件名清洗只取 basename
 - ⚠️ **Windows ReFS/Dev Drive 坑**：刚写入文件的 `stat.size` 可能是预分配值（元数据延迟），`raw` 接口因此**不设 Content-Length**（chunked 读到 EOF）；`list` 的大小列在 Dev Drive 上刚写入时也可能短暂虚高，生产 Linux 无此问题
+- **压缩 / 解压**（`server/api/archive.js` + `src/components/ArchiveDialog.tsx`）：右键菜单与 File 菜单的 `Extract…`（单个 `.zip` / `.tar.gz` / `.tgz`）与 `Compress…`（任意选中条目，格式 zip / tar.gz）
+  - **协议：单请求 NDJSON 流**（`POST /api/fs/archive/extract|compress`，`Content-Type: application/x-ndjson`）。前端 `fsExtract` / `fsCompress` 返回 `{ promise, abort }`（与 `fsUpload` 同形），`await` 到 `done` 帧即完成，进度由 `progress` 帧实时回调——**没有 job id、没有轮询、没有 `/job` 接口**。取消 = `AbortController.abort()`，服务端 `res.on('close')` 杀进程并清理 `.wdpart-*`
+  - **工具能力按探测分派，不按 OS 硬编码**：Windows 必须用 `%SystemRoot%\System32\tar.exe`（bsdtar，zip/tar.gz 通吃）；PATH 上的 `tar` 常是 Git 的 **GNU tar（不支持 zip）**，所以先跑 `--version` 判 `bsdtar`/`libarchive` 再决定；macOS 的 `/usr/bin/tar` 就是 bsdtar；Linux 用 tar + unzip / zip，busybox 的 `unzip` 不支持 `-Z1`，列表走「`-Z1` → `unzip -l` 解析 → total 未知」三级降级。能力不足时菜单项置灰，`GET /api/fs/archive/caps` 的 `hint` 给出对应安装命令
+  - **进度**：先列条目拿 `total`，再按工具 verbose 输出逐行计数（`processed` 封顶 `total`，`percent` 封顶 99，完成才 100）。stdout 与 stderr **都**喂计数器（busybox tar 的 `-v` 走 stderr），取两者 max 而非求和，避免两路重复输出时翻倍
+  - **安全**：解压前做 Zip Slip 校验——`\` → `/` 归一后拒绝绝对路径 / 盘符 / 任一段 `..` / NUL / 超长名字，命中即**整包拒绝**（不跳过单条）；路径复用 `FS_ROOTS` 白名单，JSON body 走 `fsResolveRaw`（**不做 URL 解码**，`50% off.zip` 里的 `%` 是字面量）
+  - **落盘语义**：默认解到同目录同名子文件夹（` 2` / ` 3` 去重），先解到 `.wdpart-<jobId>` 再 `rename`，用户看不到半成品；自动目标在归档只有一个顶层目录时上提一层（避免 `sample/sample/`），显式目标保留归档原始结构。压缩重名自动 ` 2.zip`，绝不覆盖
+  - **错误通道**：格式、越权、Zip Slip、缺工具、目标非空、并发单槽等**前置**失败返回普通 JSON 4xx/5xx（`{ code, error, hint?, detail?, dest? }`）；只有真正开始执行后才写流，执行期错误走 `{"t":"error"}` 帧。前端因此能区分「确认覆盖」与「执行失败」
+  - ⚠️ 并发为单槽（第二个请求 409 `BUSY`）；反代需 `X-Accel-Buffering: no`（已下发）+ 2s 心跳，否则进度会攒到最后一次性出现；zip 内非 UTF-8 文件名在 Linux 下可能乱码（依赖发行版 unzip 是否支持 `-O`，不做自动转码）；页面刷新/断网会丢失进行中的任务（单请求模型固有代价，服务端会杀进程并清 staging）
 - 前端 `FinderApp`：默认图标视图（大图标 + 下方名称）/ 列表视图（ClassicyTable 多选：名称/大小/修改时间/权限，目录行内联展开），View 菜单切换并持久化。文件操作三路等价——**菜单栏**、**右键菜单**、**快捷键**：
   - **Edit 菜单自建并内联实现**（操作对象是文件选择而非文本框，不用 `useClassicyEditMenu`）：Cut ⌘X / Copy ⌘C / Paste ⌘V / Select All ⌘A / Delete… ⌘⌫（Delete 键同效），置灰规则按选中态/剪贴板/当前目录
-  - 右键菜单：条目菜单（Open / Open with Editor / Download / Cut / Copy / Get Info… / Rename… / Delete…）绑定到**菜单作用对象**（右键时即时改选后的条目组）；空白处菜单（New Folder… / New Text File… / Upload File… / Paste / Refresh / Open Parent Folder）
+  - 右键菜单：条目菜单（Open / Open with Editor / Download / Print… / Extract… / Compress… / Cut / Copy / Get Info… / Rename… / Delete…）绑定到**菜单作用对象**（右键时即时改选后的条目组）；空白处菜单（New Folder… / New Text File… / Upload File… / Paste / Refresh / Open Parent Folder）
   - 剪贴板为应用内 state（条目快照 + copy/cut 模式）：Paste 走 `/api/fs/copy` 服务端递归复制；**Cut = 先复制后删源**（复制失败不删源），粘贴后清空剪贴板；同名由服务端自动追加 ` copy` 后缀，无破坏性覆盖；剪切条目置灰（`sp-fm-icon-cut` / `sp-fm-row-cut`）直至粘贴或重新剪切
   - 快捷键经 window keydown 真实绑定（classicy 的 `keyboardShortcut` 仅作展示）：焦点在输入框/编辑器时放行，不劫持对话框内打字
   - 图标视图**拖拽框选**（rubber band，`handleIconsMouseDown`）：画布任意位置左键拖动超过 4px 即框选与矩形相交（含边缘相触）的条目；修饰键语义与单击一致——plain 整体替换、⇧ 在按下时的选中上**追加**、⌘/Ctrl 以按下时的选中为基座**取反**；Esc 取消并还原，窗口失焦收尾（保留结果）；选框 `.sp-fm-band` 绝对定位于画布内容坐标（含滚动偏移），命中测试取条目 `data-fm-item` 的客户区矩形，每帧结果与上次相同则跳过 setState；拖拽结束后尾随的那次画布 click 由 `bandDidDragRef` 吞掉，避免清空刚框出的选中（list 视图多选走 ClassicyTable 自身，无框选）。⚠️ 修饰键分支曾把 ⇧ 误实现为取反（与 ⌘ 同分支），表现是 shift 加选反而只留框选交集——用真实浏览器（Playwright 合成鼠标事件 + 页面侧 capture 埋点）定位
@@ -389,6 +399,7 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 
 - 前端：`npm run build` 确认无 TS / 构建错误（可用 `npx tsc --noEmit` 做全量类型检查）。
 - 后端：`npm start` 后用密码登录，确认指标接口正常返回（未配 `PASSWORD` / `JWT_SECRET` 时进程应拒绝启动并打印 `[fatal]`）。
+- 压缩 / 解压 API：`node test/test-archive-api.js` 全部 PASS（66 项：鉴权/能力探测与 503 降级/NDJSON 帧合法与百分比单调/默认同名子目录与 ` 2` 去重/顶层目录上提/tar.gz/空归档/目标非空 409 与 overwrite/Zip Slip 四种形态/并发 409 BUSY/abort 取消后无 `.wdpart-*` 残留且槽已释放/压缩↔解压往返内容一致/非法 body；工具缺失的用例打印 SKIP 属正常）
 - 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏（含 `~/.watchdog-os/data.json` 落盘位置断言）/越权防护等 30 项）。
 - PWA：`node test/test-pwa.js` 全部 PASS（自起 server，`BASE_PATH=/tkp`，覆盖 manifest 字段/相对 scope/SW 占位符替换/图标尺寸/缓存头/穿越防护；未先 `npm run build` 时 SKIP）
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。

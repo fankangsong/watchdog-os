@@ -654,6 +654,40 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 /* 上传取消按钮：小号命令按钮，收紧内边距与最小宽度，与进度行协调 */
 .sp-fm-upload-row .classicyButton { min-width: 0; padding: 0 6px; line-height: 1.4; }
 
+/* ---------- 压缩 / 解压对话框（ArchiveDialog）---------- */
+.sp-arch { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; }
+.sp-arch-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sp-arch-icon { width: 32px; height: 32px; flex: 0 0 auto; image-rendering: pixelated; }
+.sp-arch-head-text { min-width: 0; }
+.sp-arch-title { font-size: 13px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-arch-meta { font-size: 11px; color: var(--color-system-05); margin-top: 2px; }
+.sp-arch-note { font-size: 11px; line-height: 1.45; color: var(--color-system-05); margin: 0; }
+.sp-arch-note code, .sp-arch-hint { font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; }
+.sp-arch-warn { color: var(--color-alert); }
+/* 缺工具提示块：浅黄底 + 深色等宽安装命令，与对话框同为 1px 蚀刻边框语言 */
+.sp-arch-error { border: 1px solid rgba(0, 0, 0, 0.3); background: #fffbe6; padding: 8px 10px; font-size: 11px; line-height: 1.5; }
+.sp-arch-error div { margin-bottom: 4px; }
+.sp-arch-hint { display: block; white-space: pre-wrap; word-break: break-word; background: rgba(0, 0, 0, 0.05); padding: 4px 6px; }
+.sp-arch-phase { font-size: 12px; font-weight: bold; }
+.sp-arch-progress { display: flex; flex-direction: column; gap: 8px; }
+.sp-arch-progress-row { display: flex; align-items: center; gap: 8px; }
+.sp-arch-bar { flex: 1 1 auto; min-width: 0; }
+.sp-arch-pct { flex: 0 0 auto; width: 38px; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
+/* 当前条目：单行省略，长路径不撑破对话框 */
+.sp-arch-current { font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; color: var(--color-system-05); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 14px; }
+.sp-arch-count { font-size: 11px; color: var(--color-system-05); }
+.sp-arch-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.sp-arch-done { display: flex; flex-direction: column; gap: 8px; }
+.sp-arch-path { font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; background: var(--color-white); border: 1px solid rgba(0, 0, 0, 0.3); padding: 5px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 失败详情（工具 stderr 尾部）：限高滚动，避免长日志把对话框撑出屏幕 */
+.sp-arch-detail { margin: 0; max-height: 120px; overflow: auto; font-family: 'Menlo', 'Consolas', monospace; font-size: 10px; line-height: 1.45; background: rgba(0, 0, 0, 0.05); border: 1px solid rgba(0, 0, 0, 0.2); padding: 6px; white-space: pre-wrap; word-break: break-word; }
+.sp-arch-error-view { display: flex; flex-direction: column; gap: 8px; }
+.sp-arch-error-text { font-size: 12px; }
+
+/* 窄屏：对话框内边距收紧，长路径换行显示（不横向撑破窗口） */
+html[data-wd-layout="mobile"] .sp-arch { padding: 8px 10px 10px; gap: 8px; }
+html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: break-all; }
+
 /* 预览窗口（工具栏已移除，编辑/下载/视图切换迁入窗口菜单栏）。
    align-items:center 让缩放条按内容宽度居中（左右留边），因此内容区必须 align-self:stretch，
    否则它也会跟着缩成内容宽（图片预览区会塌成 34px）；

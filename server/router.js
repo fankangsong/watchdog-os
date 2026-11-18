@@ -20,6 +20,7 @@ const blog = require('./api/blog');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { getDeepseekUsage, getBigmodelUsage } = require('./api/usage');
 const { fsRoute } = require('./api/fs');
+const archive = require('./api/archive');
 const { prefsRoute } = require('./api/prefs');
 const { draftsRoute } = require('./api/drafts');
 const audit = require('./api/audit');
@@ -230,6 +231,15 @@ async function route(req, res, url) {
     }
     if (p === '/api/terminal/token') return terminal.proxyTerminalToken(req, res);
     return send(res, 404, { error: 'not found' });
+  }
+
+  /* ---- 归档 API（解压 / 压缩，单请求 NDJSON 进度流）----
+     必须排在下面的 /api/fs/ 之前：后者是前缀匹配，会把 /api/fs/archive/* 一并吃掉。 */
+  if (p.startsWith('/api/fs/archive/')) {
+    if (!checkAuth(req)) {
+      return unauthorized(req, res);
+    }
+    return archive.archiveRoute(req, res, p, url);
   }
 
   /* ---- 文件管理 API（零依赖 fs 操作，统一 JWT 鉴权）---- */

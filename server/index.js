@@ -32,6 +32,7 @@ const runner = require('./api/runner');
 const blog = require('./api/blog');
 const audit = require('./api/audit');
 const drafts = require('./api/drafts');
+const archive = require('./api/archive');
 const { route, handleUpgrade } = require('./router');
 
 const server = http.createServer(async (req, res) => {
@@ -113,7 +114,7 @@ function onAsyncCrash(origin, err) {
 process.on('uncaughtException', (e) => onAsyncCrash('uncaughtException', e));
 process.on('unhandledRejection', (e) => onAsyncCrash('unhandledRejection', e));
 
-/** 退出前清理 ttyd / runner 子进程（systemd stop / Ctrl-C） */
+/** 退出前清理 ttyd / runner / 归档子进程（systemd stop / Ctrl-C） */
 let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
@@ -121,6 +122,7 @@ function shutdown() {
   terminal.stopTerminal();
   if (runner.stopRunnerJob()) { /* 任务已 SIGTERM */ }
   if (blog.stopJob()) { /* 构建已 SIGTERM */ }
+  if (archive.stopArchiveJob()) { /* 归档任务已终止 */ }
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
@@ -129,6 +131,8 @@ process.on('exit', () => {
   terminal.cleanupSync();
   try { runner.stopRunnerJob(); } catch { /* 已退出忽略 */ }
   try { blog.stopJob(); } catch { /* 已退出忽略 */ }
+  // 归档：同步杀子进程 + 清理 .wdpart-* 半成品（异步来不及）
+  try { archive.cleanupSync(); } catch { /* 已退出忽略 */ }
   // 审计日志：把 401 去重窗口里未落盘的计数同步写出（异步队列此时已来不及）
   try { audit.flushPending(true); } catch { /* 落盘失败不影响退出 */ }
 });

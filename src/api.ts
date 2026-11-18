@@ -381,6 +381,205 @@ export function fsUpload(
   return { promise, abort: () => xhr.abort() };
 }
 
+/* ---------- 归档（压缩 / 解压，单请求 NDJSON 进度流）---------- */
+
+export type ArchiveFormat = 'zip' | 'tar.gz';
+
+/** 单个动作的工具能力；ok=false 时 hint 给出安装命令 */
+export interface ArchiveCapability {
+  ok: boolean;
+  /** 实际使用的工具：bsdtar / gnutar / unzip / zip */
+  via: string | null;
+  hint: string | null;
+}
+
+/** /api/fs/archive/caps：服务端探测到的归档工具（能力按探测结果分派，不按 OS 硬编码） */
+export interface ArchiveCaps {
+  platform: string;
+  tools: {
+    tar: { path: string; kind: string; version: string } | null;
+    unzip: { path: string } | null;
+    zip: { path: string } | null;
+    gzip: { path: string } | null;
+  };
+  can: {
+    extractZip: ArchiveCapability;
+    extractTarGz: ArchiveCapability;
+    compressZip: ArchiveCapability;
+    compressTarGz: ArchiveCapability;
+  };
+  checkedAt: number;
+}
+
+export type ArchivePhase = 'listing' | 'running' | 'finalizing';
+
+/** 流式进度帧；total=null 表示条目数未知（进度条走不确定态） */
+export interface ArchiveProgress {
+  phase: ArchivePhase;
+  processed: number;
+  total: number | null;
+  percent: number;
+  current: string;
+}
+
+export interface ArchiveResult {
+  dest: string;
+  items: number;
+  bytes?: number;
+  createdDest?: boolean;
+  warnings?: string[];
+}
+
+interface ArchiveErrorBody {
+  error?: string;
+  code?: string;
+  hint?: string | null;
+  detail?: string | null;
+  dest?: string;
+}
+
+/**
+ * 归档接口错误：保留服务端的 code / hint / detail。
+ * 与 request() 只抛 `HTTP xxx` 不同——缺工具时的安装命令、目标非空时的 dest
+ * 都是界面必须展示的信息，不能被吞掉。
+ */
+export class ArchiveError extends Error {
+  code: string;
+  hint: string | null;
+  detail: string | null;
+  dest?: string;
+
+  constructor(message: string, code: string, hint: string | null = null, detail: string | null = null, dest?: string) {
+    super(message);
+    this.name = 'ArchiveError';
+    this.code = code;
+    this.hint = hint;
+    this.detail = detail;
+    this.dest = dest;
+  }
+}
+
+function archiveErrorFrom(data: ArchiveErrorBody | null, status: number): ArchiveError {
+  return new ArchiveError(
+    data?.error || `HTTP ${status}`,
+    data?.code || `HTTP_${status}`,
+    data?.hint ?? null,
+    data?.detail ?? null,
+    data?.dest
+  );
+}
+
+export async function fetchArchiveCaps(refresh = false): Promise<ArchiveCaps> {
+  const r = await fetch(`./api/fs/archive/caps${refresh ? '?refresh=1' : ''}`);
+  if (r.status === 401) throw unauthorized();
+  if (!r.ok) throw archiveErrorFrom(await r.json().catch(() => null), r.status);
+  return r.json() as Promise<ArchiveCaps>;
+}
+
+/**
+ * 一次请求跑完解压/压缩：响应是 NDJSON 流，`done` 帧到达时 resolve。
+ * 调用方 `await promise` 即「同步等待结果」，进度由 onProgress 实时回调（无轮询、无 job id）。
+ * abort() 会断开连接，服务端据此杀子进程并清理半成品。
+ */
+function archiveStream(
+  url: string,
+  payload: Record<string, unknown>,
+  onProgress?: (p: ArchiveProgress) => void
+): { promise: Promise<ArchiveResult>; abort: () => void } {
+  const ac = new AbortController();
+  const promise = (async (): Promise<ArchiveResult> => {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: ac.signal,
+    });
+    if (r.status === 401) throw unauthorized();
+    if (!r.ok) throw archiveErrorFrom(await r.json().catch(() => null), r.status);
+    if (!r.body) throw new ArchiveError('Response does not contain a data stream', 'NO_STREAM');
+
+    const out: { result: ArchiveResult | null; error: ArchiveError | null } = { result: null, error: null };
+
+    const handleLine = (line: string) => {
+      const s = line.trim();
+      if (!s) return;
+      let evt: Record<string, unknown>;
+      try {
+        evt = JSON.parse(s) as Record<string, unknown>;
+      } catch {
+        return; // 半行/非 JSON 容错忽略
+      }
+      if (evt.t === 'progress') {
+        onProgress?.({
+          phase: (evt.phase as ArchivePhase) || 'running',
+          processed: typeof evt.processed === 'number' ? evt.processed : 0,
+          total: typeof evt.total === 'number' ? evt.total : null,
+          percent: typeof evt.percent === 'number' ? evt.percent : 0,
+          current: typeof evt.current === 'string' ? evt.current : '',
+        });
+      } else if (evt.t === 'done') {
+        out.result = {
+          dest: typeof evt.dest === 'string' ? evt.dest : '',
+          items: typeof evt.items === 'number' ? evt.items : 0,
+          bytes: typeof evt.bytes === 'number' ? evt.bytes : undefined,
+          createdDest: evt.createdDest === true,
+          warnings: Array.isArray(evt.warnings) ? evt.warnings.map(String) : [],
+        };
+      } else if (evt.t === 'error') {
+        out.error = new ArchiveError(
+          typeof evt.error === 'string' ? evt.error : 'Archive task failed',
+          typeof evt.code === 'string' ? evt.code : 'TOOL_FAILED',
+          typeof evt.hint === 'string' ? evt.hint : null,
+          typeof evt.detail === 'string' ? evt.detail : null
+        );
+      }
+    };
+
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        handleLine(buf.slice(0, nl).replace(/\r$/, ''));
+        buf = buf.slice(nl + 1);
+      }
+    }
+    buf += dec.decode();
+    if (buf) handleLine(buf.replace(/\r$/, ''));
+    if (out.error) throw out.error;
+    if (!out.result) {
+      throw new ArchiveError('Connection closed before the task finished — check the destination folder.', 'UNEXPECTED_END');
+    }
+    return out.result;
+  })();
+  return { promise, abort: () => ac.abort() };
+}
+
+/** 解压归档；dest 为空串表示由服务端按「同名子文件夹 + 自动编号」推导 */
+export function fsExtract(
+  path: string,
+  dest: string,
+  overwrite = false,
+  onProgress?: (p: ArchiveProgress) => void
+): { promise: Promise<ArchiveResult>; abort: () => void } {
+  return archiveStream('./api/fs/archive/extract', { path, dest, overwrite }, onProgress);
+}
+
+/** 压缩选中的文件/目录；重名由服务端自动追加 " 2"，绝不覆盖 */
+export function fsCompress(
+  paths: string[],
+  format: ArchiveFormat,
+  dest: string,
+  name: string,
+  onProgress?: (p: ArchiveProgress) => void
+): { promise: Promise<ArchiveResult>; abort: () => void } {
+  return archiveStream('./api/fs/archive/compress', { paths, format, dest, name }, onProgress);
+}
+
 /* ---------- Runner（脚本任务触发，如 running_page build.sh）---------- */
 
 /** /api/runner/status 返回的 job：运行中 exitCode/finishedAt 为 null */

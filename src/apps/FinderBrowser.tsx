@@ -40,6 +40,7 @@ import {
 import type { ClassicyMenuItem, ClassicyTableColumn } from 'classicy';
 import { useViewport } from '../responsive';
 import {
+  fetchArchiveCaps,
   fsCopy,
   fsDelete,
   fsList,
@@ -51,7 +52,7 @@ import {
   fsWrite,
   Unauthorized,
 } from '../api';
-import type { FsEntry } from '../api';
+import type { ArchiveCaps, ArchiveFormat, ArchiveResult, FsEntry } from '../api';
 import { addFavorites, isFavorite, removeFavorites, useFavorites } from '../favoritesStore';
 import { setShowFavoritesSidebar, useFinderPrefs } from '../finderPrefs';
 import { fmtBytes } from '../format';
@@ -68,6 +69,7 @@ import { CodeEditor } from '../components/CodeEditor';
 import { MarkdownPreview } from '../components/MarkdownPreview';
 import { DocxPreview } from '../components/DocxPreview';
 import { PrintDialog } from '../components/PrintDialog';
+import { ArchiveDialog, archiveFormatOf } from '../components/ArchiveDialog';
 // 窗口操作按钮带内嵌图标（16x16 工具栏档，见 docs/icon-pipeline.md §1.2）：
 // 单色 currentColor 跟随按钮文字色，启用/禁用/按下三态自动一致
 import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
@@ -263,6 +265,12 @@ function winIdFor(p: string): string {
   return 'fm-preview-' + safeId(p);
 }
 
+/** 卷根（Windows 盘符 / 根斜杠）：根目录压缩必然被服务端拒绝，菜单据此置灰 */
+function isVolumeRoot(p: string): boolean {
+  if (!p) return false;
+  return p === '/' || /^[A-Za-z]:[\\/]?$/.test(p);
+}
+
 /** 上一级目录；根目录返回 ''（根列表视图） */
 function parentPath(p: string): string {
   const norm = p.replace(/[\\/]+$/, '');
@@ -361,6 +369,12 @@ export function FinderBrowser({
   const [infoEntry, setInfoEntry] = useState<FsEntry | null>(null);
   // Print… 对话框：单选中的文件（null = 关闭）；同一时刻只开一个
   const [printEntry, setPrintEntry] = useState<FsEntry | null>(null);
+  // 归档对话框（解压单个归档 / 压缩选中条目）：null = 关闭
+  const [archiveTask, setArchiveTask] = useState<
+    { mode: 'extract'; entry: FsEntry } | { mode: 'compress'; entries: FsEntry[] } | null
+  >(null);
+  // 服务端归档工具能力：仅用于菜单置灰与对话框提示；null = 未探测到（乐观放行，由服务端 503 兜底）
+  const [archiveCaps, setArchiveCaps] = useState<ArchiveCaps | null>(null);
   // Get Info 路径行点击复制反馈（短暂显示 Copied ✓）
   const [infoCopied, setInfoCopied] = useState(false);
   // 地址栏：显示当前目录路径，回车快速跳转（Windows/Linux 路径原样交给后端 resolve 校验）
@@ -459,6 +473,24 @@ export function FinderBrowser({
   useEffect(() => {
     void fetchDir(initialPath);
   }, [fetchDir, initialPath]);
+
+  // 归档工具能力探测：每次挂载拉一次（服务端缓存 5 分钟）。失败静默——菜单保持乐观可用，
+  // 真缺工具时由 POST 返回 503 + 安装提示兜底，不因为一次探测失败就禁用功能。
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const c = await fetchArchiveCaps();
+        if (alive) setArchiveCaps(c);
+      } catch (e) {
+        if (!alive) return;
+        if (e instanceof Unauthorized) handleLogout();
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [handleLogout]);
 
   // 主窗口注册导航桥（收藏夹窗口覆盖打开用）；仅主窗口注册，次窗口不参与
   useEffect(() => {
@@ -996,6 +1028,58 @@ export function FinderBrowser({
     }
   }, [current, stopAlert]);
 
+  // ---- 归档（解压 / 压缩）：能力判定与对话框入口 ----
+
+  /**
+   * 单个文件的解压能力。仅 .zip / .tar.gz / .tgz 返回结果（其余返回 null → 菜单不出该项）。
+   * caps 尚未到达时按可用处理（ok=true），点击后由服务端给出 503 + 安装提示。
+   */
+  const extractCapFor = useCallback(
+    (name: string): { format: ArchiveFormat; ok: boolean; hint: string } | null => {
+      const format = archiveFormatOf(name);
+      if (!format) return null;
+      const cap = format === 'zip' ? archiveCaps?.can.extractZip : archiveCaps?.can.extractTarGz;
+      return {
+        format,
+        ok: !cap || cap.ok,
+        hint: cap && !cap.ok ? cap.hint || 'No archive tool is available on the server.' : '',
+      };
+    },
+    [archiveCaps]
+  );
+
+  /** 压缩能力提示：两种格式都不可用时返回安装提示（空串 = 至少一种可用） */
+  const compressBlockedHint = useMemo(() => {
+    if (!archiveCaps) return '';
+    if (archiveCaps.can.compressZip.ok || archiveCaps.can.compressTarGz.ok) return '';
+    return (
+      archiveCaps.can.compressZip.hint ||
+      archiveCaps.can.compressTarGz.hint ||
+      'No archive tool is available on the server.'
+    );
+  }, [archiveCaps]);
+
+  /** 归档成功：目标路径与其父目录的缓存都失效（可能是新建目录或新文件） */
+  const handleArchiveDone = useCallback(
+    (r: ArchiveResult) => {
+      childrenCache.current.delete(r.dest);
+      childrenCache.current.delete(parentPath(r.dest));
+      setTreeVersion((v) => v + 1);
+      void fetchDir(current);
+    },
+    [current, fetchDir]
+  );
+
+  /** 「Show in Files」：导航到解压出的目录 */
+  const revealArchiveResult = useCallback(
+    (path: string) => {
+      childrenCache.current.delete(parentPath(path));
+      setTreeVersion((v) => v + 1);
+      navigate(path);
+    },
+    [navigate]
+  );
+
   // ---- 右键菜单构建（图标视图事件时调用；表格视图经 ContextualMenuTarget 复用） ----
 
   /** 选中条目菜单：list 即菜单作用对象（单选为该条目，多选为整组选中） */
@@ -1015,6 +1099,28 @@ export function FinderBrowser({
       if (list.length === 1 && first.type === 'file') {
         items.push({ id: 'fm-cm-print', title: 'Print…', onClickFunc: () => setPrintEntry(first) });
       }
+      // 归档：单个归档文件 → Extract…；任意选中项 → Compress…（缺工具时置灰并给安装提示）
+      if (list.length === 1 && first.type === 'file') {
+        const ex = extractCapFor(first.name);
+        if (ex) {
+          items.push({
+            id: 'fm-cm-extract',
+            title: 'Extract…',
+            disabled: !ex.ok,
+            balloon: ex.ok ? undefined : { content: ex.hint },
+            onClickFunc: () => setArchiveTask({ mode: 'extract', entry: first }),
+          });
+        }
+      }
+      // 卷根（盘符 / 根斜杠）不可压缩：整组都是根时置灰，混选仍可压缩非根条目
+      const rootsOnly = list.length > 0 && list.every((e) => e.type === 'dir' && isVolumeRoot(e.path));
+      items.push({
+        id: 'fm-cm-compress',
+        title: `Compress${list.length > 1 ? ` ${list.length} Items` : ''}…`,
+        disabled: !!compressBlockedHint || rootsOnly,
+        balloon: compressBlockedHint ? { content: compressBlockedHint } : undefined,
+        onClickFunc: () => setArchiveTask({ mode: 'compress', entries: list }),
+      });
       items.push(
         { id: 'spacer' },
         // 剪切/复制绑定到菜单作用对象 list（而非渲染时的选中态），保证与点击目标一致
@@ -1047,7 +1153,7 @@ export function FinderBrowser({
       );
       return items;
     },
-    [openEntry, downloadEntries, requestDelete, openRenameDialog, setClipboardFor, toggleFavoritesFor]
+    [openEntry, downloadEntries, requestDelete, openRenameDialog, setClipboardFor, toggleFavoritesFor, extractCapFor, compressBlockedHint]
   );
 
   /** 空白处菜单：作用于当前目录 */
@@ -1435,6 +1541,25 @@ export function FinderBrowser({
             disabled: selectedEntries.length !== 1 || selectedEntries[0].type !== 'file',
             onClickFunc: () => setPrintEntry(selectedEntries[0]),
           },
+          {
+            id: 'fm-m-extract',
+            title: 'Extract…',
+            // 仅单个 .zip / .tar.gz / .tgz 可解压；工具缺失也置灰（保留项，不隐藏）
+            disabled:
+              selectedEntries.length !== 1 ||
+              selectedEntries[0].type !== 'file' ||
+              !extractCapFor(selectedEntries[0].name)?.ok,
+            onClickFunc: () => setArchiveTask({ mode: 'extract', entry: selectedEntries[0] }),
+          },
+          {
+            id: 'fm-m-compress',
+            title: 'Compress…',
+            disabled:
+              selectedEntries.length === 0 ||
+              !!compressBlockedHint ||
+              selectedEntries.every((e) => e.type === 'dir' && isVolumeRoot(e.path)),
+            onClickFunc: () => setArchiveTask({ mode: 'compress', entries: selectedEntries }),
+          },
         ],
       },
       {
@@ -1511,6 +1636,8 @@ export function FinderBrowser({
       goBack,
       goUp,
       favoritesMenuItems,
+      extractCapFor,
+      compressBlockedHint,
     ]
   );
 
@@ -1792,6 +1919,31 @@ export function FinderBrowser({
               buttons: [{ id: 'ok', label: 'OK', role: 'default' }],
             });
           }}
+        />
+      )}
+
+      {/* 归档对话框：解压单个 .zip/.tar.gz，或压缩当前选中的文件/目录。
+          进度来自单请求 NDJSON 流（对话框内 await 一个 Promise），无轮询。 */}
+      {archiveTask && (
+        <ArchiveDialog
+          appId={APP_ID}
+          icon={ICON}
+          winId={winId}
+          mode={archiveTask.mode}
+          entry={archiveTask.mode === 'extract' ? archiveTask.entry : undefined}
+          entries={archiveTask.mode === 'compress' ? archiveTask.entries : undefined}
+          currentDir={current}
+          siblings={
+            archiveTask.mode === 'extract' && parentPath(archiveTask.entry.path) === current
+              ? entries.map((e) => e.name)
+              : undefined
+          }
+          caps={archiveCaps}
+          subjectIcon={archiveTask.mode === 'extract' ? iconFor(archiveTask.entry) : ICON}
+          onClose={() => setArchiveTask(null)}
+          onDone={handleArchiveDone}
+          // 压缩产物是文件，不能当目录导航；只有解压结果（目录）提供「Show in Files」
+          onReveal={archiveTask.mode === 'extract' ? revealArchiveResult : undefined}
         />
       )}
 

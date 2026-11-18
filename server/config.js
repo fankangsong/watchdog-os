@@ -137,6 +137,14 @@ const cfg = {
     retentionDays: envClampedInt('DRAFT_RETENTION_DAYS', 30, 1, 3650),
   },
 
+  /* 压缩 / 解压（Files）：调用系统归档工具（Windows 自带 bsdtar，Linux 用 tar + unzip / zip）。
+     三项留空 = 自动探测（Windows 优先 %SystemRoot%\System32\tar.exe）；非空 = 只用指定路径、不回落。 */
+  archive: {
+    tarPath: envStr('ARCHIVE_TAR_PATH', ''), // bsdtar / GNU tar / busybox tar 的绝对路径
+    unzipPath: envStr('ARCHIVE_UNZIP_PATH', ''), // Info-ZIP unzip（busybox 亦可）
+    zipPath: envStr('ARCHIVE_ZIP_PATH', ''), // Info-ZIP zip
+  },
+
   /* Printer：CUPS 打印机与任务监控（依赖 ipptool / lpinfo，命令缺失时 available=false） */
   printer: {
     enabled: envBool('PRINTER_ENABLED', true),
