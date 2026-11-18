@@ -235,19 +235,28 @@ function archiveStem(name) {
 
 function spawnOpts(opts) {
   const env = { ...process.env };
-  // Linux 下固定 C locale，让工具的提示语可被关键字识别
+  const o = opts || {};
   if (process.platform !== 'win32') {
-    env.LC_ALL = 'C';
-    env.LANG = 'C';
+    // tar / unzip 用 C locale：消息固定英文，关键字映射（no space left 等）才可靠。
+    // zip（Info-ZIP）例外：它按 locale 判断文件名编码，C locale 下中文名不会写 UTF-8
+    // 标志位（bit 11），zip 回到 Windows 解压就是乱码；故 zip 传 localeC:false 走 C.UTF-8。
+    const loc = o.localeC === false ? 'C.UTF-8' : 'C';
+    env.LC_ALL = loc;
+    env.LANG = loc;
   }
   return {
-    cwd: opts && opts.cwd,
+    cwd: o.cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
     // POSIX 建独立进程组：GNU tar -z 会另起 gzip，kill 负号 pid 才能连坐清理
     detached: process.platform !== 'win32',
     env,
   };
+}
+
+/** 日志用的命令行（含空格的参数加引号，便于从 journalctl 直接复制复现） */
+function formatCmd(cmd, args) {
+  return `${cmd} ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`;
 }
 
 function killTree(child) {
@@ -411,6 +420,7 @@ function runCapture(cmd, args, ctl, maxLines) {
       return resolve({ code: -1, lines: [], overflow: false, spawnError: e.message });
     }
     ctl.child = child;
+    console.log(`[archive] spawn ${formatCmd(cmd, args)}`);
     const lines = [];
     let bytes = 0;
     let overflow = false;
@@ -459,6 +469,7 @@ function runStreaming(cmd, args, opts, ctx) {
       return resolve({ code: -1, spawnError: e.message, signal: null });
     }
     ctx.ctl.child = child;
+    console.log(`[archive] spawn ${formatCmd(cmd, args)}`);
     const counts = { out: 0, err: 0 };
     const onEntry = (which) => (name) => {
       counts[which] += 1;
@@ -772,6 +783,11 @@ async function handleExtract(req, res) {
       tools: caps.tools,
     });
   }
+  // 工具路径必须与 via 成对（见 pickTool 注释）；取不到就明确 503
+  const tool = pickTool(caps, cap.via);
+  if (!tool) {
+    return fail(res, 503, 'TOOL_MISSING', `Archive tool for ${cap.via} is not configured`, { hint: cap.hint });
+  }
 
   if (active) return fail(res, 409, 'BUSY', 'Another archive task is running', { task: active.label });
 
@@ -799,15 +815,22 @@ async function handleExtract(req, res) {
     format,
     destInfo,
     via: cap.via,
-    tool: pickTool(caps, cap.via),
+    tool,
   });
 }
 
-/** 取实际参与执行的工具（bsdtar/gnutar 用 tar 路径，unzip 用 unzip 路径） */
+/**
+ * 把能力矩阵里的 via 映射成实际要执行的二进制。
+ *
+ * ⚠️ 必须与 compressCommand / extractCommand 的 via 分支严格成对：
+ * 曾经漏掉 'zip' 分支，导致 Linux（有 Info-ZIP、via='zip'）拿到 tar 的路径、
+ * 却按 zip 拼出 `-r` 参数，tar 报 `Options '-Aru' are incompatible with '-f -'`。
+ * 取不到路径时返回 null，由调用方回 503，绝不把 A 工具的路径配 B 工具的参数。
+ */
 function pickTool(caps, via) {
-  if (via === 'unzip') return { cmd: caps.tools.unzip.path, kind: 'unzip' };
-  if (via === 'bsdtar') return { cmd: caps.tools.tar.path, kind: 'bsdtar' };
-  return { cmd: caps.tools.tar.path, kind: 'gnutar' };
+  const tool = via === 'unzip' ? caps.tools.unzip : via === 'zip' ? caps.tools.zip : caps.tools.tar;
+  if (!tool || !tool.path) return null;
+  return { cmd: tool.path, kind: via };
 }
 
 /** 解析解压目标：不存在 / 空目录 → staging（原子落位）；非空 → 需 overwrite（direct） */
@@ -934,8 +957,12 @@ async function runExtract(req, res, ctx) {
     };
     const run = await runStreaming(cmd, args, {}, { ctl, via, onProgress, onErrLine: pushTail(errTail) });
     if (ctl.canceled) throw canceledError();
-    if (run.spawnError) throw archiveError('TOOL_FAILED', 'Failed to start archive tool', run.spawnError);
+    if (run.spawnError) {
+      console.warn(`[archive] extract (${via}) spawn failed: ${run.spawnError}`);
+      throw archiveError('TOOL_FAILED', 'Failed to start archive tool', run.spawnError);
+    }
     if (run.code !== 0) {
+      console.warn(`[archive] extract (${via}) failed: exit=${run.code} ${errTail.join(' | ')}`);
       throw archiveError(
         mapToolFailure(errTail) || 'TOOL_FAILED',
         `Extraction failed (exit code ${run.code}${run.signal ? `, signal ${run.signal}` : ''})`,
@@ -1056,6 +1083,11 @@ async function handleCompress(req, res) {
       tools: caps.tools,
     });
   }
+  // 工具路径必须与 via 成对（见 pickTool 注释）；取不到就明确 503
+  const tool = pickTool(caps, cap.via);
+  if (!tool) {
+    return fail(res, 503, 'TOOL_MISSING', `Archive tool for ${cap.via} is not configured`, { hint: cap.hint });
+  }
   if (active) return fail(res, 409, 'BUSY', 'Another archive task is running', { task: active.label });
 
   // 同步占槽：产物名去重是异步的，不先占槽会让并发请求同时通过检查
@@ -1095,7 +1127,7 @@ async function handleCompress(req, res) {
     format,
     outAbs,
     via: cap.via,
-    tool: pickTool(caps, cap.via),
+    tool,
   });
 }
 
@@ -1163,10 +1195,15 @@ async function runCompress(req, res, ctx) {
         current: name,
       });
     };
-    const run = await runStreaming(cmd, args, { cwd }, { ctl, via, onProgress, onErrLine: pushTail(errTail) });
+    // zip 需要 UTF-8 locale 才会给中文名置 UTF-8 标志位；tar / unzip 保持 C locale
+    const run = await runStreaming(cmd, args, { cwd, localeC: via !== 'zip' }, { ctl, via, onProgress, onErrLine: pushTail(errTail) });
     if (ctl.canceled) throw canceledError();
-    if (run.spawnError) throw archiveError('TOOL_FAILED', 'Failed to start archive tool', run.spawnError);
+    if (run.spawnError) {
+      console.warn(`[archive] compress (${via}) spawn failed: ${run.spawnError}`);
+      throw archiveError('TOOL_FAILED', 'Failed to start archive tool', run.spawnError);
+    }
     if (run.code !== 0) {
+      console.warn(`[archive] compress (${via}) failed: exit=${run.code} ${errTail.join(' | ')}`);
       throw archiveError(
         mapToolFailure(errTail) || 'TOOL_FAILED',
         `Compression failed (exit code ${run.code}${run.signal ? `, signal ${run.signal}` : ''})`,
@@ -1267,4 +1304,10 @@ function cleanupSync() {
   }
 }
 
-module.exports = { archiveRoute, stopArchiveJob, cleanupSync };
+module.exports = {
+  archiveRoute,
+  stopArchiveJob,
+  cleanupSync,
+  // 仅测试用：pickTool 的 via→二进制映射必须与命令构造严格成对（见 pickTool 注释）
+  __test: { pickTool, compressCommand },
+};

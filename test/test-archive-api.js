@@ -26,6 +26,12 @@ const ROOT = path.join(__dirname, '..');
 const PASSWORD = process.env.PASSWORD || 'test123';
 const JWT_SECRET = process.env.JWT_SECRET || 'test-only-jwt-secret-0123456789abcdef0123456789';
 
+/* archive.js 在 require 阶段会加载 config.js（缺 PASSWORD / JWT_SECRET 直接 exit），
+   所以必须先注入测试用环境变量，再 require。 */
+process.env.PASSWORD = process.env.PASSWORD || PASSWORD;
+process.env.JWT_SECRET = process.env.JWT_SECRET || JWT_SECRET;
+const { __test: archiveInternals } = require('../server/api/archive');
+
 let passed = 0;
 let failed = 0;
 let skipped = 0;
@@ -237,6 +243,23 @@ async function waitSlotFree(cookie, archiveAbs, dest) {
 /* ---------- 主流程 ---------- */
 
 (async () => {
+  /* ---- 工具选择单测（与平台无关）----
+     回归：pickTool 曾缺 'zip' 分支，Linux 上 zip 压缩拿到 tar 路径 + zip 的 -r 参数，
+     tar 报 `Options '-Aru' are incompatible with '-f -'`。 */
+  const fakeCaps = { tools: { tar: { path: 'T' }, zip: { path: 'Z' }, unzip: { path: 'U' } } };
+  ok('pickTool zip → zip', archiveInternals.pickTool(fakeCaps, 'zip').cmd === 'Z');
+  ok('pickTool bsdtar → tar', archiveInternals.pickTool(fakeCaps, 'bsdtar').cmd === 'T');
+  ok('pickTool unzip → unzip', archiveInternals.pickTool(fakeCaps, 'unzip').cmd === 'U');
+  ok('pickTool gnutar → tar', archiveInternals.pickTool(fakeCaps, 'gnutar').cmd === 'T');
+  ok(
+    'pickTool 缺工具 → null',
+    archiveInternals.pickTool({ tools: { tar: null, zip: null, unzip: null } }, 'zip') === null
+  );
+  ok(
+    'zip 参数以 -r 开头',
+    archiveInternals.compressCommand({ cmd: 'Z', kind: 'zip' }, 'zip', '/o/a.zip', ['d'], '/src', 'zip').args[0] === '-r'
+  );
+
   fs.mkdirSync(TMP, { recursive: true });
   fs.mkdirSync(TMP_NO_TOOLS, { recursive: true });
 
