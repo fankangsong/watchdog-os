@@ -226,7 +226,8 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
   - **落盘语义**：默认解到同目录同名子文件夹（` 2` / ` 3` 去重），先解到 `.wdpart-<jobId>` 再 `rename`，用户看不到半成品；自动目标在归档只有一个顶层目录时上提一层（避免 `sample/sample/`），显式目标保留归档原始结构。压缩重名自动 ` 2.zip`，绝不覆盖
   - **错误通道**：格式、越权、Zip Slip、缺工具、目标非空、并发单槽等**前置**失败返回普通 JSON 4xx/5xx（`{ code, error, hint?, detail?, dest? }`）；只有真正开始执行后才写流，执行期错误走 `{"t":"error"}` 帧。前端因此能区分「确认覆盖」与「执行失败」
   - ⚠️ **工具路径必须与参数成对**：`pickTool(caps, via)` 把 `via` 映射成实际二进制（`bsdtar`/`gnutar` → tar、`unzip` → unzip、`zip` → zip），`extractCommand`/`compressCommand` 再按**同一个 `via`** 拼参数。2026-11-18 线上事故：`pickTool` 漏了 `zip` 分支，Linux（有 Info-ZIP、`via='zip'`）拿到 `/usr/bin/tar` 的路径却传了 zip 的 `-r`，tar 报 `Options '-Aru' are incompatible with '-f -'`（该文案是 GNU tar 固定串，不代表真实参数）。现取不到路径直接 503，并有用例锁 `pickTool → cmd` 的映射
-  - **locale**：tar / unzip 用 `LC_ALL=C`（消息固定英文，`no space left` 等关键字映射才可靠）；zip 用 `C.UTF-8` —— Info-ZIP 按 locale 决定是否给中文文件名写 UTF-8 标志位（bit 11），C locale 下产出的 zip 回 Windows 解压会乱码
+  - **locale / 文件名编码**：所有归档子进程统一 `LC_ALL=LANG=C.UTF-8`（探测 `/usr/lib/locale/C.utf8` 取名）并**清空 `LANGUAGE`**：① `C` locale 下 Info-ZIP 会把非 ASCII 名转义成 `#U9ad8…`（压缩带 UTF-8 标志、解压却按 ASCII 转换，往返必乱码）；② `LANGUAGE` 是 gettext 的优先变量（Ubuntu 中文环境常见 `LANGUAGE=zh_CN:zh`），不清空则即使 `LC_ALL=C` 也输出中文消息，`no space left` 之类关键字映射失效。`C.UTF-8` 的 `LC_MESSAGES` 无翻译（消息仍英文）+ 字符集 UTF-8，两个诉求同时满足
+  - **Windows 风格 zip**：FAT host 的归档即使带 UTF-8 标志，Debian 的 Info-ZIP 仍可能按 OEM 解码成 `ф╕нцЦЗ`。列表阶段若条目名能干净按 UTF-8 解出（无 U+FFFD）且 `unzip -h` 表明支持 `-O`，解压时追加 `-O UTF-8`；GBK 名会含 U+FFFD → 不加，保持原样（要正确解 GBK 仍需人工 `-O CP936`）
   - **可观测**：每条归档命令 spawn 前打 `[archive] spawn <cmd> <args>`，失败另打 `[archive] <extract|compress> (<via>) failed: exit=… <stderr 尾部>`，`journalctl -u watchdog-os` 可直接复现
   - ⚠️ 并发为单槽（第二个请求 409 `BUSY`）；反代需 `X-Accel-Buffering: no`（已下发）+ 2s 心跳，否则进度会攒到最后一次性出现；zip 内非 UTF-8 文件名在 Linux 下可能乱码（依赖发行版 unzip 是否支持 `-O`，不做自动转码）；页面刷新/断网会丢失进行中的任务（单请求模型固有代价，服务端会杀进程并清 staging）
 - 前端 `FinderApp`：默认图标视图（大图标 + 下方名称）/ 列表视图（ClassicyTable 多选：名称/大小/修改时间/权限，目录行内联展开），View 菜单切换并持久化。文件操作三路等价——**菜单栏**、**右键菜单**、**快捷键**：
@@ -402,7 +403,7 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 
 - 前端：`npm run build` 确认无 TS / 构建错误（可用 `npx tsc --noEmit` 做全量类型检查）。
 - 后端：`npm start` 后用密码登录，确认指标接口正常返回（未配 `PASSWORD` / `JWT_SECRET` 时进程应拒绝启动并打印 `[fatal]`）。
-- 压缩 / 解压 API：`node test/test-archive-api.js` 全部 PASS（72 项：鉴权/能力探测与 503 降级/NDJSON 帧合法与百分比单调/默认同名子目录与 ` 2` 去重/顶层目录上提/tar.gz/空归档/目标非空 409 与 overwrite/Zip Slip 四种形态/并发 409 BUSY/abort 取消后无 `.wdpart-*` 残留且槽已释放/压缩↔解压往返内容一致/非法 body；`pickTool` 四种 via→二进制映射与缺工具返回 null、zip 命令以 `-r` 开头；工具缺失的用例打印 SKIP 属正常）
+- 压缩 / 解压 API：`node test/test-archive-api.js` 全部 PASS（79 项：鉴权/能力探测与 503 降级/NDJSON 帧合法与百分比单调/默认同名子目录与 ` 2` 去重/顶层目录上提/tar.gz/空归档/目标非空 409 与 overwrite/Zip Slip 四种形态/并发 409 BUSY/abort 取消后无 `.wdpart-*` 残留且槽已释放/压缩↔解压往返内容一致/非法 body；`pickTool` 四种 via→二进制映射与缺工具返回 null、zip 命令以 `-r` 开头、`unzip -O` 按能力开关、spawnOpts 的 UTF-8 locale/LANGUAGE 清空（Windows 上该两条 SKIP）、压缩→解压中文名不变形、Windows 风格（FAT host）zip 中文名不变形、空归档不再被 unzip 的退出码 1 判失败；工具缺失的用例打印 SKIP 属正常）
 - 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏（含 `~/.watchdog-os/data.json` 落盘位置断言）/越权防护等 30 项）。
 - PWA：`node test/test-pwa.js` 全部 PASS（自起 server，`BASE_PATH=/tkp`，覆盖 manifest 字段/相对 scope/SW 占位符替换/图标尺寸/缓存头/穿越防护；未先 `npm run build` 时 SKIP）
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。

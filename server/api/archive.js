@@ -143,14 +143,15 @@ async function resolveTar() {
   return null;
 }
 
-/** 解析 unzip / zip / gzip：配置覆盖优先，非空即「只用它，不回落」 */
+/** 解析 unzip / zip / gzip：配置覆盖优先，非空即「只用它，不回落」。
+ *  unzip 额外记录是否支持 `-O CHARSET`（busybox 版没有），用于 Windows 归档的编码纠正。 */
 async function resolveTool(name, forced) {
   const raw = String(forced || '').trim();
   const cmd = raw ? (isExecFile(raw) ? raw : null) : whichSync(name);
   if (!cmd) return null;
   const r = await probeRun(cmd, ['-h']);
   if (!r.ran) return null;
-  return { cmd };
+  return { cmd, charset: /(^|\s)-O\s+CHARSET/i.test(r.out) };
 }
 
 function buildCaps(tools) {
@@ -182,7 +183,7 @@ function buildCaps(tools) {
     platform: process.platform,
     tools: {
       tar: tar ? { path: tar.cmd, kind: tar.kind, version: tar.version } : null,
-      unzip: unzip ? { path: unzip.cmd } : null,
+      unzip: unzip ? { path: unzip.cmd, charset: unzip.charset === true } : null,
       zip: zip ? { path: zip.cmd } : null,
       gzip: gzip ? { path: gzip.cmd } : null,
     },
@@ -233,16 +234,37 @@ function archiveStem(name) {
 
 /* ---------- 进程启动 / 终止 ---------- */
 
+/**
+ * 归档子进程统一用 UTF-8 locale —— 2026-11-18 线上问题：
+ * ① `LC_ALL=C` 时 Info-ZIP 会把非 ASCII 名字**转义成 `#U9ad8#U9014…`**（压缩带 UTF-8 标志、
+ *    解压却按 ASCII 转换），中文目录压缩再解压就变成乱码；
+ * ② `LANGUAGE` 是 gettext 的优先变量（服务器常见 `LANGUAGE=zh_CN:zh`），**即使 LC_ALL=C
+ *    也会输出中文消息**，导致 mapToolFailure 的英文关键字匹配失效，必须显式清空。
+ * C.UTF-8 的 LC_MESSAGES 没有翻译，消息仍是英文，同时字符集是 UTF-8 —— 两个诉求同时满足。
+ * 探测不到 C.utf8 目录时仍用 C.UTF-8（glibc ≥2.35 为内置），最坏情况是 glibc 打一条
+ * setlocale 警告并回落到原环境，不影响文件名。
+ */
+const UTF8_LOCALE = (() => {
+  if (process.platform !== 'linux') return ''; // win32 无 locale 概念；macOS 默认 UTF-8
+  for (const name of ['C.utf8', 'C.UTF-8']) {
+    for (const dir of ['/usr/lib/locale', '/usr/local/lib/locale']) {
+      try {
+        if (fs.existsSync(path.join(dir, name))) return name;
+      } catch {
+        /* 忽略不可读目录 */
+      }
+    }
+  }
+  return 'C.UTF-8';
+})();
+
 function spawnOpts(opts) {
   const env = { ...process.env };
   const o = opts || {};
-  if (process.platform !== 'win32') {
-    // tar / unzip 用 C locale：消息固定英文，关键字映射（no space left 等）才可靠。
-    // zip（Info-ZIP）例外：它按 locale 判断文件名编码，C locale 下中文名不会写 UTF-8
-    // 标志位（bit 11），zip 回到 Windows 解压就是乱码；故 zip 传 localeC:false 走 C.UTF-8。
-    const loc = o.localeC === false ? 'C.UTF-8' : 'C';
-    env.LC_ALL = loc;
-    env.LANG = loc;
+  if (UTF8_LOCALE) {
+    env.LC_ALL = UTF8_LOCALE;
+    env.LANG = UTF8_LOCALE;
+    env.LANGUAGE = ''; // 压掉 gettext 的 LANGUAGE，保证消息英文（错误码关键字匹配依赖它）
   }
   return {
     cwd: o.cwd,
@@ -382,9 +404,16 @@ function listCommand(tool, format, archiveAbs) {
   return { cmd: tool.cmd, args: ['-tzf', archiveAbs] };
 }
 
-function extractCommand(tool, via, archiveAbs, destDir) {
+function extractCommand(tool, via, archiveAbs, destDir, opts) {
   if (via === 'bsdtar') return { cmd: tool.cmd, args: ['-x', '-v', '-f', archiveAbs, '-C', destDir] };
-  if (via === 'unzip') return { cmd: tool.cmd, args: ['-o', archiveAbs, '-d', destDir] };
+  if (via === 'unzip') {
+    // Windows/FAT 归档即使带 UTF-8 标志，Info-ZIP 也可能按 OEM 解码成 ф╕нцЦЗ 这类乱码；
+    // 条目名能干净地按 UTF-8 解出时显式 -O UTF-8（GBK 名会含 U+FFFD，此时不加、保持原样）
+    const args = ['-o'];
+    if (opts && opts.utf8Names && tool.charset) args.push('-O', 'UTF-8');
+    args.push(archiveAbs, '-d', destDir);
+    return { cmd: tool.cmd, args };
+  }
   return { cmd: tool.cmd, args: ['-x', '-z', '-v', '-f', archiveAbs, '-C', destDir] };
 }
 
@@ -422,6 +451,7 @@ function runCapture(cmd, args, ctl, maxLines) {
     ctl.child = child;
     console.log(`[archive] spawn ${formatCmd(cmd, args)}`);
     const lines = [];
+    const errLines = [];
     let bytes = 0;
     let overflow = false;
     let settled = false;
@@ -443,12 +473,19 @@ function runCapture(cmd, args, ctl, maxLines) {
       bytes += c.length;
       if (bytes <= MAX_LIST_BYTES) reader.feed(c);
     });
-    // stderr 必须消费掉，否则管道写满会让子进程卡死
-    child.stderr.on('data', () => {});
-    child.on('error', (e) => finish({ code: -1, lines, overflow, spawnError: e.message }));
+    // stderr 必须消费掉，否则管道写满会让子进程卡死；同时留尾部若干行给调用方判断特例
+    // （如 unzip 对空归档只打印 "Empty zipfile." 并以退出码 1 结束）
+    const errReader = createLineReader((line) => {
+      if (!line.trim()) return;
+      errLines.push(line.trim().slice(0, 300));
+      if (errLines.length > 20) errLines.shift();
+    });
+    child.stderr.on('data', (c) => errReader.feed(c));
+    child.on('error', (e) => finish({ code: -1, lines, overflow, errText: errLines.join('\n'), spawnError: e.message }));
     child.on('close', (code) => {
       reader.flush();
-      finish({ code: typeof code === 'number' ? code : -1, lines, overflow });
+      errReader.flush();
+      finish({ code: typeof code === 'number' ? code : -1, lines, overflow, errText: errLines.join('\n') });
     });
   });
 }
@@ -659,6 +696,10 @@ async function listArchive(tool, via, format, archiveAbs, ctl) {
 
   r = await runCapture(tool.cmd, ['-l', archiveAbs], ctl, MAX_ENTRIES + 10);
   if (r.spawnError) return { names: null, total: null, overflow: false, spawnError: r.spawnError };
+  // 空归档：unzip 只打 "Empty zipfile." 且退出码 1，这不是错误，按 0 条目处理
+  if (/(empty zipfile|zipfile is empty)/i.test(r.errText || '')) {
+    return { names: null, total: 0, overflow: false, code: 0 };
+  }
   const parsed = parseUnzipLong(r.lines);
   return { names: parsed.names, total: parsed.total, overflow: r.overflow, code: r.code };
 }
@@ -830,7 +871,7 @@ async function handleExtract(req, res) {
 function pickTool(caps, via) {
   const tool = via === 'unzip' ? caps.tools.unzip : via === 'zip' ? caps.tools.zip : caps.tools.tar;
   if (!tool || !tool.path) return null;
-  return { cmd: tool.path, kind: via };
+  return { cmd: tool.path, kind: via, charset: tool.charset === true };
 }
 
 /** 解析解压目标：不存在 / 空目录 → staging（原子落位）；非空 → 需 overwrite（direct） */
@@ -930,44 +971,48 @@ async function runExtract(req, res, ctx) {
     if (listed.names) {
       const bad = findUnsafeEntry(listed.names);
       if (bad) throw archiveError('UNSAFE_ARCHIVE', `Refusing to extract “${bad.name}”`, bad.reason);
-    } else if (listed.code !== 0) {
+    } else if (listed.code !== 0 && total !== 0) {
       throw archiveError('TOOL_FAILED', 'Cannot read archive contents', errTail.join('\n') || null);
     } else if (total) {
       warnings.push('Entry names could not be pre-checked; verified the extracted paths instead.');
     }
 
-    // 2) 解压：边跑边计数
-    const target = staging || destInfo.dest;
-    const { cmd, args } = extractCommand(tool, via, archiveAbs, target);
-    em.push({ phase: 'running', processed: 0, total, percent: 0, current: '' });
-
+    // 2) 解压：边跑边计数（空归档没有条目可解，直接进收尾——unzip 对空包必定返回 1）
     let processed = 0;
-    let lastPush = 0;
-    const onProgress = (count, name) => {
-      processed = count;
-      const now = Date.now();
-      if (now - lastPush < PROGRESS_THROTTLE_MS) return;
-      lastPush = now;
-      em.push({
-        processed: count,
-        total,
-        percent: total ? Math.min(99, Math.floor((count * 100) / total)) : 0,
-        current: name,
-      });
-    };
-    const run = await runStreaming(cmd, args, {}, { ctl, via, onProgress, onErrLine: pushTail(errTail) });
-    if (ctl.canceled) throw canceledError();
-    if (run.spawnError) {
-      console.warn(`[archive] extract (${via}) spawn failed: ${run.spawnError}`);
-      throw archiveError('TOOL_FAILED', 'Failed to start archive tool', run.spawnError);
-    }
-    if (run.code !== 0) {
-      console.warn(`[archive] extract (${via}) failed: exit=${run.code} ${errTail.join(' | ')}`);
-      throw archiveError(
-        mapToolFailure(errTail) || 'TOOL_FAILED',
-        `Extraction failed (exit code ${run.code}${run.signal ? `, signal ${run.signal}` : ''})`,
-        errTail.join('\n') || null
-      );
+    if (total !== 0) {
+      const target = staging || destInfo.dest;
+      // 列表阶段拿到的是原始字节按 UTF-8 解码的结果：无替换符即视为 UTF-8 归档
+      const utf8Names = !!listed.names && !listed.names.some((n) => n.includes('\ufffd'));
+      const { cmd, args } = extractCommand(tool, via, archiveAbs, target, { utf8Names });
+      em.push({ phase: 'running', processed: 0, total, percent: 0, current: '' });
+
+      let lastPush = 0;
+      const onProgress = (count, name) => {
+        processed = count;
+        const now = Date.now();
+        if (now - lastPush < PROGRESS_THROTTLE_MS) return;
+        lastPush = now;
+        em.push({
+          processed: count,
+          total,
+          percent: total ? Math.min(99, Math.floor((count * 100) / total)) : 0,
+          current: name,
+        });
+      };
+      const run = await runStreaming(cmd, args, {}, { ctl, via, onProgress, onErrLine: pushTail(errTail) });
+      if (ctl.canceled) throw canceledError();
+      if (run.spawnError) {
+        console.warn(`[archive] extract (${via}) spawn failed: ${run.spawnError}`);
+        throw archiveError('TOOL_FAILED', 'Failed to start archive tool', run.spawnError);
+      }
+      if (run.code !== 0) {
+        console.warn(`[archive] extract (${via}) failed: exit=${run.code} ${errTail.join(' | ')}`);
+        throw archiveError(
+          mapToolFailure(errTail) || 'TOOL_FAILED',
+          `Extraction failed (exit code ${run.code}${run.signal ? `, signal ${run.signal}` : ''})`,
+          errTail.join('\n') || null
+        );
+      }
     }
 
     // 3) 收尾：staging → dest（原子 rename）
@@ -1195,8 +1240,7 @@ async function runCompress(req, res, ctx) {
         current: name,
       });
     };
-    // zip 需要 UTF-8 locale 才会给中文名置 UTF-8 标志位；tar / unzip 保持 C locale
-    const run = await runStreaming(cmd, args, { cwd, localeC: via !== 'zip' }, { ctl, via, onProgress, onErrLine: pushTail(errTail) });
+    const run = await runStreaming(cmd, args, { cwd }, { ctl, via, onProgress, onErrLine: pushTail(errTail) });
     if (ctl.canceled) throw canceledError();
     if (run.spawnError) {
       console.warn(`[archive] compress (${via}) spawn failed: ${run.spawnError}`);
@@ -1309,5 +1353,5 @@ module.exports = {
   stopArchiveJob,
   cleanupSync,
   // 仅测试用：pickTool 的 via→二进制映射必须与命令构造严格成对（见 pickTool 注释）
-  __test: { pickTool, compressCommand },
+  __test: { pickTool, compressCommand, extractCommand, spawnOpts },
 };

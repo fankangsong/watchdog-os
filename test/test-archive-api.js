@@ -64,8 +64,10 @@ function crc32(buf) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-/** 生成 store（不压缩）ZIP；entries: [{ name, data?, dir? }]，目录名需以 / 结尾 */
-function buildZip(entries) {
+/** 生成 store（不压缩）ZIP；entries: [{ name, data?, dir? }]，目录名需以 / 结尾。
+ *  opts.host='fat' 模拟 Windows 资源管理器产物（version made by = FAT 2.0 + UTF-8 标志），
+ *  默认 'unix'（3.0），与 Linux/项目自身压出的归档一致。 */
+function buildZip(entries, opts = {}) {
   const chunks = [];
   const central = [];
   let offset = 0;
@@ -89,7 +91,7 @@ function buildZip(entries) {
 
     const cd = Buffer.alloc(46);
     cd.writeUInt32LE(0x02014b50, 0);
-    cd.writeUInt16LE(20, 4);
+    cd.writeUInt16LE(opts.host === 'fat' ? 0x0014 : 0x031e, 4);
     cd.writeUInt16LE(20, 6);
     cd.writeUInt16LE(0x0800, 8);
     cd.writeUInt16LE(0, 10);
@@ -259,6 +261,26 @@ async function waitSlotFree(cookie, archiveAbs, dest) {
     'zip 参数以 -r 开头',
     archiveInternals.compressCommand({ cmd: 'Z', kind: 'zip' }, 'zip', '/o/a.zip', ['d'], '/src', 'zip').args[0] === '-r'
   );
+  ok(
+    'unzip 支持 -O 时添加 UTF-8 参数',
+    archiveInternals
+      .extractCommand({ cmd: 'U', kind: 'unzip', charset: true }, 'unzip', '/a.zip', '/d', { utf8Names: true })
+      .args.includes('-O')
+  );
+  ok(
+    'unzip 不支持 -O 时不添加',
+    !archiveInternals
+      .extractCommand({ cmd: 'U', kind: 'unzip', charset: false }, 'unzip', '/a.zip', '/d', { utf8Names: true })
+      .args.includes('-O')
+  );
+  /* 回归：LC_ALL=C 时 Info-ZIP 把中文名转义成 #U9ad8…；LANGUAGE 会让 C locale 仍输出中文消息 */
+  if (process.platform === 'linux') {
+    const spawnEnv = archiveInternals.spawnOpts({}).env;
+    ok('spawnOpts 使用 UTF-8 locale', /utf-?8/i.test(spawnEnv.LC_ALL || ''), `LC_ALL=${spawnEnv.LC_ALL}`);
+    ok('spawnOpts 清空 LANGUAGE', spawnEnv.LANGUAGE === '', `LANGUAGE=${JSON.stringify(spawnEnv.LANGUAGE)}`);
+  } else {
+    skip('spawnOpts locale', `platform=${process.platform}`);
+  }
 
   fs.mkdirSync(TMP, { recursive: true });
   fs.mkdirSync(TMP_NO_TOOLS, { recursive: true });
@@ -410,6 +432,30 @@ async function waitSlotFree(cookie, archiveAbs, dest) {
       ok('extract 空归档 done', r.status === 200 && d.t === 'done', `status=${r.status} items=${d.items}`);
     }
 
+    /* Windows 风格归档（host=FAT + UTF-8 标志）：Linux 的 unzip 默认按 OEM 解码，会变成 ф╕нцЦЗ */
+    if (canExtractZip) {
+      const winZip = path.join(TMP, 'win-style.zip');
+      fs.writeFileSync(
+        winZip,
+        buildZip(
+          [
+            { name: 'win/', dir: true },
+            { name: 'win/中文名.txt', data: '中文名\n' },
+          ],
+          { host: 'fat' }
+        )
+      );
+      const winDest = path.join(TMP, 'win-out');
+      const rw = await post(`${BASE}/api/fs/archive/extract`, cookie, { path: winZip, dest: winDest });
+      const dw = lastFrame((await readNdjson(rw)).frames);
+      ok('extract Windows 风格 zip done', dw.t === 'done', `status=${rw.status}`);
+      ok(
+        'extract Windows 风格 zip 中文名',
+        fs.existsSync(path.join(winDest, 'win', '中文名.txt')) &&
+          fs.readFileSync(path.join(winDest, 'win', '中文名.txt'), 'utf8') === '中文名\n'
+      );
+    }
+
     /* ---- Zip Slip / 参数拒绝 ---- */
     if (canExtractZip) {
       const evilCases = [
@@ -532,6 +578,12 @@ async function waitSlotFree(cookie, archiveAbs, dest) {
           'compress→extract 往返一致',
           fs.existsSync(path.join(roundTrip, 'payload', 'sub', 'b.txt')) &&
             fs.readFileSync(path.join(roundTrip, 'payload', 'a.txt'), 'utf8') === 'hello archive\n'
+        );
+        // 中文名必须原样还原（C locale 下 unzip 会写成 #U4e2d#U6587.txt 这类转义）
+        ok(
+          '往返中文文件名未变形',
+          fs.existsSync(path.join(roundTrip, 'payload', '中文.txt')) &&
+            fs.readFileSync(path.join(roundTrip, 'payload', '中文.txt'), 'utf8') === '中文内容\n'
         );
       }
       // 重名 → 自动编号
