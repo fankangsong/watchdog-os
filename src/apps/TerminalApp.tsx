@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { withCjkFallback } from '../fontStacks';
 import {
   ClassicyAlert,
   ClassicyApp,
@@ -687,7 +688,9 @@ function TerminalWindow({
     try {
       term = new Terminal({
         fontSize,
-        fontFamily,
+        // xterm 用 canvas 量字宽（ctx.font 不解析 CSS var()），故拼字面 CJK 回落；
+        // 存储与菜单比较仍用原始 fontFamily，此处只作用于渲染。
+        fontFamily: withCjkFallback(fontFamily),
         cursorBlink: true,
         scrollback: 5000,
         theme: { background: '#000000', foreground: '#E5E5E5', cursor: '#8AE234' },
@@ -857,8 +860,9 @@ function TerminalWindow({
       term.options.fontSize = fontSize;
       changed = true;
     }
-    if (term.options.fontFamily !== fontFamily) {
-      term.options.fontFamily = fontFamily;
+    const xtermFont = withCjkFallback(fontFamily);
+    if (term.options.fontFamily !== xtermFont) {
+      term.options.fontFamily = xtermFont;
       changed = true;
     }
     if (changed && term.rows > 0) {

@@ -409,15 +409,20 @@ status bar（左：上下文状态；右：全局信息）
 
 | 用途 | 变量/字号 |
 |---|---|
-| UI 正文 | `var(--ui-font)`，默认 12px |
-| 窗口标题 | `var(--header-font)`（classicy 标题栏自动） |
-| 等宽（日志、ID、技术值） | `var(--mono-font)`（Runner 日志区、终端） |
+| UI 正文 / 全局基线 | `var(--ui-font)`，默认 12px；次要/辅助文字最小 11px。`html/body/#root` 以 `--sp-ui`（无衬线 + 中文回落）做基线，杜绝未声明字体的元素继承浏览器默认衬线 |
+| 窗口标题 | `var(--ui-font)`（无衬线，classicy 标题栏）；**不再**用 `--header-font`（AppleGaramond serif）|
+| 等宽（日志、ID、技术值） | `var(--sp-mono)`（本项目自绘控件统一栈，含中文回落；见 §7.2 变量说明） |
 | 数值/时间强调 | 系统字号加大一档（World Clock 的时间列模式） |
-| 像素字体 Silkscreen | **仅登录页**：品牌名 24px/700、窗口标题 16px/700、副标题 12px/400 |
+| 像素字体 Silkscreen | **仅品牌标识**：登录页品牌名 24/16px、窗口标题 16px、移动首页标题 16px（均为 8 的倍数） |
 
 - 不引入**在线** Web 字体（不得依赖 CDN 或外部网络请求）；确需特殊字体时把 woff2 入库到 `src/assets/fonts/`（随附许可证），并用 `sp-` 选择器限定使用范围。
-- 像素字体（Silkscreen，OFL 1.1）字号必须取 **8 的倍数**——非整数倍会让字形落在半像素上被插值糊掉；同时**不加 `text-shadow`**（投影落在像素格之间，会毁掉方块边）。
-- 不改变全局字号；密集中文技术值的等宽场景用 `--mono-font`。
+- **中文回落**：`:root` 定义 `--cjk-font`（PingFang SC / 微软雅黑 / Noto Sans CJK 等系统字体，简体优先），项目自绘 `sp-` 控件统一用它补齐中文，避免各端浏览器默认 fallback 字面不一；`--sp-mono` 是统一等宽栈（拉丁 Menlo/Consolas/Courier + `--cjk-font` + monospace），所有自绘等宽文本一律用它，不再散写字体栈。
+- classicy 的 `--ui-font`/`--mono-font` 等由 Appearance 面板用户可选、以内联样式注入桌面根，其字体栈末尾自带 generic family，中文天然回落到系统字体——**不要**用 `!important` 覆盖它们（会破坏用户的字体选择功能）；只治理本项目自绘的 `sp-` 控件。
+- **统一无衬线**：classicy 的 `--body-font`（Geneva,serif）/ `--header-font`（AppleGaramond,serif）默认是衬线栈，且部分组件（`.classicyTable`、`.classicyIcon p`、About/Apple Guide 等）显式用它们 → 非经典 Mac 平台落到 generic serif，出现衬线。处理方式：① 根基线 `--sp-ui` 让未声明字体的元素走无衬线；② `styles.css` 用与 classicy 同等选择器把上述组件改回 `var(--ui-font)`（用户 Appearance 可选，Charcoal/Chicago/Geneva 均 sans-serif，用户主动选 AppleGaramond 才为衬线）；**不加 `!important`、不改 classicy 变量本身**。
+- 像素字体（Silkscreen，OFL 1.1）字号必须取 **8 的倍数**——非整数倍会让字形落在半像素上被插值糊掉；同时**不加 `text-shadow`**（投影落在像素格之间，会毁掉方块边）。说明性文字（如登录页副标题）用 UI 字体，不占像素字族。
+- **字号下限 11px**：正常文本不得小于 11px（10px 中文/等宽在常见 DPI 下发虚）；像素字体按 8 的倍数例外。
+- **编辑器/终端字体**（用户可选，Phase 4）：`EDITOR_FONTS` / 终端 `FONT_FAMILIES` 的**存储值不变**（白名单精确匹配、服务端 ≤64 字符、既有测试依赖），中文回落只在渲染边界拼接——编辑器 `CodeEditor.tsx` 的 `fontExtension`、终端 `TerminalApp.tsx` 传入 xterm 处，统一用 `src/fontStacks.ts` 的 `withCjkFallback()`。终端必须用**字面字体名**：xterm 以 `ctx.font = '<size>px <fontFamily>'` 量字宽，canvas 不解析 CSS `var()`。双宽已在 headless Chrome 实测：CJK 字宽 < 2×等宽单元格，不越列。
+- 不改变全局字号；密集中文技术值的等宽场景用 `--sp-mono`。
 - 文本一律英文（UI 文案规范见 AGENTS.md）；代码注释中文。
 
 ### 7.3 间距与尺寸

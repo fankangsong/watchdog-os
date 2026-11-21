@@ -176,7 +176,7 @@ export function BlogApp({ onLogout }: { onLogout?: () => void }) {
               overflow: 'auto',
               background: '#000',
               color: '#ddd',
-              fontFamily: 'Consolas, Menlo, monospace',
+              fontFamily: 'var(--sp-mono)',
               fontSize: 11,
               lineHeight: 1.5,
               padding: 8,
