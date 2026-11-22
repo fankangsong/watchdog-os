@@ -20,6 +20,7 @@ const blog = require('./api/blog');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { getDeepseekUsage, getBigmodelUsage } = require('./api/usage');
 const { fsRoute } = require('./api/fs');
+const { mountsRoute } = require('./api/mounts');
 const archive = require('./api/archive');
 const { prefsRoute } = require('./api/prefs');
 const { draftsRoute } = require('./api/drafts');
@@ -248,6 +249,15 @@ async function route(req, res, url) {
       return unauthorized(req, res);
     }
     return fsRoute(req, res, p, url);
+  }
+
+  /* ---- 网络挂载 API（Files 的 SMB / WebDAV 远程目录，统一 JWT 鉴权）----
+     mount/unmount 经 sudo -n mount-helper.sh 提权；配置与状态接口无需 sudo。 */
+  if (p === '/api/mounts' || p.startsWith('/api/mounts/')) {
+    if (!checkAuth(req)) {
+      return unauthorized(req, res);
+    }
+    return mountsRoute(req, res, p, url);
   }
 
   /* ---- 用户偏好 API（Editor 视图选项，落盘 ~/.watchdog-os/data.json，统一 JWT 鉴权）---- */

@@ -33,6 +33,7 @@ const blog = require('./api/blog');
 const audit = require('./api/audit');
 const drafts = require('./api/drafts');
 const archive = require('./api/archive');
+const mounts = require('./api/mounts');
 const { route, handleUpgrade } = require('./router');
 
 const server = http.createServer(async (req, res) => {
@@ -89,6 +90,9 @@ setImmediate(() => {
   } catch (e) {
     console.warn('[warn] ttyd 启动异常，终端暂不可用（不影响其他接口）:', (e && e.message) || e);
   }
+  // 网络挂载恢复：仅恢复标记 autoMount 的连接；能力探测/挂载全部内部 try/catch，
+  // 无 sudoers / 无 cifs-utils 时只 warn，服务照常启动（Windows 开发机同样安全跳过）
+  void mounts.startMounts();
 });
 
 /* 进程级兜底：后台路径（采集定时器 / ttyd 子进程 / runner / 代理回调）的未捕获异常

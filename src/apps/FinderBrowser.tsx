@@ -2,13 +2,13 @@
 // 主窗口（根列表起步）、收藏夹双击新开的文件夹窗口共用本组件，各自持有独立的
 // 当前目录/选中/历史/预览等状态。默认图标视图（大图标 + 下方名称，OS8 选中高亮），
 // View 菜单可切换列表视图。无状态栏；主窗口左侧有收藏夹侧栏——默认展开（首次打开即见
-// Favorites 目录），工具栏 Favorites 按钮或 Favorites 菜单切换显隐，选择经
+// Favorites 目录），工具栏最左侧 Sidebar 图标按钮或 Favorites 菜单切换显隐，选择经
 // src/finderPrefs.ts 持久化到服务端 ~/.watchdog-os/data.json（下次打开按上次选择恢复）。
 // 目录导航经双击进入 + Go 菜单（Back ⌘[ / Open Parent Folder ⌘↑）。
 // 支持上传（从系统拖入窗口 / Upload File…，进度/取消/覆盖确认）、新建文件夹、新建文本文件、
 // 重命名（可改扩展名）、删除、
 // 复制/剪切/粘贴（服务端递归复制，同名自动追加 copy 后缀）、Get Info、
-// 收藏夹（右键文件夹 Add/Remove from Favorites、工具栏按钮、菜单栏 Favorites 菜单）：
+// 收藏夹（右键文件夹 Add/Remove from Favorites、侧栏开关按钮、菜单栏 Favorites 菜单）：
 // 以及图片/文本/Markdown 预览窗口（图片可缩放：Ctrl/⌘+滚轮、双击、底部缩放条、
 // View 菜单，放大后可拖动平移）、打印（File > Print… / 右键菜单 / 预览窗口菜单）：
 // 打印前弹出 PrintDialog 选择打印机、纸张大小、彩色黑白与页码范围，再提交 CUPS。
@@ -54,7 +54,17 @@ import {
 } from '../api';
 import type { ArchiveCaps, ArchiveFormat, ArchiveResult, FsEntry } from '../api';
 import { addFavorites, isFavorite, removeFavorites, useFavorites } from '../favoritesStore';
-import { setShowFavoritesSidebar, useFinderPrefs } from '../finderPrefs';
+import {
+  addMount,
+  mountConnection,
+  removeMount,
+  unmountConnection,
+  updateMount,
+  useMountCaps,
+  useMountConnections,
+} from '../mountsStore';
+import type { MountConnection, MountInput } from '../api';
+import { setShowFavoritesSidebar, setShowHiddenFiles, useFinderPrefs } from '../finderPrefs';
 import { fmtBytes } from '../format';
 import { copyText } from '../clipboard';
 import { openInEditor } from '../editorBridge';
@@ -70,11 +80,12 @@ import { MarkdownPreview } from '../components/MarkdownPreview';
 import { DocxPreview } from '../components/DocxPreview';
 import { PrintDialog } from '../components/PrintDialog';
 import { ArchiveDialog, archiveFormatOf } from '../components/ArchiveDialog';
+import { NetworkDialog } from '../components/NetworkDialog';
 // 窗口操作按钮带内嵌图标（16x16 工具栏档，见 docs/icon-pipeline.md §1.2）：
 // 单色 currentColor 跟随按钮文字色，启用/禁用/按下三态自动一致
 import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
 import fmUpIcon from '../assets/icons/fm-up.svg?no-inline';
-import fmFavIcon from '../assets/icons/fm-fav.svg?no-inline';
+import fmSidebarIcon from '../assets/icons/fm-sidebar.svg?no-inline';
 // 图片预览缩放条（Zoom Out / Zoom In / Fit to Window），同为 16x16 双色档
 import fmZoomOutIcon from '../assets/icons/fm-zoom-out.svg?no-inline';
 import fmZoomInIcon from '../assets/icons/fm-zoom-in.svg?no-inline';
@@ -359,7 +370,6 @@ export function FinderBrowser({
   const [current, setCurrent] = useState('');
   const [entries, setEntries] = useState<FsEntry[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [showHidden, setShowHidden] = useState(false);
   const [loading, setLoading] = useState(false);
   const [backStack, setBackStack] = useState<string[]>([]);
   const [previews, setPreviews] = useState<FsEntry[]>([]);
@@ -383,10 +393,10 @@ export function FinderBrowser({
   const [picking, setPicking] = useState(isConverterPicking);
   // 视图模式：默认图标视图（对齐参考图 Workspace），View 菜单切换并持久化
   const [viewMode, setViewModeState] = useState<ViewMode>(loadViewMode);
-  // 收藏夹侧栏显隐（仅主窗口渲染；工具栏 Favorites 按钮 / Favorites 菜单切换）。
-  // 状态在 finderPrefs store 里：默认展开（首次打开即见 Favorites 目录），
-  // 用户切换经 /api/prefs/finder 落盘 ~/.watchdog-os/data.json，下次打开按上次选择恢复
-  const { showFavoritesSidebar: showFavs } = useFinderPrefs();
+  // 收藏夹侧栏显隐（仅主窗口渲染；工具栏最左侧 Sidebar 图标按钮 / Favorites 菜单切换）
+  // 与 Show Hidden Files 同在 finderPrefs store：切换经 /api/prefs/finder 落盘
+  // ~/.watchdog-os/data.json，下次打开按上次选择恢复
+  const { showFavoritesSidebar: showFavs, showHiddenFiles: showHidden } = useFinderPrefs();
   // 非主窗口的级联偏移（挂载时取一次，重开同 id 窗口时由 store 记录保留原位）
   const [cascade] = useState(() => (folderCascade++ % 6) * 26);
 
@@ -400,6 +410,13 @@ export function FinderBrowser({
   const [treeVersion, setTreeVersion] = useState(0);
   // 收藏夹（外部 store，与收藏夹侧栏等其它实例共享）
   const favorites = useFavorites();
+  // 网络挂载（外部 store）：连接列表 + 能力矩阵，与所有窗口实例共享。
+  // 仅主窗口渲染网络面板，避免多窗口重复轮询；状态变更经 mountsStore 统一 revalidate。
+  const netConnections = useMountConnections();
+  const netCaps = useMountCaps();
+  const [networkDialog, setNetworkDialog] = useState<{ editing: MountConnection | null } | null>(null);
+  const [netBusy, setNetBusy] = useState<string | null>(null); // 正在挂载/卸载/删除的连接 id
+  const [showNetwork, setShowNetwork] = useState(true); // 侧栏网络分区显隐
   const isMain = winId === MAIN_WIN_ID;
 
   const childrenCache = useRef(new Map<string, FsEntry[]>());
@@ -1028,6 +1045,47 @@ export function FinderBrowser({
     }
   }, [current, stopAlert]);
 
+  // ---- 网络挂载（SMB / WebDAV）----
+
+  const netOp = useCallback(
+    async (id: string, label: string, fn: () => Promise<void>) => {
+      setNetBusy(id);
+      try {
+        await fn();
+      } catch (e) {
+        stopAlert(label, (e as Error).message);
+      } finally {
+        setNetBusy(null);
+      }
+    },
+    [stopAlert]
+  );
+
+  const onNetMount = useCallback(
+    (c: MountConnection) => void netOp(c.id, 'Mount Failed', () => mountConnection(c.id)),
+    [netOp]
+  );
+  const onNetUnmount = useCallback(
+    (c: MountConnection) => void netOp(c.id, 'Unmount Failed', () => unmountConnection(c.id)),
+    [netOp]
+  );
+  const onNetDelete = useCallback(
+    (c: MountConnection) =>
+      void netOp(c.id, 'Delete Failed', async () => {
+        await removeMount(c.id);
+      }),
+    [netOp]
+  );
+  const onNetSave = useCallback(
+    async (input: MountInput) => {
+      const editing = networkDialog?.editing;
+      if (editing) await updateMount(editing.id, input);
+      else await addMount(input);
+      setNetworkDialog(null);
+    },
+    [networkDialog]
+  );
+
   // ---- 归档（解压 / 压缩）：能力判定与对话框入口 ----
 
   /**
@@ -1588,7 +1646,7 @@ export function FinderBrowser({
             id: 'fm-m-hidden',
             title: 'Show Hidden Files',
             checked: showHidden,
-            onClickFunc: () => setShowHidden((v) => !v),
+            onClickFunc: () => setShowHiddenFiles(!showHidden),
           },
           // checked:false 必须显式声明：classicy 仅对 checked!==undefined 的项渲染勾选列，
           // 同菜单混用会导致标题左起点不齐（无勾选列的项左移 21px）
@@ -1694,6 +1752,18 @@ export function FinderBrowser({
               按钮不属于内容流，不随内容滚动。按钮带 16px 前置图标（文本左侧垂直居中，
               currentColor 跟随文字三态） */}
           <div className="sp-toolbar">
+            {/* 侧栏开关（仅主窗口）：工具栏最左侧的 Sidebar 图标按钮，切换左侧
+                侧栏（Favorites + Network）显隐；选文件模式禁用，避免把选择流程分散到多个窗口 */}
+            {isMain && (
+              <ClassicyButton
+                className="sp-tb-icon-only"
+                title={showFavs ? 'Hide Sidebar' : 'Show Sidebar'}
+                disabled={picking}
+                onClickFunc={() => setShowFavoritesSidebar(!showFavs)}
+              >
+                <img className="sp-tb-icon" src={fmSidebarIcon} alt="" />
+              </ClassicyButton>
+            )}
             <ClassicyButton disabled={backStack.length === 0} onClickFunc={goBack}>
               <img className="sp-tb-icon" src={fmBackIcon} alt="" />
               Back
@@ -1702,14 +1772,6 @@ export function FinderBrowser({
               <img className="sp-tb-icon" src={fmUpIcon} alt="" />
               Up
             </ClassicyButton>
-            {/* 收藏夹侧栏开关（仅主窗口）：点开在左侧展示收藏列表，再次点击收起；
-                选文件模式禁用收藏夹入口，避免把选择流程分散到多个窗口 */}
-            {isMain && (
-              <ClassicyButton disabled={picking} onClickFunc={() => setShowFavoritesSidebar(!showFavs)}>
-                <img className="sp-tb-icon" src={fmFavIcon} alt="" />
-                Favorites
-              </ClassicyButton>
-            )}
             {/* 地址栏（靠右弹性占满）：显示当前目录路径，回车跳转；
                 Windows（C:\…）与 Linux（/…）路径原样提交，由后端 resolve + FS_ROOTS 校验 */}
             <div className="sp-fm-addr">
@@ -1756,6 +1818,85 @@ export function FinderBrowser({
                     </button>
                   ))
                 )}
+
+                {/* 网络位置分区：SMB / WebDAV 连接。点击已挂载的连接进入远程目录；
+                    未挂载的点击即触发挂载。每条带挂载/卸载与编辑/删除小按钮。 */}
+                <div className="sp-net-side">
+                  <button
+                    type="button"
+                    className="sp-fm-side-title sp-net-side-title"
+                    onClick={() => setShowNetwork((v) => !v)}
+                    title="Show or hide network locations"
+                  >
+                    Network {showNetwork ? '▾' : '▸'}
+                  </button>
+                  {showNetwork && (
+                    <>
+                      {netConnections.map((c) => (
+                        <div className="sp-net-item" key={c.id}>
+                          <button
+                            type="button"
+                            className="sp-fm-fav-btn sp-net-item-main"
+                            title={`${c.protocol.toUpperCase()} · ${c.protocol === 'smb' ? c.host + '/' + c.share : c.url}`}
+                            onClick={() => {
+                              if (c.mounted) navigate(c.mountPoint);
+                              else onNetMount(c);
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              showContextMenu(
+                                [
+                                  {
+                                    id: 'net-open',
+                                    title: c.mounted ? 'Open' : 'Mount',
+                                    disabled: netBusy === c.id,
+                                    onClickFunc: () => (c.mounted ? navigate(c.mountPoint) : onNetMount(c)),
+                                  },
+                                  {
+                                    id: 'net-toggle',
+                                    title: c.mounted ? 'Unmount' : 'Mount',
+                                    disabled: netBusy === c.id,
+                                    onClickFunc: () => (c.mounted ? onNetUnmount(c) : onNetMount(c)),
+                                  },
+                                  {
+                                    id: 'net-edit',
+                                    title: 'Edit…',
+                                    onClickFunc: () => setNetworkDialog({ editing: c }),
+                                  },
+                                  { id: 'spacer' },
+                                  {
+                                    id: 'net-delete',
+                                    title: 'Delete…',
+                                    disabled: netBusy === c.id,
+                                    onClickFunc: () => onNetDelete(c),
+                                  },
+                                ],
+                                [e.clientX, e.clientY]
+                              );
+                            }}
+                          >
+                            <span className={`sp-net-dot ${c.mounted ? 'sp-net-dot-on' : ''}`} />
+                            <span className="sp-net-item-name">{c.name}</span>
+                            {netBusy === c.id && <span className="sp-net-busy">…</span>}
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="sp-net-add"
+                        onClick={() => setNetworkDialog({ editing: null })}
+                        title="Add a network location"
+                      >
+                        + New Network Location…
+                      </button>
+                      {netCaps && !netCaps.supported && (
+                        <div className="sp-net-hint sp-net-hint-warn" title={netCaps.missing.join(', ')}>
+                          Mount unavailable: {netCaps.missing.slice(0, 2).join(', ') || 'not configured'}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             )}
             <div className="sp-fm-content">
@@ -1988,6 +2129,16 @@ export function FinderBrowser({
             </ClassicyFormButtonRow>
           </ClassicyForm>
         </ClassicyWindow>
+      )}
+
+      {networkDialog && (
+        <NetworkDialog
+          appId={APP_ID}
+          icon={ICON}
+          editing={networkDialog.editing}
+          onCancel={() => setNetworkDialog(null)}
+          onSave={onNetSave}
+        />
       )}
 
       {previews.map((pv) => (

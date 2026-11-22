@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Files 偏好 store 回归测试（src/finderPrefs.ts）：零依赖（esbuild 仅作 TS 转译，缺失时 SKIP）。
-   守护「首次打开 Files 即展开收藏夹侧栏 + 显隐记住并落盘 ~/.watchdog-os」的语义：
+   守护「首次打开 Files 即展开收藏夹侧栏 / 不显示隐藏文件 + 两项记住并落盘 ~/.watchdog-os」的语义：
      1. 服务端无记录 → 默认展开（true），且不产生任何 PUT（不给从未切换过的用户写盘）；
      2. 服务端有 false → 加载后按服务端值收起；
      3. 切换 → PUT 一次并落地；重复设同值不产生多余 PUT；
@@ -203,6 +203,39 @@ async function freshStore() {
     store.setShowFavoritesSidebar(false); // 再次差异：重试成功
     await sleep(40);
     ok('场景6 重试成功', srv.state().showFavoritesSidebar === false && srv.puts.length === 1, JSON.stringify(srv.state()));
+    sub.unsubscribe();
+  }
+
+  /* 场景 7：Show Hidden Files——服务端值生效、切换落盘、去重、不破坏侧栏偏好 */
+  {
+    const srv = mockServer({ initial: { showHiddenFiles: true } });
+    const store = await freshStore();
+    const sub = store.useFinderPrefs();
+    await sleep(30);
+    ok('场景7 服务端 showHiddenFiles 生效', sub.snapshot.showHiddenFiles === true, JSON.stringify(sub.snapshot));
+    ok('场景7 缺失的侧栏键取默认值', sub.snapshot.showFavoritesSidebar === true, JSON.stringify(sub.snapshot));
+    store.setShowHiddenFiles(false);
+    await sleep(30);
+    ok('场景7 切换后落盘', srv.state().showHiddenFiles === false, JSON.stringify(srv.state()));
+    ok('场景7 侧栏偏好未被覆盖', srv.state().showFavoritesSidebar === true, JSON.stringify(srv.state()));
+    ok('场景7 一次切换一次 PUT', srv.puts.length === 1, `puts=${srv.puts.length}`);
+    store.setShowHiddenFiles(false);
+    await sleep(30);
+    ok('场景7 同值去重', srv.puts.length === 1, `puts=${srv.puts.length}`);
+    sub.unsubscribe();
+  }
+
+  /* 场景 8：服务端从未设置 → 默认不显示隐藏文件，切一次只写一次 */
+  {
+    const srv = mockServer();
+    const store = await freshStore();
+    const sub = store.useFinderPrefs();
+    await sleep(30);
+    ok('场景8 默认不显示隐藏文件', sub.snapshot.showHiddenFiles === false, JSON.stringify(sub.snapshot));
+    store.setShowHiddenFiles(true);
+    await sleep(30);
+    ok('场景8 切换落盘', srv.state().showHiddenFiles === true, JSON.stringify(srv.state()));
+    ok('场景8 默认值补齐不产生多余 PUT', srv.puts.length === 1, `puts=${srv.puts.length}`);
     sub.unsubscribe();
   }
 

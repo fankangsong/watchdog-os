@@ -21,6 +21,7 @@ npm start         # 启动生产后端（node server/index.js，默认端口 300
 npm run secret:rotate                 # 生成新 JWT_SECRET 并写回 .env（-- --dry-run 只生成不写；轮换后所有会话失效，需重启服务）
 node scripts/check-commit-env.mjs     # 提交前检查 .env 中的值 / 硬编码密钥（.githooks/pre-commit 自动调用）
 node test/test-fs-api.js            # 文件管理 API 冒烟测试（自起自停 server 子进程）
+node test/test-mounts-api.js        # 网络挂载 API 冒烟测试（SMB/WebDAV 连接 CRUD、鉴权、密码隔离、输入校验；不执行真实 mount）
 node test/test-runner-api.js        # Runner API 冒烟测试（自起自停 server 子进程，无 bash 时跳过）
 node test/test-archive-api.js        # 压缩/解压 API 冒烟测试（NDJSON 进度流、Zip Slip、并发单槽、abort 清理、压缩↔解压往返）
 node test/test-audit-log-api.js      # 登录审计 API 冒烟测试（临时 LOGIN_LOG_DIR：埋点/脱敏/401 去重/统计/CSV/保留期清理）
@@ -28,7 +29,7 @@ node test/test-chat-api.js          # Hermes 聊天代理 API 冒烟测试（自
 node test/test-chat-sessions-api.js # Hermes 会话 API 冒烟测试
 node test/test-terminal-ws.js [port]# 终端链路验证（直连 ttyd 端口：/token、WS 握手、ttyd 帧协议、输入回显；零依赖，默认 7681）
 node test/test-favorites-store.mjs   # 收藏夹 store 竞态回归（esbuild 转译 TS + mock fetch；esbuild 缺失时 SKIP）
-node test/test-finder-prefs-store.mjs # Files 偏好 store 回归（默认展开/切换落盘去重/加载竞态；同上转译方式）
+node test/test-finder-prefs-store.mjs # Files 偏好 store 回归（侧栏显隐 + 隐藏文件显示：默认值/切换落盘去重/加载竞态；同上转译方式）
 node test/test-shared-poll.mjs       # 页面级共享轮询回归（同上；覆盖零订阅者续轮/暂停/401 重启/慢接口防叠加）
 node test/test-session-store.mjs      # 退出登录收尾回归（本地会话存储清理 / 单次导航 / 401 同路径 / 存储被禁仍收尾）
 python tools/pixel-icon.py --ledger  # 单独重生成 Ledger 钱币图标 + 三案设计稿（不动其它已验收图标；不带参数则全量重生成所有图标）
@@ -95,6 +96,7 @@ node server/index.js
 | 登录审计 | `LOGIN_LOG_ENABLED` / `LOGIN_LOG_DIR` / `LOGIN_LOG_RETENTION_DAYS` / `LOGIN_LOG_MAX_ENTRIES` / `LOGIN_LOG_BRUTE_THRESHOLD` / `LOGIN_LOG_BRUTE_WINDOW_MIN` / `LOGIN_LOG_401_DEDUPE_SEC` | `true` / 空（= `~/.watchdog-os/login-log`）/ `30` / `20000` / `5` / `10` / `60` |
 | 草稿     | `DRAFT_DIR` / `DRAFT_MAX_ENTRIES`（收敛到 1~500）/ `DRAFT_RETENTION_DAYS`（收敛到 1~3650）                                      | 空（= `~/.watchdog-os/drafts`）/ `50` / `30`                                     |
 | 文件管理 | `FS_ROOTS`（`path.delimiter` 分隔；**与 `DISK_MOUNTS` 语义不同**：前者是文件管理器权限白名单，后者是监控采样目标）             | 按平台默认                                                                       |
+| 网络挂载 | `MOUNTS_DIR`（留空 = `~/.watchdog-os/mounts`，自动并入 `FS_ROOTS`）/ `MOUNTS_AUTO_MOUNT` / `MOUNTS_TIMEOUT_MS`（仅 Linux；需 cifs-utils + davfs2 + sudoers，见 `docs/NETWORK_MOUNTS.md`） | 空 / `true` / `30000`                                                            |
 | 归档     | `ARCHIVE_TAR_PATH` / `ARCHIVE_UNZIP_PATH` / `ARCHIVE_ZIP_PATH`（留空 = 自动探测；非空 = 只用指定路径，不回落）                 | 空                                                                               |
 | 终端     | `TERMINAL_ENABLED` / `TTYD_PATH` / `TTYD_PORT` / `TTYD_ARGS`(JSON 数组) / `TTYD_CWD`（留空 = `~`）/ `TTYD_WSL`                     | `false` / `ttyd` / `7681` / `["bash"]` / 空 / `false`                           |
 | Runner   | `RUNNER_ENABLED` / `RUNNER_SCRIPT`（必配绝对路径）/ `RUNNER_SHELL` / `RUNNER_MAX_LOG_BYTES`                                    | `false` / `''` / `bash` / `5242880`                                              |
@@ -156,7 +158,7 @@ mobile/ # 移动外壳（仅 <768px 挂载）：shellModel.ts 纯逻辑 / Mobile
 responsive.ts # 断点层：layoutForWidth 纯函数 + useViewport（matchMedia 单例）+ 写 html[data-wd-layout]
 api.ts # 后端 API 封装（含 getTerminalToken、/api/fs/* 文件管理、/api/prefs/* 用户偏好、/api/drafts/* 编辑器草稿、/api/audit/* 登录审计）
 editorDraft.ts # 自动草稿写入调度器（防抖 / 不饿死 / 单飞合并 / 先写后删，纯 TS 无 React 依赖）
-finderPrefs.ts # Files 偏好外部 store（收藏夹侧栏显隐，经 /api/prefs/finder 落盘 ~/.watchdog-os）
+finderPrefs.ts # Files 偏好外部 store（侧栏显隐 + 隐藏文件显示，经 /api/prefs/finder 落盘 ~/.watchdog-os）
 editorBridge.ts # Finder → 文本编辑器 跨应用打开文件的联动桥
 hostFsAdapter.ts # 已停用的 classicy FS Adapter（源码保留备查，接线已断开；见下节）
 session.ts # 会话收尾：退出登录 / 任一接口 401 → 清本地会话存储 + 整页重载回登录页
@@ -230,6 +232,8 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
   - **Windows 风格 zip**：FAT host 的归档即使带 UTF-8 标志，Debian 的 Info-ZIP 仍可能按 OEM 解码成 `ф╕нцЦЗ`。列表阶段若条目名能干净按 UTF-8 解出（无 U+FFFD）且 `unzip -h` 表明支持 `-O`，解压时追加 `-O UTF-8`；GBK 名会含 U+FFFD → 不加，保持原样（要正确解 GBK 仍需人工 `-O CP936`）
   - **可观测**：每条归档命令 spawn 前打 `[archive] spawn <cmd> <args>`，失败另打 `[archive] <extract|compress> (<via>) failed: exit=… <stderr 尾部>`，`journalctl -u watchdog-os` 可直接复现
   - ⚠️ 并发为单槽（第二个请求 409 `BUSY`）；反代需 `X-Accel-Buffering: no`（已下发）+ 2s 心跳，否则进度会攒到最后一次性出现；zip 内非 UTF-8 文件名在 Linux 下可能乱码（依赖发行版 unzip 是否支持 `-O`，不做自动转码）；页面刷新/断网会丢失进行中的任务（单请求模型固有代价，服务端会杀进程并清 staging）
+- **网络挂载 SMB / WebDAV**（`server/api/mounts.js` + `src/mountsStore.ts` + `src/components/NetworkDialog.tsx` + `scripts/mount-helper.sh`，详见 `docs/NETWORK_MOUNTS.md`）：Files 侧栏 Network 分区把远程共享挂到本机 `<MOUNTS_DIR>/<id>` 后即普通本地目录，Files 全部 `node:fs` 操作天然可用（前端零感知）。后端 `/api/mounts`（list/create/update/delete/mount/unmount + `/caps`）统一 `checkAuth`；连接配置存 `~/.watchdog-os/data.json` 的 `mounts` 键（**不含密码**），密码单独存 `~/.watchdog-os/mount-creds/<id>.cred`（600），任何响应都不回传密码。挂载经 `sudo -n mount-helper.sh` 提权，sudoers 只白名单该脚本、脚本内二次校验（挂载点必须是 MOUNTS_DIR 直接子目录且 id 为 slug，UNC/URL 协议/host 白名单，禁 URL 内嵌凭据）——**参数一律 execFile 数组传递，无 shell 拼接**。`<MOUNTS_DIR>` 在 `fs.js` 里并入 `FS_ROOTS`（Windows 下跳过，原生挂载仅 Linux），根列表把已挂载连接显示为网络磁盘条目。caps 只读探测区分「平台不支持/工具缺/cifs-davfs 缺/sudoers 未配」，状态读 `/proc/mounts` 无需 sudo；前端 store 8s 轮询发现掉线。启动恢复仅针对 autoMount 连接（内部 try/catch，无 sudoers 时只 warn 不阻断启动）。
+  - ⚠️ **测试隔离坑**：`os.homedir()` 在 Windows 读 `USERPROFILE`、POSIX 读 `HOME`，自起服务做 userdata 隔离必须**两个都设**为临时目录，否则测试数据写进真实 `~/.watchdog-os/data.json`（`test/test-mounts-api.js` 已同时设置并在前后清理）
 - 前端 `FinderApp`：默认图标视图（大图标 + 下方名称）/ 列表视图（ClassicyTable 多选：名称/大小/修改时间/权限，目录行内联展开），View 菜单切换并持久化。文件操作三路等价——**菜单栏**、**右键菜单**、**快捷键**：
   - **Edit 菜单自建并内联实现**（操作对象是文件选择而非文本框，不用 `useClassicyEditMenu`）：Cut ⌘X / Copy ⌘C / Paste ⌘V / Select All ⌘A / Delete… ⌘⌫（Delete 键同效），置灰规则按选中态/剪贴板/当前目录
   - 右键菜单：条目菜单（Open / Open with Editor / Download / Print… / Extract… / Compress… / Cut / Copy / Get Info… / Rename… / Delete…）绑定到**菜单作用对象**（右键时即时改选后的条目组）；空白处菜单（New Folder… / New Text File… / Upload File… / Paste / Refresh / Open Parent Folder）
@@ -237,9 +241,9 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
   - 快捷键经 window keydown 真实绑定（classicy 的 `keyboardShortcut` 仅作展示）：焦点在输入框/编辑器时放行，不劫持对话框内打字
   - 图标视图**拖拽框选**（rubber band，`handleIconsMouseDown`）：画布任意位置左键拖动超过 4px 即框选与矩形相交（含边缘相触）的条目；修饰键语义与单击一致——plain 整体替换、⇧ 在按下时的选中上**追加**、⌘/Ctrl 以按下时的选中为基座**取反**；Esc 取消并还原，窗口失焦收尾（保留结果）；选框 `.sp-fm-band` 绝对定位于画布内容坐标（含滚动偏移），命中测试取条目 `data-fm-item` 的客户区矩形，每帧结果与上次相同则跳过 setState；拖拽结束后尾随的那次画布 click 由 `bandDidDragRef` 吞掉，避免清空刚框出的选中（list 视图多选走 ClassicyTable 自身，无框选）。⚠️ 修饰键分支曾把 ⇧ 误实现为取反（与 ⌘ 同分支），表现是 shift 加选反而只留框选交集——用真实浏览器（Playwright 合成鼠标事件 + 页面侧 capture 埋点）定位
   - 上传用 XHR 出进度条，预览为独立 ClassicyWindow（图片内联 / Markdown 渲染可切源码 / 文本只读高亮）
-  - 收藏夹：`src/favoritesStore.ts` 外部 store（`useSyncExternalStore` 订阅，经 `/api/fs/favorites` 持久化到 `~/.watchdog-os/data.json`，多窗口共享）。添加入口三处：右键文件夹条目（Add / Remove from Favorites）、右键空白处（当前目录）、工具栏 Favorites 按钮；菜单栏 Go 之后有 Favorites 菜单组（Open Favorites + 收藏路径列表 + Add/Remove Current Folder）。⚠️ 曾出现「添加 B 覆盖了刚添加的 A」（docs/tasks.md）：服务端 favorites 是**全量替换**语义，而旧 store 的变更既不与首次加载互等、提交也不串行、过期 GET 响应还会后落地覆盖新状态。现所有变更先进串行队列、队列内 `await ensureLoaded()` 后基于最新状态计算 next（加载失败则原样报错，不盲写），加载响应带世代号防过期覆盖；回归测试 `node test/test-favorites-store.mjs`。**收藏夹侧栏默认展开**（首次打开 Files 即「盘符根列表 + Favorites 目录」双栏）：显隐状态在 `src/finderPrefs.ts` 外部 store，经 `GET/PUT /api/prefs/finder` 持久化到 `~/.watchdog-os/data.json` 的 `finder` 键（键缺失 = 展开），工具栏 Favorites 按钮与 Favorites 菜单的 Show/Hide 项共用同一状态；侧栏仍只在主窗口渲染（次窗口菜单项置灰），回归测试 `node test/test-finder-prefs-store.mjs`。浏览主体抽为 `src/apps/FinderBrowser.tsx`（按 `winId` + `initialPath` 多实例）：`FinderApp` 持主窗口（`fm-main`）、收藏夹列表窗口（`fm-favorites`，ClassicyTable，双击/Open 新开文件夹窗口）与收藏目标文件夹窗口注册表（`folderWinId(path)` 按路径生成 id，同路径复用仅聚焦）
+  - 收藏夹：`src/favoritesStore.ts` 外部 store（`useSyncExternalStore` 订阅，经 `/api/fs/favorites` 持久化到 `~/.watchdog-os/data.json`，多窗口共享）。添加入口三处：右键文件夹条目（Add / Remove from Favorites）、右键空白处（当前目录）、工具栏 Favorites 按钮；菜单栏 Go 之后有 Favorites 菜单组（Open Favorites + 收藏路径列表 + Add/Remove Current Folder）。⚠️ 曾出现「添加 B 覆盖了刚添加的 A」（docs/tasks.md）：服务端 favorites 是**全量替换**语义，而旧 store 的变更既不与首次加载互等、提交也不串行、过期 GET 响应还会后落地覆盖新状态。现所有变更先进串行队列、队列内 `await ensureLoaded()` 后基于最新状态计算 next（加载失败则原样报错，不盲写），加载响应带世代号防过期覆盖；回归测试 `node test/test-favorites-store.mjs`。**收藏夹侧栏默认展开**（首次打开 Files 即「盘符根列表 + Favorites 目录」双栏）：显隐状态在 `src/finderPrefs.ts` 外部 store，经 `GET/PUT /api/prefs/finder` 持久化到 `~/.watchdog-os/data.json` 的 `finder` 键（键缺失 = 展开），工具栏最左侧 Sidebar 图标按钮与 Favorites 菜单的 Show/Hide 项共用同一状态；侧栏仍只在主窗口渲染（次窗口菜单项置灰）。View 菜单的 Show Hidden Files 也走同一 store，落 `finder.showHiddenFiles`（缺省 false），回归测试 `node test/test-finder-prefs-store.mjs`。浏览主体抽为 `src/apps/FinderBrowser.tsx`（按 `winId` + `initialPath` 多实例）：`FinderApp` 持主窗口（`fm-main`）、收藏夹列表窗口（`fm-favorites`，ClassicyTable，双击/Open 新开文件夹窗口）与收藏目标文件夹窗口注册表（`folderWinId(path)` 按路径生成 id，同路径复用仅聚焦）
 - 前端 `EditorApp`：CodeMirror 6（`@codemirror/lang-*` 按扩展名动态 import，社区主题 `@uiw/codemirror-theme-*`：Dracula / GitHub Dark / GitHub Light / VSCode Dark），保存（Ctrl/Cmd+S）/撤销/重做/查找（Mod-F），Markdown 分栏预览（marked + DOMPurify）。**全部偏好**（主题/字号/字体/Word Wrap/Show Preview）经 `GET/PUT /api/prefs/editor` 持久化到服务端（挂载拉取 + 去重推送；本地已变更时本地胜出；服务端缺该键时只有非默认值才推送，老用户 localStorage 值一次性迁移），localStorage 只作首屏兜底。⚠️ **脏标记由 `content !== baseline` 派生**，不再用布尔：CodeEditor 的外部 value 同步会触发一次 `onChange`，布尔标记会被「打开文件」本身误置为脏（并生成空草稿）。整篇替换（打开 / 恢复 / 丢草稿）`docSeq+1` 重建 `EditorState`，且外部同步标 `Transaction.addToHistory.of(false)`——否则撤销栈跨文档串味、打开文件后一次 Ctrl+Z 会退回空串。未保存关闭有 `onBeforeClose` veto 确认（选「不保存」会先 flush 草稿再关窗）。编辑中的未保存内容自动缓存为草稿（见「编辑器草稿」节），窗口首次打开提醒一次 + File > Restore Draft… 手动入口；恢复后内容区顶部提示条给「保存到文件 / 丢弃草稿」，磁盘已变更 / 源文件不可读时明确警示。
-- 用户偏好 API（`server/api/prefs.js` 的 `GET/PUT /api/prefs/:scope`，统一 `checkAuth` 401 优先）：各应用偏好落盘 `~/.watchdog-os/data.json` 的同名顶层键（经 `lib/userdata.js` 合并写，与 favorites 键互不覆盖）。作用域为 `PREF_SCHEMAS` **字段表**（早期只有布尔数组，现为「键 → 类型 + 长度/范围」）：`editor`（`wordWrap`/`showPreview` 布尔、`theme` ≤32 字符串、`fontFamily` ≤64 字符串、`fontSize` 10~24 整数）、`finder`（`showFavoritesSidebar`），未列出的路径一律 404。**服务端不校验枚举值**（合法主题 / 字体栈来自前端 `EDITOR_THEMES` / `EDITOR_FONTS`，复制到服务端必然漂移），前端读取时按枚举回退；`fontFamily` 会进入 CodeMirror 主题 CSS，前端必须白名单校验。GET 仅返回白名单内且类型合法的键（未设置的不出现）**并回传 `file`（真实落盘路径）供设置面板展示**；PUT 为**部分合并**语义（区别于 favorites 的全量替换）：请求体 `{ <scope>: { … } }` 经字段表清洗后与磁盘现有值合并，未传字段不丢（老客户端只推布尔不会清掉类型化字段）；非法/超大 body（>64KB）400，未知路径/方法 404。
+- 用户偏好 API（`server/api/prefs.js` 的 `GET/PUT /api/prefs/:scope`，统一 `checkAuth` 401 优先）：各应用偏好落盘 `~/.watchdog-os/data.json` 的同名顶层键（经 `lib/userdata.js` 合并写，与 favorites 键互不覆盖）。作用域为 `PREF_SCHEMAS` **字段表**（早期只有布尔数组，现为「键 → 类型 + 长度/范围」）：`editor`（`wordWrap`/`showPreview` 布尔、`theme` ≤32 字符串、`fontFamily` ≤64 字符串、`fontSize` 10~24 整数）、`finder`（`showFavoritesSidebar` / `showHiddenFiles` 布尔），未列出的路径一律 404。**服务端不校验枚举值**（合法主题 / 字体栈来自前端 `EDITOR_THEMES` / `EDITOR_FONTS`，复制到服务端必然漂移），前端读取时按枚举回退；`fontFamily` 会进入 CodeMirror 主题 CSS，前端必须白名单校验。GET 仅返回白名单内且类型合法的键（未设置的不出现）**并回传 `file`（真实落盘路径）供设置面板展示**；PUT 为**部分合并**语义（区别于 favorites 的全量替换）：请求体 `{ <scope>: { … } }` 经字段表清洗后与磁盘现有值合并，未传字段不丢（老客户端只推布尔不会清掉类型化字段）；非法/超大 body（>64KB）400，未知路径/方法 404。
 - 编辑器偏好同步（`src/editorPrefs.ts` 纯逻辑 + `EditorApp` 接线）：**必须按字段合并**——`mutated` 记录用户本会话亲自改过的字段（这些字段 hydration 不覆盖），其余字段照常采用服务端值；早期实现用一个全局布尔「本地已变更」直接跳过整轮 hydration，导致「GET 还没回来就点了 Word Wrap」时后续所有字段都不再同步、改动也永远不推送。`hydrated` 必须是 **state 并进入推送 effect 依赖**（放 ref 里不会触发重跑）。GET 失败重试一次后仍要放开 hydrated，让后续变更能推送；PUT 失败重试一次。设置面板底部展示 `偏好已保存到 <file>`（来自 GET 的 `file`），可直接确认落盘位置。
 - 跨应用联动：`src/editorBridge.ts` 的 `openInEditor(path)` —— 记录 pendingPath + dispatch `ClassicyAppOpen`/`ClassicyWindowOpen` + DOM 事件双通道（挂载消费 pending、已挂载走事件），避免竞态
 
@@ -403,16 +407,17 @@ const appMenu: ClassicyMenuItem[] = useMemo(
 
 - 前端：`npm run build` 确认无 TS / 构建错误（可用 `npx tsc --noEmit` 做全量类型检查）。
 - 后端：`npm start` 后用密码登录，确认指标接口正常返回（未配 `PASSWORD` / `JWT_SECRET` 时进程应拒绝启动并打印 `[fatal]`）。
+- 网络挂载 API：`node test/test-mounts-api.js` 全部 PASS（22 项：401/caps 形状/空列表/SMB 与 WebDAV 新建/密码不回传/id 为 slug/四类输入校验 400/更新保留 id 与密码/列表 mounted=false/FS_ROOTS 并入挂载父目录（平台感知）/未知 id 404/删除；全程临时 HOME + USERPROFILE 隔离，不触碰真实 data.json，不执行真实 mount）
 - 压缩 / 解压 API：`node test/test-archive-api.js` 全部 PASS（79 项：鉴权/能力探测与 503 降级/NDJSON 帧合法与百分比单调/默认同名子目录与 ` 2` 去重/顶层目录上提/tar.gz/空归档/目标非空 409 与 overwrite/Zip Slip 四种形态/并发 409 BUSY/abort 取消后无 `.wdpart-*` 残留且槽已释放/压缩↔解压往返内容一致/非法 body；`pickTool` 四种 via→二进制映射与缺工具返回 null、zip 命令以 `-r` 开头、`unzip -O` 按能力开关、spawnOpts 的 UTF-8 locale/LANGUAGE 清空（Windows 上该两条 SKIP）、压缩→解压中文名不变形、Windows 风格（FAT host）zip 中文名不变形、空归档不再被 unzip 的退出码 1 判失败；工具缺失的用例打印 SKIP 属正常）
 - 文件管理 API：`node test/test-fs-api.js` 全部 PASS（鉴权/列表/读写/新建文件/上传/复制/收藏（含 `~/.watchdog-os/data.json` 落盘位置断言）/越权防护等 30 项）。
 - PWA：`node test/test-pwa.js` 全部 PASS（自起 server，`BASE_PATH=/tkp`，覆盖 manifest 字段/相对 scope/SW 占位符替换/图标尺寸/缓存头/穿越防护；未先 `npm run build` 时 SKIP）
 - Runner API：`node test/test-runner-api.js` 全部 PASS（成功/失败/stop/409/401/400/503 等 22 项；无 bash 环境显示 SKIP 属正常）。
-- 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（34 项：401/默认读取/单字段 PUT/合并语义/布尔与类型化字段白名单/字号范围/400/GET 回传真实落盘路径/落盘 `~/.watchdog-os/data.json`/editor 与 finder 作用域互不破坏、均不被 favorites 写覆盖；测试前后快照恢复真实 data.json，零残留）。
+- 用户偏好 API：`node test/test-prefs-api.js` 全部 PASS（41 项：401/默认读取/单字段 PUT/合并语义/布尔与类型化字段白名单/字号范围/400/GET 回传真实落盘路径/落盘 `~/.watchdog-os/data.json`/editor 与 finder 作用域互不破坏、均不被 favorites 写覆盖；测试前后快照恢复真实 data.json，零残留）。
 - 编辑器草稿 API：`node test/test-drafts-api.js` 全部 PASS（51 项：401/空列表/写入与 id=sha1(路径)/列表不含正文/正文逐字节往返/大小写与 `./` 归一/含 `%` 的路径只解码一次/非法路径 400/2MB 413/幂等删除/坏文件跳过/`disk` 状态/并发原子性/落盘格式/重启清理保留期 + 条数 + 残留 `.tmp`；全程 `DRAFT_DIR` 指向临时目录，不触碰真实 `~/.watchdog-os`）。
 - 自动草稿调度器：`node test/test-editor-draft.mjs` 全部 PASS（18 项：防抖合并 / maxWait 不饿死 / 单飞 + 尾随 / 同内容去重 / 切文件先写旧 / flush 排空 / 失败上报一次且不刷请求 / 恢复清错误态 / 先写后删 / 异常原样上抛 / dispose 停请求；优先 esbuild，缺失时退回 Node 22+ 类型擦除）。
 - 编辑器偏好逻辑：`node test/test-editor-prefs.mjs` 全部 PASS（18 项：首屏兜底解析含损坏/非法枚举回退 / 服务端值合并（缺键保留本地、用户刚改过的字段不被 hydration 弹回、其余字段仍正常 hydration）/ 推送判定（服务端有值比差异、缺键仅非默认值才推）；零依赖，Node 22+ 类型擦除直跑）。
 - 收藏夹 store 竞态：`node test/test-favorites-store.mjs` 全部 PASS（8 项：加载响应晚于提交 / 未加载即变更 / 并发添加乱序 / 加载失败不破坏性盲写 / 正常增删切换回归；经 esbuild 转译真实 TS store + mock fetch 驱动，esbuild 缺失时 SKIP——pnpm 布局会自动到 `node_modules/.pnpm` 下兜底查找）。
-- Files 偏好 store：`node test/test-finder-prefs-store.mjs` 全部 PASS（17 项：默认展开且未设置不写盘 / 服务端 false 生效 / 切换落盘且同值去重 / 加载在途本地胜出并补推 / GET 失败保持默认 / PUT 失败不回滚 UI 且下次重试成功）。
+- Files 偏好 store：`node test/test-finder-prefs-store.mjs` 全部 PASS（26 项：侧栏默认展开 + 隐藏文件默认关闭且未设置不写盘 / 服务端值生效 / 切换落盘且同值去重 / 加载在途本地胜出并补推 / GET 失败保持默认 / PUT 失败不回滚 UI 且下次重试成功 / showHiddenFiles 落盘与侧栏偏好互不覆盖）。
 - 页面级共享轮询：`node test/test-shared-poll.mjs` 全部 PASS（16 项：零订阅者续轮 / 订阅即首拉 / 暂停恢复 / 改间隔 / 401 停止与重登重启 / 慢接口防叠加 / 快照引用稳定 / reload 语义 / polls.ts 端点接线）。
 - 退出登录收尾：`node test/test-session-store.mjs` 全部 PASS（11 项：会话相关 storage 清理且保留纯外观偏好 / 并发 401 只导航一次 / `wd-signed-out` 一次性标记 / 401 与主动退出同路径 / storage 被禁仍完成收尾；优先直接 import `.ts`，旧 Node 回退 esbuild）。
 - 登录审计：`node test/test-audit-log-api.js` 全部 PASS（28 项：登录成功/失败/坏 body/登出落盘、日志不含凭据、401 去重合并、审计接口 401、统计与筛选、CSV 的 BOM/表头/不受 limit 限制、疑似暴力破解命中、保留期清理、重启后可读；临时 `LOGIN_LOG_DIR`，零残留）。

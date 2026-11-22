@@ -5,7 +5,7 @@
  *
  * 现有作用域（PREF_SCHEMAS 白名单，未列出的 path 一律 404）：
  *   editor —— wordWrap / showPreview / theme / fontSize / fontFamily
- *   finder —— showFavoritesSidebar（Files 收藏夹侧栏显隐，默认展开由前端决定）
+ *   finder —— showFavoritesSidebar / showHiddenFiles（Files 侧栏显隐、隐藏文件显示；默认值由前端决定）
  *
  * PUT 为部分合并语义：仅清洗并更新请求中出现的合法字段，未传字段保留原值
  * （区别于 /api/fs/favorites 的全量替换）。
@@ -28,6 +28,7 @@ const PREF_SCHEMAS = {
   },
   finder: {
     showFavoritesSidebar: { type: 'boolean' },
+    showHiddenFiles: { type: 'boolean' },
   },
 };
 
