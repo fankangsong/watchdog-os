@@ -201,12 +201,14 @@ async function caps() {
   if (!hasSudo) missing.push('sudo');
   if (!helperOk) missing.push('scripts/mount-helper.sh (executable)');
 
-  // sudoers 是否真的配好：sudo -n -l 列出权限，检查是否含 helper 绝对路径。
+  // 直接问 sudo 当前用户能否免密执行该 helper。旧逻辑靠 `sudo -n -l` 全量输出
+  // 是否含 helper 绝对路径；root(ALL : ALL) ALL 时输出里没有具体脚本路径，会误判为
+  // 未配 sudoers（服务正是以 root 运行），导致 supported 永远 false。
   // 失败不视为致命（可能只是当前用户不在白名单），单独标记以便给出安装提示。
   let sudoersOk = false;
   if (hasSudo) {
-    const r = await run('sudo', ['-n', '-l'], 8000);
-    sudoersOk = r.ok && r.stdout.includes(HELPER);
+    const r = await run('sudo', ['-n', '-l', HELPER], 8000);
+    sudoersOk = r.ok;
   }
 
   const engines = {
