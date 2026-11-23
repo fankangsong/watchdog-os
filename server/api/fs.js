@@ -290,8 +290,11 @@ async function fsRoute(req, res, p, url) {
     if (p === '/api/fs/list' && method === 'GET') {
       const raw = q.get('path');
       if (!raw || !raw.trim()) {
-        const entries = FS_ROOTS.map((r) => ({
-          name: process.platform === 'win32' ? r : r === MOUNTS_DIR ? 'Network' : '根目录',
+        // MOUNTS_DIR 仍留在 FS_ROOTS 供路径校验（watchdog 自带挂载能力保留），
+        // 但不再作为与根目录平级的 "Network" 磁盘条目展示：远程目录已改由系统
+        // fstab automount 挂在 /mnt 下，沿正常目录树进入即可。
+        const entries = FS_ROOTS.filter((r) => r !== MOUNTS_DIR).map((r) => ({
+          name: process.platform === 'win32' ? r : '根目录',
           path: r,
           type: 'dir',
           size: 0,

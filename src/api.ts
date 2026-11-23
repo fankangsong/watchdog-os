@@ -184,8 +184,6 @@ export interface FsEntry {
   mtime: number;
   mode: string;
   previewable: FsPreviewable;
-  /** 仅根列表里的网络挂载条目携带：'smb' | 'webdav'，用于显示网络磁盘图标 */
-  network?: string;
 }
 
 export interface FsListResult {
@@ -259,81 +257,6 @@ export const fsSetFavorites = (favorites: string[]) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ favorites }),
   });
-
-/* ---------- 网络挂载（/api/mounts）：Files 的 SMB / WebDAV 远程目录 ---------- */
-
-export type MountProtocol = 'smb' | 'webdav';
-
-/** 连接配置（密码由服务端单独存 600 凭据文件，任何响应都不回传） */
-export interface MountConnection {
-  id: string;
-  name: string;
-  protocol: MountProtocol;
-  host: string;
-  share: string;
-  domain: string;
-  url: string;
-  username: string;
-  autoMount: boolean;
-  createdAt: number;
-  mountPoint: string;
-  mounted: boolean;
-}
-
-export interface MountCaps {
-  platform: string;
-  supported: boolean;
-  reasons: string[];
-  missing: string[];
-  sudoersOk: boolean;
-  helper: string;
-  mountsDir: string;
-  engines: { smb: boolean; webdav: boolean };
-}
-
-export interface MountsPayload {
-  connections: MountConnection[];
-  caps: MountCaps;
-}
-
-/** 新建/更新连接：password 新增必填，更新时留空 = 保留原密码 */
-export interface MountInput {
-  name: string;
-  protocol: MountProtocol;
-  host?: string;
-  share?: string;
-  domain?: string;
-  url?: string;
-  username: string;
-  password?: string;
-  autoMount: boolean;
-}
-
-export const mountsList = () => request<MountsPayload>('./api/mounts');
-export const mountsCaps = () => request<MountCaps>('./api/mounts/caps');
-
-export const mountsCreate = (input: MountInput) =>
-  request<{ ok: true; connection: MountConnection }>('./api/mounts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-
-export const mountsUpdate = (id: string, input: MountInput) =>
-  request<{ ok: true; connection: MountConnection }>(`./api/mounts/${enc(id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-
-export const mountsDelete = (id: string) =>
-  request<{ ok: true }>(`./api/mounts/${enc(id)}`, { method: 'DELETE' });
-
-export const mountsMount = (id: string) =>
-  request<{ ok: true; mountPoint: string }>(`./api/mounts/${enc(id)}/mount`, { method: 'POST' });
-
-export const mountsUnmount = (id: string) =>
-  request<{ ok: true }>(`./api/mounts/${enc(id)}/unmount`, { method: 'POST' });
 
 /** Editor 偏好（服务端持久化到 ~/.watchdog-os/data.json，跨浏览器/重部署生效）。
  *  PUT 为部分合并语义：仅传需要变更的字段，未传字段保留服务端原值。

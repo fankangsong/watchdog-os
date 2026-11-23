@@ -584,8 +584,9 @@ body {
 .sp-toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--hig-button-gap-h); padding: 6px 10px; background: var(--color-system-01); border-bottom: var(--window-border-size) solid var(--color-system-05); }
 .sp-toolbar > * { flex: 0 0 auto; }
 .sp-toolbar .classicyButton { margin: 0; font-size: 12px; }
-/* 纯图标按钮（最左侧 Sidebar 开关）：收紧左右留白，避免图标两侧空档过宽 */
-.sp-toolbar .classicyButton.sp-tb-icon-only { padding-left: 6px; padding-right: 6px; }
+/* 纯图标按钮（Sidebar / Back / Up 三个工具栏按钮）：按钮尺寸贴合 16px 图标，
+   不留文字留白；文字语义由 title 悬停提示承担 */
+.sp-toolbar .classicyButton.sp-tb-icon-only { min-width: 0; width: auto; padding: 0; }
 .sp-toolbar .classicyButton:enabled:not(:active) { background-color: var(--color-white); }
 .sp-toolbar .classicyButton:disabled { background-color: var(--color-system-01); border-color: var(--color-black); color: var(--color-system-05); }
 /* 按钮内嵌前置图标（Back/Up/Favorites，16x16 工具栏档，icon-pipeline.md §1.2）：
@@ -661,35 +662,6 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 /* 收藏夹侧栏：固定宽度窄栏，右缘与工具栏底边共用窗口分隔线；点击条目在主窗口内导航 */
 .sp-fm-favside { flex: 0 0 170px; box-sizing: border-box; overflow: auto; padding: 2px 6px 8px; background: var(--color-system-01); border-right: var(--window-border-size) solid var(--color-system-05); }
 .sp-fm-favside-empty { padding: 8px 4px; font-size: 12px; line-height: 1.5; color: var(--color-system-05); }
-
-/* 网络位置侧栏分区（SMB / WebDAV 挂载管理） */
-.sp-net-side { margin-top: 10px; border-top: var(--window-border-size) solid var(--color-system-05); padding-top: 4px; }
-.sp-net-side-title { display: block; width: 100%; text-align: left; border: none; background: none; cursor: pointer; font: inherit; padding: 2px 0; }
-.sp-net-side-title:hover { color: var(--color-system-07); }
-.sp-net-item { display: flex; align-items: center; }
-.sp-net-item-main { flex: 1 1 auto; }
-.sp-net-dot { display: inline-block; width: 8px; height: 8px; flex: 0 0 auto; margin: 0 2px; border: 1px solid var(--color-system-06); border-radius: 50%; background: var(--color-system-03); }
-.sp-net-dot-on { background: #2e7d32; border-color: #1b5e20; }
-.sp-net-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-net-busy { margin-left: auto; color: var(--color-system-05); }
-.sp-net-add { display: block; width: 100%; margin-top: 4px; padding: 3px 4px; border: 1px dashed var(--color-system-05); background: none; font: inherit; font-size: 11px; text-align: left; color: var(--color-system-06); cursor: pointer; }
-.sp-net-add:hover { background: rgba(0, 0, 0, 0.06); }
-.sp-net-hint { margin-top: 4px; font-size: 11px; line-height: 1.4; color: var(--color-system-05); }
-.sp-net-hint-warn { color: #a33; }
-
-/* 网络连接编辑对话框：CSS Grid 两列，label 列右对齐，控件列自适应 */
-.sp-net-dialog { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; column-gap: 10px; row-gap: 8px; padding: 4px; }
-.sp-net-dialog > label { text-align: right; font-size: 12px; font-weight: 700; color: var(--color-system-06); }
-.sp-net-dialog > :not(label) { min-width: 0; }
-.sp-net-grid-wide { grid-column: 1 / -1; }
-/* classicy 的 radio wrapper 默认 margin-top 为半个控件高，圆圈会低于右侧文字。
-   归零并让每个选项内部 flex 居中，使圆圈与文字在同一水平线上居中对齐。 */
-.sp-net-dialog .classicyRadioInputGroup { align-items: center; }
-.sp-net-dialog .classicyRadioInputMargin { display: flex; align-items: center; }
-.sp-net-dialog .classicyRadioInputWrapper,
-.sp-net-dialog .classicyRadioInputWrapperChecked { margin-top: 0; }
-.sp-net-error { padding: 6px 8px; font-size: 12px; color: #a11; border: 1px solid #e0a0a0; background: #fff2f2; }
-
 
 /* 图标视图（默认）：大图标 + 下方名称（参考图 Workspace），单元格网格排布 */
 /* position:relative 供拖拽框选矩形绝对定位；名称标签属界面文本，不参与原生选择 */

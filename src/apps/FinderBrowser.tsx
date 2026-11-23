@@ -54,16 +54,6 @@ import {
 } from '../api';
 import type { ArchiveCaps, ArchiveFormat, ArchiveResult, FsEntry } from '../api';
 import { addFavorites, isFavorite, removeFavorites, useFavorites } from '../favoritesStore';
-import {
-  addMount,
-  mountConnection,
-  removeMount,
-  unmountConnection,
-  updateMount,
-  useMountCaps,
-  useMountConnections,
-} from '../mountsStore';
-import type { MountConnection, MountInput } from '../api';
 import { setShowFavoritesSidebar, setShowHiddenFiles, useFinderPrefs } from '../finderPrefs';
 import { fmtBytes } from '../format';
 import { copyText } from '../clipboard';
@@ -80,7 +70,6 @@ import { MarkdownPreview } from '../components/MarkdownPreview';
 import { DocxPreview } from '../components/DocxPreview';
 import { PrintDialog } from '../components/PrintDialog';
 import { ArchiveDialog, archiveFormatOf } from '../components/ArchiveDialog';
-import { NetworkDialog } from '../components/NetworkDialog';
 // 窗口操作按钮带内嵌图标（16x16 工具栏档，见 docs/icon-pipeline.md §1.2）：
 // 单色 currentColor 跟随按钮文字色，启用/禁用/按下三态自动一致
 import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
@@ -410,13 +399,6 @@ export function FinderBrowser({
   const [treeVersion, setTreeVersion] = useState(0);
   // 收藏夹（外部 store，与收藏夹侧栏等其它实例共享）
   const favorites = useFavorites();
-  // 网络挂载（外部 store）：连接列表 + 能力矩阵，与所有窗口实例共享。
-  // 仅主窗口渲染网络面板，避免多窗口重复轮询；状态变更经 mountsStore 统一 revalidate。
-  const netConnections = useMountConnections();
-  const netCaps = useMountCaps();
-  const [networkDialog, setNetworkDialog] = useState<{ editing: MountConnection | null } | null>(null);
-  const [netBusy, setNetBusy] = useState<string | null>(null); // 正在挂载/卸载/删除的连接 id
-  const [showNetwork, setShowNetwork] = useState(true); // 侧栏网络分区显隐
   const isMain = winId === MAIN_WIN_ID;
 
   const childrenCache = useRef(new Map<string, FsEntry[]>());
@@ -1044,47 +1026,6 @@ export function FinderBrowser({
       stopAlert('Favorites Update Failed', (e as Error).message);
     }
   }, [current, stopAlert]);
-
-  // ---- 网络挂载（SMB / WebDAV）----
-
-  const netOp = useCallback(
-    async (id: string, label: string, fn: () => Promise<void>) => {
-      setNetBusy(id);
-      try {
-        await fn();
-      } catch (e) {
-        stopAlert(label, (e as Error).message);
-      } finally {
-        setNetBusy(null);
-      }
-    },
-    [stopAlert]
-  );
-
-  const onNetMount = useCallback(
-    (c: MountConnection) => void netOp(c.id, 'Mount Failed', () => mountConnection(c.id)),
-    [netOp]
-  );
-  const onNetUnmount = useCallback(
-    (c: MountConnection) => void netOp(c.id, 'Unmount Failed', () => unmountConnection(c.id)),
-    [netOp]
-  );
-  const onNetDelete = useCallback(
-    (c: MountConnection) =>
-      void netOp(c.id, 'Delete Failed', async () => {
-        await removeMount(c.id);
-      }),
-    [netOp]
-  );
-  const onNetSave = useCallback(
-    async (input: MountInput) => {
-      const editing = networkDialog?.editing;
-      if (editing) await updateMount(editing.id, input);
-      else await addMount(input);
-      setNetworkDialog(null);
-    },
-    [networkDialog]
-  );
 
   // ---- 归档（解压 / 压缩）：能力判定与对话框入口 ----
 
@@ -1764,13 +1705,16 @@ export function FinderBrowser({
                 <img className="sp-tb-icon" src={fmSidebarIcon} alt="" />
               </ClassicyButton>
             )}
-            <ClassicyButton disabled={backStack.length === 0} onClickFunc={goBack}>
+            <ClassicyButton
+              className="sp-tb-icon-only"
+              title="Back"
+              disabled={backStack.length === 0}
+              onClickFunc={goBack}
+            >
               <img className="sp-tb-icon" src={fmBackIcon} alt="" />
-              Back
             </ClassicyButton>
-            <ClassicyButton disabled={!current} onClickFunc={goUp}>
+            <ClassicyButton className="sp-tb-icon-only" title="Up" disabled={!current} onClickFunc={goUp}>
               <img className="sp-tb-icon" src={fmUpIcon} alt="" />
-              Up
             </ClassicyButton>
             {/* 地址栏（靠右弹性占满）：显示当前目录路径，回车跳转；
                 Windows（C:\…）与 Linux（/…）路径原样提交，由后端 resolve + FS_ROOTS 校验 */}
@@ -1819,84 +1763,6 @@ export function FinderBrowser({
                   ))
                 )}
 
-                {/* 网络位置分区：SMB / WebDAV 连接。点击已挂载的连接进入远程目录；
-                    未挂载的点击即触发挂载。每条带挂载/卸载与编辑/删除小按钮。 */}
-                <div className="sp-net-side">
-                  <button
-                    type="button"
-                    className="sp-fm-side-title sp-net-side-title"
-                    onClick={() => setShowNetwork((v) => !v)}
-                    title="Show or hide network locations"
-                  >
-                    Network {showNetwork ? '▾' : '▸'}
-                  </button>
-                  {showNetwork && (
-                    <>
-                      {netConnections.map((c) => (
-                        <div className="sp-net-item" key={c.id}>
-                          <button
-                            type="button"
-                            className="sp-fm-fav-btn sp-net-item-main"
-                            title={`${c.protocol.toUpperCase()} · ${c.protocol === 'smb' ? c.host + '/' + c.share : c.url}`}
-                            onClick={() => {
-                              if (c.mounted) navigate(c.mountPoint);
-                              else onNetMount(c);
-                            }}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              showContextMenu(
-                                [
-                                  {
-                                    id: 'net-open',
-                                    title: c.mounted ? 'Open' : 'Mount',
-                                    disabled: netBusy === c.id,
-                                    onClickFunc: () => (c.mounted ? navigate(c.mountPoint) : onNetMount(c)),
-                                  },
-                                  {
-                                    id: 'net-toggle',
-                                    title: c.mounted ? 'Unmount' : 'Mount',
-                                    disabled: netBusy === c.id,
-                                    onClickFunc: () => (c.mounted ? onNetUnmount(c) : onNetMount(c)),
-                                  },
-                                  {
-                                    id: 'net-edit',
-                                    title: 'Edit…',
-                                    onClickFunc: () => setNetworkDialog({ editing: c }),
-                                  },
-                                  { id: 'spacer' },
-                                  {
-                                    id: 'net-delete',
-                                    title: 'Delete…',
-                                    disabled: netBusy === c.id,
-                                    onClickFunc: () => onNetDelete(c),
-                                  },
-                                ],
-                                [e.clientX, e.clientY]
-                              );
-                            }}
-                          >
-                            <span className={`sp-net-dot ${c.mounted ? 'sp-net-dot-on' : ''}`} />
-                            <span className="sp-net-item-name">{c.name}</span>
-                            {netBusy === c.id && <span className="sp-net-busy">…</span>}
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        className="sp-net-add"
-                        onClick={() => setNetworkDialog({ editing: null })}
-                        title="Add a network location"
-                      >
-                        + New Network Location…
-                      </button>
-                      {netCaps && !netCaps.supported && (
-                        <div className="sp-net-hint sp-net-hint-warn" title={netCaps.missing.join(', ')}>
-                          Mount unavailable: {netCaps.missing.slice(0, 2).join(', ') || 'not configured'}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
               </div>
             )}
             <div className="sp-fm-content">
@@ -2129,16 +1995,6 @@ export function FinderBrowser({
             </ClassicyFormButtonRow>
           </ClassicyForm>
         </ClassicyWindow>
-      )}
-
-      {networkDialog && (
-        <NetworkDialog
-          appId={APP_ID}
-          icon={ICON}
-          editing={networkDialog.editing}
-          onCancel={() => setNetworkDialog(null)}
-          onSave={onNetSave}
-        />
       )}
 
       {previews.map((pv) => (
