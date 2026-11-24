@@ -1,8 +1,9 @@
 /* 全局自定义样式（前缀 sp-，避免与 classicy 冲突） */
 
 /* 像素字体 Silkscreen（SIL OFL 1.1，许可证随字体放在 src/assets/fonts/OFL.txt）。
-   只用于登录页的品牌名与窗口标题：像素字形的横竖落在整数像素网格上才锐，
-   所以这几处字号一律取 8 的倍数（24 / 16 / 12），非整数倍会被插值糊掉。 */
+   只用于品牌标识：登录页品牌名（24/16）与窗口标题（16）、移动首页标题（16）。
+   像素字形的横竖落在整数像素网格上才锐，所以这几处字号一律取 8 的倍数，
+   非整数倍会被插值糊掉。副标题等说明性文字用 UI 字体，不占像素字族。 */
 @font-face {
   font-family: 'Silkscreen';
   font-style: normal;
@@ -18,6 +19,24 @@
   src: url('./assets/fonts/silkscreen-700.woff2') format('woff2');
 }
 
+/* ---------- 统一字体栈（design-spec §7.2） ----------
+   classicy 的 --ui-font / --mono-font 等由 Appearance 面板用户可选，且其字体栈末尾
+   已带 generic family（sans-serif/monospace），中文天然回落到系统字体；故不覆盖它们。
+   这两个变量只服务于本项目自绘的 sp- 控件：显式声明中文系统字体，避免各端浏览器
+   用默认兜底导致字面不一。按「简体优先、逐个平台」排列，不引入在线字体。 */
+:root {
+  /* 中文系统字体：无 generic，便于插在「拉丁字体之后、generic 之前」。 */
+  --cjk-font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC";
+  /* 统一等宽栈：拉丁 Menlo/Consolas/Courier，中文 --cjk-font，最后 monospace。
+     刻意不引用 --mono-font——后者是 classicy 注入在桌面根上的用户可选变量，
+     在 :root 上引用会被提前替换成兜底值，既拿不到用户选择又引入替换歧义。 */
+  --sp-mono: "Menlo", "Consolas", "Courier New", var(--cjk-font), monospace;
+  /* 全局无衬线基线：拉丁 Charcoal/Chicago/Geneva（classicy 默认无衬线系统字），
+     中文 --cjk-font，最后 sans-serif。html/body/#root 与桌面根都用它，杜绝未声明
+     font-family 的元素继承浏览器默认衬线（Times）→ 这是 Files/Chat 衬线的根因。 */
+  --sp-ui: "Charcoal", "ChicagoFLF", "Geneva", var(--cjk-font), sans-serif;
+}
+
 /* 去掉浏览器默认 body 边距，隐藏全局滚动条，桌面铺满视口 */
 /* 100dvh 兜底：iOS Safari 地址栏折叠/展开时 100% 会按「展开态」高度计算，
    底部会被地址栏裁掉一截；dvh 跟随可视区，收起地址栏后铺满。@supports 让旧浏览器留在 100%。 */
@@ -26,6 +45,9 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  /* 全局基线：任何未显式声明 font-family 的元素（含 classicy 表格/内容区、sp- 控件）
+     都不再继承浏览器默认衬线，而是走统一无衬线栈。 */
+  font-family: var(--sp-ui);
 }
 @supports (height: 100dvh) {
   html, body, #root { height: 100dvh; }
@@ -38,6 +60,23 @@ html {
 /* 禁止整页橡皮筋：桌面本身是 overflow:hidden 的全屏容器，滚动只发生在窗口内部 */
 body {
   overscroll-behavior: none;
+}
+
+/* ---------- 消除 classicy 组件的衬线字体（design-spec §7.2，方案 B 统一无衬线） ----------
+   classicy 有几处组件显式写了 font-family:var(--body-font)/var(--header-font)，
+   而这两个变量默认栈分别是 "Geneva", serif / "AppleGaramond", serif：
+   在缺字体的平台（非经典 Mac）会落到 generic serif → Files 表格等呈现衬线。
+   这里按更高特异性把「正文本应无衬线」的组件改回 var(--ui-font)——它是用户
+   Appearance 面板可选的系统字体（Charcoal/Chicago/Geneva 均 sans-serif），只有用户
+   主动选 AppleGaramond 才会是衬线，尊重用户选择。不加 !important、不改 classicy 变量。 */
+.classicyTable,
+.classicyIcon p,
+.classicyDesktopIcon p,
+.appleGuideWindow .classicyAssistantBody,
+.finderAboutThisComputerVersion span,
+.classicyStartupScreenWordmark,
+.driveSetupList__header {
+  font-family: var(--ui-font);
 }
 
 
@@ -199,11 +238,13 @@ body {
   --window-control-size: 12px;
   --window-padding-size: 6px;
   --window-scrollbar-size: 17px;
-  --ui-font: "Charcoal", "ChicagoFLF", "Geneva", sans-serif;
+  /* 登录页无 Desktop，这组变量由本文件提供（classicy 注入仅发生在桌面根）。
+     中文系统字体插在 generic 之前：拉丁仍走 Charcoal/Geneva，中文走 --cjk-font。 */
+  --ui-font: "Charcoal", "ChicagoFLF", "Geneva", var(--cjk-font), sans-serif;
   --ui-font-size: 14px;
-  --header-font: "AppleGaramond", serif;
-  --body-font: "Geneva", serif;
-  --mono-font: "Monaco", monospace;
+  --header-font: "AppleGaramond", var(--cjk-font), serif;
+  --body-font: "Geneva", var(--cjk-font), serif;
+  --mono-font: "Monaco", var(--cjk-font), monospace;
   --hig-button-height: 20px;
   --hig-button-min-width: 58px;
 }
@@ -238,7 +279,7 @@ body {
    会把锐利的方块边糊成灰边，像素字体的味道就没了；靠字色本身与深背景拉开对比 */
 .sp-login-brand-name {
   margin: 0;
-  font-family: 'Silkscreen', var(--mono-font, monospace);
+  font-family: 'Silkscreen', var(--sp-mono);
   font-size: 24px;
   font-weight: 700;
   line-height: 1.1;
@@ -247,8 +288,9 @@ body {
 }
 .sp-login-brand-tag {
   margin: 5px 0 0;
-  font-family: 'Silkscreen', var(--mono-font, monospace);
-  font-size: 12px;
+  /* 说明性副标题，不是品牌标识：用 UI 字体，避免 Silkscreen 非 8 倍数（12）被插值糊掉 */
+  font-family: var(--ui-font);
+  font-size: 11px;
   letter-spacing: 0.06em;
   /* 无阴影托底，字色比之前略提亮以保住对比 */
   color: rgba(243, 240, 232, 0.86);
@@ -276,7 +318,7 @@ body {
   border-bottom: 1px solid #000;
   box-shadow: inset 0 1px 0 #ffffff;
   text-align: center;
-  font-family: 'Silkscreen', var(--mono-font, monospace);
+  font-family: 'Silkscreen', var(--sp-mono);
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -373,14 +415,15 @@ body {
   background: #d9d5cd;
   font-size: 12px;
   color: #3c3831;
-  font-family: 'Silkscreen', var(--mono-font);
+  /* 状态栏是功能性文字，不是品牌标识：用 UI 字体，避免 Silkscreen 12px 非 8 倍数 */
+  font-family: var(--ui-font);
 }
 .sp-login-status-text {
   letter-spacing: 0.02em;
 }
 .sp-login-status-clock {
   margin-left: auto;
-  font-family: 'Silkscreen', var(--mono-font);
+  font-family: var(--ui-font);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: #3c3831;
@@ -582,7 +625,7 @@ body {
   transform: rotate(-90deg); transform-origin: center;
   transition: stroke-dashoffset 0.5s;
 }
-.sp-gauge-text { font-size: 15px; font-weight: 700; }
+.sp-gauge-text { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .sp-gauge-label { font-size: 12px; color: #444; margin-top: 2px; }
 .sp-chart-wrap { flex: 1; min-width: 220px; }
 .sp-legend { display: flex; gap: 14px; font-size: 11px; color: #444; margin-bottom: 4px; }
@@ -633,6 +676,9 @@ body {
 .sp-toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--hig-button-gap-h); padding: 6px 10px; background: var(--color-system-01); border-bottom: var(--window-border-size) solid var(--color-system-05); }
 .sp-toolbar > * { flex: 0 0 auto; }
 .sp-toolbar .classicyButton { margin: 0; font-size: 12px; }
+/* 纯图标按钮（Sidebar / Back / Up 三个工具栏按钮）：按钮尺寸贴合 16px 图标，
+   不留文字留白；文字语义由 title 悬停提示承担 */
+.sp-toolbar .classicyButton.sp-tb-icon-only { min-width: 0; width: auto; padding: 0; }
 .sp-toolbar .classicyButton:enabled:not(:active) { background-color: var(--color-white); }
 .sp-toolbar .classicyButton:disabled { background-color: var(--color-system-01); border-color: var(--color-black); color: var(--color-system-05); }
 /* 按钮内嵌前置图标（Back/Up/Favorites，16x16 工具栏档，icon-pipeline.md §1.2）：
@@ -709,7 +755,6 @@ ul.classicyContextMenu li[id^="fm-"] > p { white-space: nowrap; }
 .sp-fm-favside { flex: 0 0 170px; box-sizing: border-box; overflow: auto; padding: 2px 6px 8px; background: var(--color-system-01); border-right: var(--window-border-size) solid var(--color-system-05); }
 .sp-fm-favside-empty { padding: 8px 4px; font-size: 12px; line-height: 1.5; color: var(--color-system-05); }
 
-
 /* 图标视图（默认）：大图标 + 下方名称（参考图 Workspace），单元格网格排布 */
 /* position:relative 供拖拽框选矩形绝对定位；名称标签属界面文本，不参与原生选择 */
 .sp-fm-icons { position: relative; user-select: none; flex: 1 1 auto; min-height: 0; overflow: auto; box-sizing: border-box; display: flex; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; gap: 8px 4px; padding: 12px 10px; }
@@ -754,7 +799,7 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-arch-title { font-size: 13px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-arch-meta { font-size: 11px; color: var(--color-system-05); margin-top: 2px; }
 .sp-arch-note { font-size: 11px; line-height: 1.45; color: var(--color-system-05); margin: 0; }
-.sp-arch-note code, .sp-arch-hint { font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; }
+.sp-arch-note code, .sp-arch-hint { font-family: var(--sp-mono); font-size: 11px; }
 .sp-arch-warn { color: var(--color-alert); }
 /* 缺工具提示块：浅黄底 + 深色等宽安装命令，与对话框同为 1px 蚀刻边框语言 */
 .sp-arch-error { border: 1px solid rgba(0, 0, 0, 0.3); background: #fffbe6; padding: 8px 10px; font-size: 11px; line-height: 1.5; }
@@ -766,13 +811,13 @@ body.sp-fm-band-active, body.sp-fm-band-active * { cursor: crosshair !important;
 .sp-arch-bar { flex: 1 1 auto; min-width: 0; }
 .sp-arch-pct { flex: 0 0 auto; width: 38px; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
 /* 当前条目：单行省略，长路径不撑破对话框 */
-.sp-arch-current { font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; color: var(--color-system-05); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 14px; }
+.sp-arch-current { font-family: var(--sp-mono); font-size: 11px; color: var(--color-system-05); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 14px; }
 .sp-arch-count { font-size: 11px; color: var(--color-system-05); }
 .sp-arch-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 .sp-arch-done { display: flex; flex-direction: column; gap: 8px; }
-.sp-arch-path { font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; background: var(--color-white); border: 1px solid rgba(0, 0, 0, 0.3); padding: 5px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-arch-path { font-family: var(--sp-mono); font-size: 11px; background: var(--color-white); border: 1px solid rgba(0, 0, 0, 0.3); padding: 5px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 失败详情（工具 stderr 尾部）：限高滚动，避免长日志把对话框撑出屏幕 */
-.sp-arch-detail { margin: 0; max-height: 120px; overflow: auto; font-family: 'Menlo', 'Consolas', monospace; font-size: 10px; line-height: 1.45; background: rgba(0, 0, 0, 0.05); border: 1px solid rgba(0, 0, 0, 0.2); padding: 6px; white-space: pre-wrap; word-break: break-word; }
+.sp-arch-detail { margin: 0; max-height: 120px; overflow: auto; font-family: var(--sp-mono); font-size: 11px; line-height: 1.45; background: rgba(0, 0, 0, 0.05); border: 1px solid rgba(0, 0, 0, 0.2); padding: 6px; white-space: pre-wrap; word-break: break-word; }
 .sp-arch-error-view { display: flex; flex-direction: column; gap: 8px; }
 .sp-arch-error-text { font-size: 12px; }
 
@@ -834,7 +879,7 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
 .sp-fm-info-row { display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: baseline; }
 .sp-fm-info-label { color: var(--color-system-04, #666); text-align: right; }
 .sp-fm-info-value { word-break: break-all; }
-.sp-fm-info-path { font-family: Consolas, Menlo, monospace; }
+.sp-fm-info-path { font-family: var(--sp-mono); }
 /* Get Info 路径行点击复制：虚线下划线提示可点，复制成功短暂变绿（Copied ✓） */
 .sp-fm-info-path-click { cursor: pointer; text-decoration: underline dotted rgba(0, 0, 0, 0.35); text-underline-offset: 2px; }
 .sp-fm-info-path-click:hover { text-decoration-style: solid; }
@@ -855,7 +900,7 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
   box-sizing: border-box;
   height: var(--hig-button-height);
   font-size: 12px;
-  font-family: Consolas, Menlo, monospace;
+  font-family: var(--sp-mono);
   padding: 0 6px;
 }
 
@@ -905,7 +950,7 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
 .sp-editor-code { height: 100%; min-width: 0; flex: 1 1 auto; }
 .sp-editor-preview { height: 100%; min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 /* 非 Markdown 文件的预览：等宽原文，同样自适应换行 */
-.sp-editor-plain { flex: 1 1 auto; min-height: 0; margin: 0; padding: 10px 14px; overflow: auto; box-sizing: border-box; font-family: var(--mono-font, monospace); font-size: 13px; line-height: 1.6; color: #1d1d1f; background: #fff; white-space: pre-wrap; word-break: break-word; }
+.sp-editor-plain { flex: 1 1 auto; min-height: 0; margin: 0; padding: 10px 14px; overflow: auto; box-sizing: border-box; font-family: var(--sp-mono); font-size: 13px; line-height: 1.6; color: #1d1d1f; background: #fff; white-space: pre-wrap; word-break: break-word; }
 .sp-editor-empty { display: flex; flex: 1 1 auto; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #555; font-size: 13px; }
 .sp-editor-status { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 10px; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.15); font-size: 11px; color: #444; }
 .sp-editor-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -941,7 +986,7 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
 .sp-draft-row.on { background: #c9d4ee; }
 .sp-draft-name { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .sp-draft-meta { font-size: 11px; color: #555; white-space: nowrap; }
-.sp-draft-path { grid-column: 1 / -1; overflow: hidden; font-family: var(--mono-font, monospace); font-size: 11px; color: #666; text-overflow: ellipsis; white-space: nowrap; }
+.sp-draft-path { grid-column: 1 / -1; overflow: hidden; font-family: var(--sp-mono); font-size: 11px; color: #666; text-overflow: ellipsis; white-space: nowrap; }
 .sp-draft-warn { grid-column: 1 / -1; font-size: 11px; font-weight: 700; color: #b03000; }
 
 /* CodeMirror 容器。box-sizing 必须为 border-box：宿主默认 content-box 下 height:100%
@@ -962,10 +1007,10 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
 .sp-md-preview p { margin: 6px 0; }
 .sp-md-preview a { color: #0969da; }
 .sp-md-preview code {
-  font-family: "Courier New", "consolas", "Menlo", monospace;
+  font-family: var(--sp-mono);
   font-size: 14px;
 }
-.sp-md-preview pre { font-family: var(--mono-font); padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
+.sp-md-preview pre { font-family: var(--sp-mono); padding: 8px 10px; overflow: auto; background: #f4f4f4; border: 1px solid rgba(0, 0, 0, 0.15); }
 .sp-md-preview pre code { padding: 0; background: none; position: relative;}
 /* 代码块右上角复制按钮：MarkdownPreview 经 DOM API 给每个 pre 包 relative wrapper（.sp-md-code-wrap）后挂进去，
    定位在 wrapper 上，不随 pre 滚动条滚动 */
@@ -1020,7 +1065,7 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
 .sp-chat-list, .sp-chat-list * { -webkit-user-select: text; user-select: text; }
 .sp-chat-row { display: flex; flex-direction: column; }
 .sp-chat-row.user { align-items: flex-end; }
-.sp-chat-time { font-size: 10px; color: #888; padding: 0 2px 1px; }
+.sp-chat-time { font-size: 11px; color: #888; padding: 0 2px 1px; }
 .sp-chat-bubble { max-width: 82%; min-width: 0; box-sizing: border-box; border: 1px solid rgba(0, 0, 0, 0.35); box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.12); padding: 5px 10px; font-size: 13px; line-height: 1.6; overflow-wrap: break-word; }
 .sp-chat-bubble.user { background: #ccccff; }
 .sp-chat-bubble.assistant { background: #fff; }
@@ -1039,13 +1084,13 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
 .sp-chat-tools-live { margin-left: 4px; color: #c60; animation: sp-chat-blink 1s steps(1) infinite; }
 .sp-chat-tools-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .sp-chat-tools-step { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: #555; flex-wrap: wrap; }
-.sp-chat-tools-step-name { font-family: 'Menlo', 'Consolas', monospace; }
+.sp-chat-tools-step-name { font-family: var(--sp-mono); }
 .sp-chat-tools-step.running .sp-chat-tools-step-state { color: #333; font-style: italic; }
 .sp-chat-tools-step.error .sp-chat-tools-step-state { color: #c00; }
 .sp-chat-tools-detail { flex: 1 1 100%; }
 .sp-chat-tools-detail summary { cursor: pointer; color: #888; }
 .sp-chat-tools-detail-label { margin-top: 3px; color: #888; }
-.sp-chat-tools-detail pre { margin: 1px 0 0; padding: 4px 8px; background: rgba(0, 0, 0, 0.05); border: 1px dashed rgba(0, 0, 0, 0.2); font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; color: #555; max-height: 160px; overflow: auto; }
+.sp-chat-tools-detail pre { margin: 1px 0 0; padding: 4px 8px; background: rgba(0, 0, 0, 0.05); border: 1px dashed rgba(0, 0, 0, 0.2); font-family: var(--sp-mono); font-size: 11px; white-space: pre-wrap; word-break: break-word; color: #555; max-height: 160px; overflow: auto; }
 .sp-chat-err { color: #c00; white-space: pre-wrap; word-break: break-word; }
 .sp-chat-cursor { color: #333; animation: sp-chat-blink 1s steps(1) infinite; }
 @keyframes sp-chat-blink { 50% { opacity: 0; } }
@@ -1079,8 +1124,8 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
 .sp-usage-avail.bad { color: #c00; }
 .sp-usage-balance-line { display: flex; align-items: baseline; gap: 8px; }
 .sp-usage-currency { font-size: 11px; color: #555; }
-.sp-usage-total { font-size: 16px; font-weight: bold; }
-.sp-usage-sub { font-size: 10px; color: #888; }
+.sp-usage-total { font-size: 16px; font-weight: bold; font-variant-numeric: tabular-nums; }
+.sp-usage-sub { font-size: 11px; color: #888; }
 
 /* ---------- 桌面图标"已打开"态修正 ----------
    classicy 默认在应用窗口打开后把桌面图标渲染为轮廓棋盘网纹（图标本体 opacity:0 +
@@ -1127,7 +1172,7 @@ html[data-wd-layout="mobile"] .sp-arch-path { white-space: normal; word-break: b
 .sp-conv-file-icon { width: 32px; height: 32px; image-rendering: pixelated; flex: 0 0 auto; }
 .sp-conv-file-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .sp-conv-file-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-conv-file-path { font-family: Consolas, Menlo, monospace; font-size: 11px; color: var(--color-system-04, #666); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-conv-file-path { font-family: var(--sp-mono); font-size: 11px; color: var(--color-system-04, #666); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-conv-file-sub { font-size: 11px; color: var(--color-system-04, #666); }
 .sp-conv-file-actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
 .sp-conv-file-actions .classicyButton { margin: 0; font-size: 12px; }
@@ -1169,14 +1214,14 @@ ul.classicyContextMenu li[id^="cv-"] > p { white-space: nowrap; }
 .sp-audit-toolbar .sp-audit-sel-type { width: 118px; }
 .sp-audit-toolbar .sp-audit-sel-result { width: 104px; }
 /* 带内右端上下文（规则 9）：小一号等宽字体，不做可交互控件 */
-.sp-audit-retention { font-family: Menlo, Consolas, monospace; font-size: 11px; color: var(--color-system-04, #666); }
+.sp-audit-retention { font-family: var(--sp-mono); font-size: 11px; color: var(--color-system-04, #666); }
 /* 内容区：唯一滚动容器 */
 .sp-audit-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .sp-audit-pad { padding: 8px 12px; }
 /* 概览指标卡：大号数值 + 小号灰标签，窄窗口自动折行 */
 .sp-audit-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; padding: 8px 12px; }
 .sp-audit-card { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; background: var(--color-white); border: 1px solid var(--color-system-05); }
-.sp-audit-card-value { font-size: 18px; font-weight: 700; line-height: 1.1; }
+.sp-audit-card-value { font-size: 18px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .sp-audit-card-label { font-size: 11px; color: var(--color-system-04, #666); text-transform: uppercase; letter-spacing: 0.03em; }
 /* 图例 / 趋势图 */
 .sp-audit-legend { display: flex; gap: 14px; font-size: 11px; color: #444; padding: 2px 12px 4px; }
@@ -1186,14 +1231,14 @@ ul.classicyContextMenu li[id^="cv-"] > p { white-space: nowrap; }
 /* 异常条目：徽标 + 等宽来源 + 说明 */
 .sp-audit-anomalies { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; font-size: 12px; }
 .sp-audit-anomaly { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
-.sp-audit-badge { flex: 0 0 auto; padding: 0 5px; font-size: 10px; font-weight: 700; text-transform: uppercase; border: 1px solid; }
+.sp-audit-badge { flex: 0 0 auto; padding: 0 5px; font-size: 11px; font-weight: 700; text-transform: uppercase; border: 1px solid; }
 .sp-audit-badge.danger { color: var(--color-white); background: #dc2626; border-color: #a00000; }
 .sp-audit-badge.note { color: var(--color-black); background: #ffff00; border-color: #808000; }
 /* 事件表：来源 IP 筛选行 + 内部滚动的表格（表头 sticky 由 ClassicyTable 保证） */
 .sp-audit-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 4px; flex-wrap: wrap; }
 .sp-audit-filter .classicyInputHolder { max-width: 220px; }
 .sp-audit-table { max-height: 320px; overflow: auto; }
-.sp-audit-mono { font-family: Menlo, Consolas, monospace; font-size: 11px; }
+.sp-audit-mono { font-family: var(--sp-mono); font-size: 11px; }
 .sp-audit-ellipsis { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .sp-audit-count { color: #2563eb; }
 /* 状态栏（双区）：左上下文 / 右全局 */
@@ -1389,7 +1434,7 @@ html[data-wd-layout="mobile"] .sp-fm-table {
 }
 .sp-m-home-title {
   margin: 0;
-  font-family: 'Silkscreen', var(--mono-font, monospace);
+  font-family: 'Silkscreen', var(--sp-mono);
   font-size: 16px;
   font-weight: 700;
   line-height: 1.15;
@@ -1493,7 +1538,7 @@ html[data-wd-layout="mobile"] .sp-fm-table {
 }
 .sp-m-clock {
   margin-left: auto;
-  font-family: var(--mono-font, monospace);
+  font-family: var(--sp-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1655,7 +1700,6 @@ html[data-wd-layout="mobile"] .sp-login-brand {
   margin-bottom: 16px;
 }
 html[data-wd-layout="mobile"] .sp-login-brand-name { font-size: 16px; }
-html[data-wd-layout="mobile"] .sp-login-brand-tag { font-size: 10px; }
 html[data-wd-layout="mobile"] .sp-platinum-window {
   width: 100%;
   max-width: 380px;
@@ -1742,18 +1786,18 @@ html[data-wd-layout="mobile"] .sp-login-status-clock { font-size: 16px; }
 /* 指标 / 信息卡片（仿 .sp-audit-cards） */
 .sp-ledger-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; padding: 8px 12px; }
 .sp-ledger-card { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 8px; background: var(--color-white); border: 1px solid var(--color-system-05); }
-.sp-ledger-card-value { font-size: 16px; font-weight: 700; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-ledger-card-value { font-size: 16px; font-weight: 700; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sp-ledger-card-label { font-size: 11px; color: var(--color-system-05); text-transform: uppercase; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-ledger-ok { color: var(--color-system-06); }
 .sp-ledger-bad { color: var(--color-error); font-weight: 700; }
 
 /* 核对明细 / 警告 */
 .sp-ledger-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 12px 8px; font-size: 11px; color: var(--color-system-06); }
-.sp-ledger-check { font-family: Menlo, Consolas, monospace; }
+.sp-ledger-check { font-family: var(--sp-mono); }
 .sp-ledger-warnings { padding: 2px 12px 8px; font-size: 11px; color: var(--color-error); }
 
 /* 状态标签：new / exists / conflict + 备份类型 */
-.sp-ledger-badge { display: inline-block; padding: 0 5px; font-size: 10px; font-weight: 700; white-space: nowrap; border: 1px solid var(--color-system-05); }
+.sp-ledger-badge { display: inline-block; padding: 0 5px; font-size: 11px; font-weight: 700; white-space: nowrap; border: 1px solid var(--color-system-05); }
 .sp-ledger-badge-new { color: var(--color-black); background: var(--color-theme-02); }
 .sp-ledger-badge-exists { color: var(--color-system-05); background: var(--color-system-01); }
 .sp-ledger-badge-conflict { color: var(--color-white); background: var(--color-error); border-color: var(--color-black); }
@@ -1763,12 +1807,12 @@ html[data-wd-layout="mobile"] .sp-login-status-clock { font-size: 16px; }
 
 /* 表格 / 金额 / 行内操作 */
 .sp-ledger-table { max-height: 340px; overflow: auto; border: 1px solid var(--color-system-04); }
-.sp-ledger-num { font-family: Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
-.sp-ledger-mono { font-family: Menlo, Consolas, monospace; font-size: 11px; }
+.sp-ledger-num { font-family: var(--sp-mono); font-variant-numeric: tabular-nums; }
+.sp-ledger-mono { font-family: var(--sp-mono); font-size: 11px; }
 .sp-ledger-row-actions { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; }
 .sp-ledger-row-actions .classicyButton { margin: 0; font-size: 11px; }
 .sp-ledger-summary { display: flex; flex-wrap: wrap; gap: 16px; padding: 6px 12px; font-size: 12px; color: var(--color-system-07); background: var(--color-system-01); border: 1px solid var(--color-system-04); }
-.sp-ledger-summary b { font-family: Menlo, Consolas, monospace; }
+.sp-ledger-summary b { font-family: var(--sp-mono); }
 
 /* 图表：手写 canvas，容器定高，canvas 铺满；dpr 由组件处理 */
 .sp-ledger-legend { display: flex; gap: 14px; padding: 2px 12px 6px; font-size: 11px; color: var(--color-system-06); }
@@ -1791,12 +1835,12 @@ html[data-wd-layout="mobile"] .sp-login-status-clock { font-size: 16px; }
 }
 .sp-ledger-chart-tip-title { margin-bottom: 2px; font-weight: 700; }
 .sp-ledger-chart-tip i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: -1px; }
-.sp-ledger-chart-tip b { font-family: Menlo, Consolas, monospace; font-weight: 700; }
-.sp-ledger-chart-tip-hint { margin-top: 3px; padding-top: 3px; font-size: 10px; color: var(--color-system-05); border-top: 1px solid var(--color-system-04); }
+.sp-ledger-chart-tip b { font-family: var(--sp-mono); font-weight: 700; }
+.sp-ledger-chart-tip-hint { margin-top: 3px; padding-top: 3px; font-size: 11px; color: var(--color-system-05); border-top: 1px solid var(--color-system-04); }
 /* 点击柱状图后的下钻明细面板 */
 .sp-ledger-drill { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; background: var(--color-white); border: 2px solid var(--color-system-06); }
 .sp-ledger-drill-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--color-system-07); }
-.sp-ledger-drill-head b { font-family: Menlo, Consolas, monospace; }
+.sp-ledger-drill-head b { font-family: var(--sp-mono); }
 
 /* 危险操作区（外部 .db 恢复） */
 .sp-ledger-danger { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; background: var(--color-system-01); border: 2px solid var(--color-error); }

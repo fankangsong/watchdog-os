@@ -187,11 +187,23 @@ const jput = (url, body, H) =>
     const fg = await (await fetch(`${BASE}/api/prefs/finder`, { headers: H })).json();
     ok('finder GET back', fg.finder.showFavoritesSidebar === false, JSON.stringify(fg.finder));
 
+    // showHiddenFiles：隐藏文件开关同样落盘，且与侧栏偏好互不覆盖
+    const fh1 = await (await jput(`${BASE}/api/prefs/finder`, { finder: { showHiddenFiles: true } }, H)).json();
+    ok(
+      'finder PUT showHiddenFiles keeps sidebar',
+      fh1.ok === true && fh1.finder.showHiddenFiles === true && fh1.finder.showFavoritesSidebar === false,
+      JSON.stringify(fh1.finder)
+    );
+    const fhg = await (await fetch(`${BASE}/api/prefs/finder`, { headers: H })).json();
+    ok('finder GET showHiddenFiles back', fhg.finder.showHiddenFiles === true, JSON.stringify(fhg.finder));
+
     // 白名单：非布尔值 / 未知字段被忽略，已存值不被改坏
-    const f2 = await (await jput(`${BASE}/api/prefs/finder`, { finder: { showFavoritesSidebar: 'yes', other: true } }, H)).json();
+    const f2 = await (
+      await jput(`${BASE}/api/prefs/finder`, { finder: { showFavoritesSidebar: 'yes', showHiddenFiles: 'no', other: true } }, H)
+    ).json();
     ok(
       'finder whitelist filters invalid',
-      f2.finder.showFavoritesSidebar === false && f2.finder.other === undefined,
+      f2.finder.showFavoritesSidebar === false && f2.finder.showHiddenFiles === true && f2.finder.other === undefined,
       JSON.stringify(f2.finder)
     );
 
@@ -218,7 +230,7 @@ const jput = (url, body, H) =>
     } catch { /* 不存在时保持 null */ }
     ok(
       'finder saved to ~/.watchdog-os/data.json',
-      !!diskFinder && !!diskFinder.finder && diskFinder.finder.showFavoritesSidebar === false,
+      !!diskFinder && !!diskFinder.finder && diskFinder.finder.showFavoritesSidebar === false && diskFinder.finder.showHiddenFiles === true,
       DATA_FILE
     );
     ok(
@@ -234,7 +246,11 @@ const jput = (url, body, H) =>
       disk2 = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     } catch { /* 不存在时保持 null */ }
     ok('favorites survive prefs write', !!disk2 && Array.isArray(disk2.favorites) && disk2.favorites.includes(favDir), JSON.stringify(disk2 && disk2.favorites));
-    ok('finder survives editor write', !!disk2 && !!disk2.finder && disk2.finder.showFavoritesSidebar === false, JSON.stringify(disk2 && disk2.finder));
+    ok(
+      'finder survives editor write',
+      !!disk2 && !!disk2.finder && disk2.finder.showFavoritesSidebar === false && disk2.finder.showHiddenFiles === true,
+      JSON.stringify(disk2 && disk2.finder)
+    );
 
     // ---- showPreview:false 完整回环（bug 回归：关掉预览必须能被服务端存住）----
     const pf = await (await jput(`${BASE}/api/prefs/editor`, { editor: { showPreview: false } }, H)).json();

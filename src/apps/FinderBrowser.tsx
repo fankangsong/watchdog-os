@@ -2,13 +2,13 @@
 // 主窗口（根列表起步）、收藏夹双击新开的文件夹窗口共用本组件，各自持有独立的
 // 当前目录/选中/历史/预览等状态。默认图标视图（大图标 + 下方名称，OS8 选中高亮），
 // View 菜单可切换列表视图。无状态栏；主窗口左侧有收藏夹侧栏——默认展开（首次打开即见
-// Favorites 目录），工具栏 Favorites 按钮或 Favorites 菜单切换显隐，选择经
+// Favorites 目录），工具栏最左侧 Sidebar 图标按钮或 Favorites 菜单切换显隐，选择经
 // src/finderPrefs.ts 持久化到服务端 ~/.watchdog-os/data.json（下次打开按上次选择恢复）。
 // 目录导航经双击进入 + Go 菜单（Back ⌘[ / Open Parent Folder ⌘↑）。
 // 支持上传（从系统拖入窗口 / Upload File…，进度/取消/覆盖确认）、新建文件夹、新建文本文件、
 // 重命名（可改扩展名）、删除、
 // 复制/剪切/粘贴（服务端递归复制，同名自动追加 copy 后缀）、Get Info、
-// 收藏夹（右键文件夹 Add/Remove from Favorites、工具栏按钮、菜单栏 Favorites 菜单）：
+// 收藏夹（右键文件夹 Add/Remove from Favorites、侧栏开关按钮、菜单栏 Favorites 菜单）：
 // 以及图片/文本/Markdown 预览窗口（图片可缩放：Ctrl/⌘+滚轮、双击、底部缩放条、
 // View 菜单，放大后可拖动平移）、打印（File > Print… / 右键菜单 / 预览窗口菜单）：
 // 打印前弹出 PrintDialog 选择打印机、纸张大小、彩色黑白与页码范围，再提交 CUPS。
@@ -54,7 +54,7 @@ import {
 } from '../api';
 import type { ArchiveCaps, ArchiveFormat, ArchiveResult, FsEntry } from '../api';
 import { addFavorites, isFavorite, removeFavorites, useFavorites } from '../favoritesStore';
-import { setShowFavoritesSidebar, useFinderPrefs } from '../finderPrefs';
+import { setShowFavoritesSidebar, setShowHiddenFiles, useFinderPrefs } from '../finderPrefs';
 import { fmtBytes } from '../format';
 import { copyText } from '../clipboard';
 import { openInEditor } from '../editorBridge';
@@ -74,7 +74,7 @@ import { ArchiveDialog, archiveFormatOf } from '../components/ArchiveDialog';
 // 单色 currentColor 跟随按钮文字色，启用/禁用/按下三态自动一致
 import fmBackIcon from '../assets/icons/fm-back.svg?no-inline';
 import fmUpIcon from '../assets/icons/fm-up.svg?no-inline';
-import fmFavIcon from '../assets/icons/fm-fav.svg?no-inline';
+import fmSidebarIcon from '../assets/icons/fm-sidebar.svg?no-inline';
 // 图片预览缩放条（Zoom Out / Zoom In / Fit to Window），同为 16x16 双色档
 import fmZoomOutIcon from '../assets/icons/fm-zoom-out.svg?no-inline';
 import fmZoomInIcon from '../assets/icons/fm-zoom-in.svg?no-inline';
@@ -359,7 +359,6 @@ export function FinderBrowser({
   const [current, setCurrent] = useState('');
   const [entries, setEntries] = useState<FsEntry[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [showHidden, setShowHidden] = useState(false);
   const [loading, setLoading] = useState(false);
   const [backStack, setBackStack] = useState<string[]>([]);
   const [previews, setPreviews] = useState<FsEntry[]>([]);
@@ -383,10 +382,10 @@ export function FinderBrowser({
   const [picking, setPicking] = useState(isConverterPicking);
   // 视图模式：默认图标视图（对齐参考图 Workspace），View 菜单切换并持久化
   const [viewMode, setViewModeState] = useState<ViewMode>(loadViewMode);
-  // 收藏夹侧栏显隐（仅主窗口渲染；工具栏 Favorites 按钮 / Favorites 菜单切换）。
-  // 状态在 finderPrefs store 里：默认展开（首次打开即见 Favorites 目录），
-  // 用户切换经 /api/prefs/finder 落盘 ~/.watchdog-os/data.json，下次打开按上次选择恢复
-  const { showFavoritesSidebar: showFavs } = useFinderPrefs();
+  // 收藏夹侧栏显隐（仅主窗口渲染；工具栏最左侧 Sidebar 图标按钮 / Favorites 菜单切换）
+  // 与 Show Hidden Files 同在 finderPrefs store：切换经 /api/prefs/finder 落盘
+  // ~/.watchdog-os/data.json，下次打开按上次选择恢复
+  const { showFavoritesSidebar: showFavs, showHiddenFiles: showHidden } = useFinderPrefs();
   // 非主窗口的级联偏移（挂载时取一次，重开同 id 窗口时由 store 记录保留原位）
   const [cascade] = useState(() => (folderCascade++ % 6) * 26);
 
@@ -1588,7 +1587,7 @@ export function FinderBrowser({
             id: 'fm-m-hidden',
             title: 'Show Hidden Files',
             checked: showHidden,
-            onClickFunc: () => setShowHidden((v) => !v),
+            onClickFunc: () => setShowHiddenFiles(!showHidden),
           },
           // checked:false 必须显式声明：classicy 仅对 checked!==undefined 的项渲染勾选列，
           // 同菜单混用会导致标题左起点不齐（无勾选列的项左移 21px）
@@ -1694,22 +1693,29 @@ export function FinderBrowser({
               按钮不属于内容流，不随内容滚动。按钮带 16px 前置图标（文本左侧垂直居中，
               currentColor 跟随文字三态） */}
           <div className="sp-toolbar">
-            <ClassicyButton disabled={backStack.length === 0} onClickFunc={goBack}>
-              <img className="sp-tb-icon" src={fmBackIcon} alt="" />
-              Back
-            </ClassicyButton>
-            <ClassicyButton disabled={!current} onClickFunc={goUp}>
-              <img className="sp-tb-icon" src={fmUpIcon} alt="" />
-              Up
-            </ClassicyButton>
-            {/* 收藏夹侧栏开关（仅主窗口）：点开在左侧展示收藏列表，再次点击收起；
-                选文件模式禁用收藏夹入口，避免把选择流程分散到多个窗口 */}
+            {/* 侧栏开关（仅主窗口）：工具栏最左侧的 Sidebar 图标按钮，切换左侧
+                侧栏（Favorites + Network）显隐；选文件模式禁用，避免把选择流程分散到多个窗口 */}
             {isMain && (
-              <ClassicyButton disabled={picking} onClickFunc={() => setShowFavoritesSidebar(!showFavs)}>
-                <img className="sp-tb-icon" src={fmFavIcon} alt="" />
-                Favorites
+              <ClassicyButton
+                className="sp-tb-icon-only"
+                title={showFavs ? 'Hide Sidebar' : 'Show Sidebar'}
+                disabled={picking}
+                onClickFunc={() => setShowFavoritesSidebar(!showFavs)}
+              >
+                <img className="sp-tb-icon" src={fmSidebarIcon} alt="" />
               </ClassicyButton>
             )}
+            <ClassicyButton
+              className="sp-tb-icon-only"
+              title="Back"
+              disabled={backStack.length === 0}
+              onClickFunc={goBack}
+            >
+              <img className="sp-tb-icon" src={fmBackIcon} alt="" />
+            </ClassicyButton>
+            <ClassicyButton className="sp-tb-icon-only" title="Up" disabled={!current} onClickFunc={goUp}>
+              <img className="sp-tb-icon" src={fmUpIcon} alt="" />
+            </ClassicyButton>
             {/* 地址栏（靠右弹性占满）：显示当前目录路径，回车跳转；
                 Windows（C:\…）与 Linux（/…）路径原样提交，由后端 resolve + FS_ROOTS 校验 */}
             <div className="sp-fm-addr">
@@ -1756,6 +1762,7 @@ export function FinderBrowser({
                     </button>
                   ))
                 )}
+
               </div>
             )}
             <div className="sp-fm-content">

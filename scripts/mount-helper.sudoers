@@ -1,0 +1,17 @@
+# watchdog-os 网络挂载（SMB / WebDAV）的 sudoers 白名单样例
+#
+# 安装步骤（在 Linux 服务器上，以 root 执行）：
+#   1. 确认脚本属主为 root 且不可被普通用户写（否则等于把 root 权限交给能改脚本的人）：
+#        sudo chown root:root /path/to/watchdog-os/scripts/mount-helper.sh
+#        sudo chmod 755 /path/to/watchdog-os/scripts/mount-helper.sh
+#   2. 用 visudo 编辑（切勿直接 echo 覆盖 /etc/sudoers）：
+#        sudo visudo -f /etc/sudoers.d/watchdog-os-mounts
+#   3. 把下面一行复制进去，把 <service-user> 换成运行 node server/index.js 的用户、
+#      把 <abs-path> 换成 mount-helper.sh 的绝对路径，然后保存。
+#   4. 验证：以服务用户执行 `sudo -n /abs/path/mount-helper.sh` 应输出
+#      "[mount-helper] unknown action:" 且不再提示输入密码。若提示密码说明白名单路径不匹配。
+#
+# 只放行这一个脚本、且不允许参数里出现 shell 元字符风险——真正的参数校验在脚本内部完成
+# （挂载点前缀、协议、UNC/URL 白名单）。NOPASSWD 仅限该脚本，绝不开放 ALL。
+
+<service-user> ALL=(root) NOPASSWD: <abs-path>/scripts/mount-helper.sh

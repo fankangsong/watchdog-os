@@ -145,6 +145,15 @@ const cfg = {
     zipPath: envStr('ARCHIVE_ZIP_PATH', ''), // Info-ZIP zip
   },
 
+  /* 网络挂载（Files 的 SMB / WebDAV）：远程共享经系统原生 mount 挂到 mounts.dir/<id>，
+     之后 Files 的 node:fs 操作对远程目录完全透明。挂载动作需 root —— 后端经 sudo -n
+     调用随项目附带的 mount-helper.sh（sudoers 白名单只允许该脚本，脚本内部再校验参数）。 */
+  mounts: {
+    dir: envStr('MOUNTS_DIR', ''), // 挂载父目录，留空 = ~/.watchdog-os/mounts（支持 ~ 前缀）
+    autoMount: envBool('MOUNTS_AUTO_MOUNT', true), // 启动时恢复标记为 autoMount 的连接
+    timeoutMs: envInt('MOUNTS_TIMEOUT_MS', 30000), // 单次 mount/umount 命令超时
+  },
+
   /* Printer：CUPS 打印机与任务监控（依赖 ipptool / lpinfo，命令缺失时 available=false） */
   printer: {
     enabled: envBool('PRINTER_ENABLED', true),
@@ -287,7 +296,12 @@ const LEDGER_BACKUP_DIR = path.resolve(
   expandHome(cfg.ledger.backupDir) || path.join(os.homedir(), '.watchdog-os', 'ledger-backups')
 );
 
+/* 网络挂载父目录：每个连接的挂载点为 <MOUNTS_DIR>/<id>。该目录会被并入 fs.js 的
+   FS_ROOTS 白名单，故必须与用户数据同属服务进程可写位置；默认 ~/.watchdog-os/mounts。 */
+const MOUNTS_DIR = path.resolve(expandHome(cfg.mounts.dir) || path.join(os.homedir(), '.watchdog-os', 'mounts'));
+
 module.exports = {
+  MOUNTS_DIR,
   cfg,
   BASE,
   COOKIE_NAME,

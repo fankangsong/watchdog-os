@@ -11,6 +11,8 @@ const fsp = require('fs').promises;
 const path = require('path');
 const { readBody, send } = require('../lib/http');
 const { loadUserData, saveUserData } = require('../lib/userdata');
+const { MOUNTS_DIR } = require('../config');
+const { mountedSet } = require('./mounts');
 
 /* 允许浏览的根目录：默认 Windows 列出项目所在盘符与 C 盘，POSIX 为根目录；
    可用环境变量 FS_ROOTS 覆盖（按 path.delimiter 分隔，如 "C:\;D:\" 或 "/data:/home"）。 */
@@ -33,6 +35,11 @@ const FS_ROOTS = (() => {
       seen.add(key);
       out.push(r);
     }
+  }
+  // 网络挂载父目录并入白名单：远程共享经 mount 挂到 MOUNTS_DIR/<id> 后即为普通本地目录，
+  // Files 用同一套 node:fs 操作它。挂载点本身由 mounts.js 严格限制为 MOUNTS_DIR 的直接子目录。
+  if (process.platform !== 'win32' && !out.some((r) => r === MOUNTS_DIR || r.startsWith(MOUNTS_DIR + path.sep) || MOUNTS_DIR.startsWith(r + path.sep))) {
+    out.push(MOUNTS_DIR);
   }
   return out;
 })();
@@ -283,7 +290,10 @@ async function fsRoute(req, res, p, url) {
     if (p === '/api/fs/list' && method === 'GET') {
       const raw = q.get('path');
       if (!raw || !raw.trim()) {
-        const entries = FS_ROOTS.map((r) => ({
+        // MOUNTS_DIR 仍留在 FS_ROOTS 供路径校验（watchdog 自带挂载能力保留），
+        // 但不再作为与根目录平级的 "Network" 磁盘条目展示：远程目录已改由系统
+        // fstab automount 挂在 /mnt 下，沿正常目录树进入即可。
+        const entries = FS_ROOTS.filter((r) => r !== MOUNTS_DIR).map((r) => ({
           name: process.platform === 'win32' ? r : '根目录',
           path: r,
           type: 'dir',
@@ -292,6 +302,28 @@ async function fsRoute(req, res, p, url) {
           mode: '',
           previewable: 'none',
         }));
+        // 已挂载的网络连接以其配置名作为磁盘条目直接列在根视图（点击即进入远程目录）。
+        // 读取失败静默降级——网络挂载状态不该影响根目录浏览。
+        try {
+          const { loadUserData } = require('../lib/userdata');
+          const data = await loadUserData();
+          const conns = Array.isArray(data.mounts) ? data.mounts : [];
+          const mounted = await mountedSet();
+          for (const c of conns) {
+            const mp = path.join(MOUNTS_DIR, String(c.id || ''));
+            if (!mounted.has(mp)) continue;
+            entries.push({
+              name: String(c.name || c.protocol || 'Network'),
+              path: mp,
+              type: 'dir',
+              size: 0,
+              mtime: 0,
+              mode: '',
+              previewable: 'none',
+              network: c.protocol, // 前端据此显示网络磁盘图标
+            });
+          }
+        } catch { /* 挂载状态读取失败不影响根列表 */ }
         return send(res, 200, { path: '', roots: FS_ROOTS, entries });
       }
       const abs = fsResolve(raw);

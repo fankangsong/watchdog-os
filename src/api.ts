@@ -283,6 +283,7 @@ export const prefsSetEditor = (editor: EditorServerPrefs) =>
  *  键缺失语义由前端决定：showFavoritesSidebar 缺省视为 true（首次打开即展开收藏夹侧栏） */
 export interface FinderServerPrefs {
   showFavoritesSidebar?: boolean;
+  showHiddenFiles?: boolean;
 }
 
 export const prefsGetFinder = () => request<{ finder: FinderServerPrefs }>('./api/prefs/finder');

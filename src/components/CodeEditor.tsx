@@ -39,6 +39,7 @@ import { dracula } from '@uiw/codemirror-theme-dracula';
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
 import { DEFAULT_EDITOR_FONT } from '../editorThemes';
+import { withCjkFallback } from '../fontStacks';
 
 export type EditorThemeId = 'dracula' | 'githubDark' | 'githubLight' | 'vscodeDark';
 
@@ -100,10 +101,13 @@ function themeExtension(id: EditorThemeId): Extension {
 }
 
 function fontExtension(fontSize: number, fontFamily?: string): Extension {
+  /* 选中的字体栈来自白名单（≤64 字符，含 'monospace' 等值），不改动其存储值；
+     仅在渲染时补中文回落，保证中文注释/字符串有字形且跨平台一致。 */
+  const stack = withCjkFallback(fontFamily || DEFAULT_FONT);
   return EditorView.theme({
     '&': { fontSize: `${fontSize}px`, height: '100%' },
-    '.cm-scroller': { fontFamily: fontFamily || DEFAULT_FONT, lineHeight: '1.55' },
-    '.cm-gutters': { fontFamily: fontFamily || DEFAULT_FONT },
+    '.cm-scroller': { fontFamily: stack, lineHeight: '1.55' },
+    '.cm-gutters': { fontFamily: stack },
   });
 }
 

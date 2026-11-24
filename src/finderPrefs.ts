@@ -1,4 +1,4 @@
-// Files（srv-finder.app）应用偏好外部 store：目前只有「收藏夹侧栏是否展开」一项。
+// Files（srv-finder.app）应用偏好外部 store：收藏夹侧栏是否展开、是否显示隐藏文件。
 // 落盘服务端 ~/.watchdog-os/data.json 的 finder 键（GET/PUT /api/prefs/finder），
 // 跨浏览器 / 重部署生效（与 Editor 视图偏好走同一条偏好通道）。
 //
@@ -20,10 +20,12 @@ import { prefsGetFinder, prefsSetFinder } from './api';
 export interface FinderPrefs {
   /** 主窗口左侧 Favorites 侧栏是否展开（缺省 = 展开） */
   showFavoritesSidebar: boolean;
+  /** 文件列表是否显示以 . 开头的隐藏文件（缺省 = 不显示） */
+  showHiddenFiles: boolean;
 }
 
-/** 未设置即展开：首次打开 Files 就要看到 Favorites 目录 */
-const DEFAULT_PREFS: FinderPrefs = { showFavoritesSidebar: true };
+/** 未设置即展开侧栏 / 隐藏隐藏文件：首次打开 Files 即见 Favorites 目录与干净列表 */
+const DEFAULT_PREFS: FinderPrefs = { showFavoritesSidebar: true, showHiddenFiles: false };
 
 let prefs: FinderPrefs = { ...DEFAULT_PREFS };
 let loaded = false; // 已成功拿到服务端快照（失败不置位，由后续订阅 / 变更重试）
@@ -38,13 +40,23 @@ function emit() {
 }
 
 /** 把本地值推给服务端（与服务端快照相同则跳过，避免无意义写盘） */
+function sameAsPushed(): boolean {
+  return (
+    pushed.showFavoritesSidebar === prefs.showFavoritesSidebar &&
+    pushed.showHiddenFiles === prefs.showHiddenFiles
+  );
+}
+
 function pushPrefs(): void {
-  if (pushed.showFavoritesSidebar === prefs.showFavoritesSidebar) return;
+  if (sameAsPushed()) return;
   pushChain = pushChain.then(async () => {
     // 队列内再比对一次：连点开关时前一次 PUT 可能已把服务端写成最新值
-    if (pushed.showFavoritesSidebar === prefs.showFavoritesSidebar) return;
+    if (sameAsPushed()) return;
     try {
-      const r = await prefsSetFinder({ showFavoritesSidebar: prefs.showFavoritesSidebar });
+      const r = await prefsSetFinder({
+        showFavoritesSidebar: prefs.showFavoritesSidebar,
+        showHiddenFiles: prefs.showHiddenFiles,
+      });
       pushed = r.finder || {};
     } catch (e) {
       // 不回滚 UI：失败后 pushed 保持旧值，下次切换会重试
@@ -60,15 +72,21 @@ function ensureLoaded(): Promise<void> {
     loading = prefsGetFinder()
       .then((r) => {
         const s = r.finder || {};
-        pushed = s;
+        // 用默认值补齐服务端缺失的键：首次使用时服务端没有记录，
+        // 但「未记录」等价于默认值，不能因 undefined !== false 误判为差异而重复 PUT
+        const snapshot: FinderPrefs = { ...DEFAULT_PREFS };
+        if (typeof s.showFavoritesSidebar === 'boolean') snapshot.showFavoritesSidebar = s.showFavoritesSidebar;
+        if (typeof s.showHiddenFiles === 'boolean') snapshot.showHiddenFiles = s.showHiddenFiles;
+        pushed = snapshot;
         // 本地已变更（加载期间用户点过开关）则本地胜出，把本地值补推上去
         if (mutated) {
           pushPrefs();
-        } else if (typeof s.showFavoritesSidebar === 'boolean') {
-          if (prefs.showFavoritesSidebar !== s.showFavoritesSidebar) {
-            prefs = { showFavoritesSidebar: s.showFavoritesSidebar };
-            emit();
-          }
+        } else if (
+          prefs.showFavoritesSidebar !== snapshot.showFavoritesSidebar ||
+          prefs.showHiddenFiles !== snapshot.showHiddenFiles
+        ) {
+          prefs = snapshot;
+          emit();
         }
         loaded = true;
       })
@@ -103,9 +121,16 @@ export function useFinderPrefs(): FinderPrefs {
 export function setShowFavoritesSidebar(v: boolean): void {
   if (prefs.showFavoritesSidebar === v) return;
   mutated = true;
-  prefs = { showFavoritesSidebar: v };
+  prefs = { ...prefs, showFavoritesSidebar: v };
   emit();
-  // 先确保已加载再推送：未加载就 PUT 虽为部分合并（不会冲掉其它键），
-  // 但会让「加载返回后覆盖本地」的判定与推送顺序变得难以推理
+  void ensureLoaded().then(() => pushPrefs());
+}
+
+/** 切换隐藏文件显示：同样经 /api/prefs/finder 落盘，下次打开按上次选择恢复 */
+export function setShowHiddenFiles(v: boolean): void {
+  if (prefs.showHiddenFiles === v) return;
+  mutated = true;
+  prefs = { ...prefs, showHiddenFiles: v };
+  emit();
   void ensureLoaded().then(() => pushPrefs());
 }
