@@ -55,12 +55,104 @@ body {
 }
 
 /* ---------- 启动 / 登录 ---------- */
+/* Mac OS 8 风格启动画面（时长与 BootScreen.tsx 常量保持一致） */
 .sp-boot {
   height: 100%;
-  display: flex; align-items: center; justify-content: center;
-  background: #c8c8c8;
-  color: #333;
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mac OS 安装器式 splash（紫蓝底；平铺图案由 BootScreen.tsx 内联 data-URI 提供） */
+.sp-boot-splash {
+  background-color: #7a84e2;
+}
+/* 居中灰色面板：白底展示区（Logo + 字标）+ 状态文字 + 进度条 */
+.sp-boot-panel {
+  width: 400px;
+  max-width: calc(100vw - 48px);
+  background: #dcdcdc;
+  border-radius: 10px;
+  padding: 18px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.15),
+    0 6px 24px rgba(20, 24, 80, 0.35);
+}
+.sp-boot-panel-inner {
+  width: 100%;
+  background: #fff;
+  border: 1px solid #2a2a2a;
+  padding: 26px 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+/* Logo：PWA 安装图标（192px 源图 2x 整数倍缩放保持锐利） */
+.sp-boot-logo {
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sp-boot-logo img {
+  width: 96px;
+  height: 96px;
+  /* 圆形徽标：PWA 方形图标裁圆 */
+  border-radius: 50%;
+  image-rendering: pixelated;
+}
+.sp-boot-wordmark {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 42px;
+  color: #111;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.sp-boot-wordmark-os {
+  color: #5b6ad0;
+}
+/* 状态文字：像素体与登录页品牌字一致（字号取锐利档位） */
+.sp-boot-status {
+  font-family: 'Silkscreen', 'ChicagoFLF', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 12px 0 8px;
+}
+/* 经典分段进度条：深色填充逐格推进，淡紫底为未完成段 */
+.sp-boot-progress {
+  width: 190px;
+  height: 14px;
+  box-sizing: border-box;
+  background: #cdd0f2;
+  border: 1px solid #111;
+}
+.sp-boot-progress-fill {
+  height: 100%;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 8px, rgba(255, 255, 255, 0.4) 8px 10px),
+    #3b3b46;
+  width: 6%;
+  animation: sp-boot-progress 1.6s steps(20, end) forwards;
+}
+@keyframes sp-boot-progress {
+  from { width: 6%; }
+  to { width: 100%; }
+}
+
+/* 首屏淡入 */
+.sp-boot-fade {
+  animation: sp-boot-fade 0.5s ease-out;
+}
+@keyframes sp-boot-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 /* 全屏登录页：未登录时盖住整个系统（无桌面/图标/窗口） */
 /* 此处补全 classicy 默认 Platinum 主题的 CSS 变量（classicy 仅在 Desktop 上注入变量，

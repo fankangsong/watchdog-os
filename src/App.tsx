@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { probeAuth } from './api';
 import { consumeSignedOutFlag, endSession } from './session';
+import { BootScreen } from './BootScreen';
 import { LoginApp } from './LoginApp';
 import { Desktop } from './Desktop';
 
 // 鉴权状态机：checking → authed | unauthed
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
+  // 启动动画是否播完：与鉴权探测并行，两者都就绪才进入桌面/登录页
+  const [bootDone, setBootDone] = useState(false);
   // 只判定一次：StrictMode 下 effect 会跑两遍，「刚退出」标记被第一遍消费后，
   // 第二遍的探测会把用户又弹回桌面（探测在服务不可达时按已登录处理）
   const settled = useRef(false);
@@ -24,12 +27,9 @@ export function App() {
     probeAuth().then(setAuthed);
   }, []);
 
-  if (authed === null) {
-    return (
-      <div className="sp-boot">
-        <div className="sp-boot-inner">Starting…</div>
-      </div>
-    );
+  // Mac OS 8 风格启动序列：动画播完且鉴权结果就绪后才切换（探测先返回也不跳帧）
+  if (authed === null || !bootDone) {
+    return <BootScreen ready={authed !== null} onDone={() => setBootDone(true)} />;
   }
   // 退出（主动 Sign Out 或任一接口 401）统一走 endSession：清本地会话存储 + 整页重载回登录页
   if (authed) return <Desktop onLogout={endSession} />;
