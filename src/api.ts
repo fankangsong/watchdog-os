@@ -12,6 +12,27 @@ export async function fetchHealth(): Promise<HealthInfo> {
   return r.json() as Promise<HealthInfo>;
 }
 
+/**
+ * 服务端权威时间（公开接口，无需登录）。
+ * nowMs 已含服务端 NTP 偏差修正；前端用请求往返时间估算客户端与服务器的时钟差，
+ * 再用 Date.now()+offset 驱动界面，避免客户端时钟 / 时区不准导致显示错误。
+ */
+export interface ServerTime {
+  nowMs: number;
+  timeZone: string;
+  source: 'ntp' | 'system';
+  offsetMs: number;
+  delayMs: number | null;
+  stratum: number | null;
+  syncedAt: string | null;
+}
+
+export async function fetchServerTime(): Promise<ServerTime> {
+  const r = await fetch('./api/time');
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json() as Promise<ServerTime>;
+}
+
 export class Unauthorized extends Error {
   constructor() {
     super('Unauthorized');

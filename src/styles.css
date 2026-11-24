@@ -1773,3 +1773,32 @@ html[data-wd-layout="mobile"] .sp-login-status-clock { font-size: 16px; }
 .sp-ledger-status-actions { display: flex; align-items: center; gap: 6px; }
 .sp-ledger-status-actions .classicyButton { margin: 0; font-size: 11px; }
 .sp-ledger-status .sp-ledger-mono { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-system-05); }
+
+/* === Clock（时间应用）：NTP 校时表盘 + 数字读数，样式前缀 sp-clock- === */
+.sp-clock-body { display:flex; flex-direction:column; gap:8px; height:100%; box-sizing:border-box; }
+.sp-clock-main { flex:1 1 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:0; padding:8px; background:var(--color-system-01); border:1px solid var(--color-system-05); }
+.sp-clock-face { display:block; width:min(240px, 60%); height:auto; max-height:260px; flex:0 1 auto; }
+.sp-clock-rim { fill:var(--color-system-06); }
+.sp-clock-dial { fill:var(--color-white); stroke:var(--color-system-07); stroke-width:2; }
+.sp-clock-tick { stroke:var(--color-system-05); stroke-width:1; }
+.sp-clock-tick-major { stroke:var(--color-system-07); stroke-width:3; }
+.sp-clock-num { fill:var(--color-system-07); font-family:var(--sp-mono, monospace); font-size:16px; font-weight:700; text-anchor:middle; dominant-baseline:middle; }
+.sp-clock-hand-hour { stroke:var(--color-system-07); stroke-width:8; stroke-linecap:round; }
+.sp-clock-hand-minute { stroke:var(--color-system-07); stroke-width:5; stroke-linecap:round; }
+.sp-clock-hand-second { stroke:var(--color-error, #c00); stroke-width:2.5; stroke-linecap:round; }
+.sp-clock-hub { fill:var(--color-system-07); }
+.sp-clock-hub-dot { fill:var(--color-white); }
+.sp-clock-digital { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.sp-clock-digits { font-family:var(--sp-mono, monospace); font-size:clamp(28px, 8vw, 44px); font-weight:700; line-height:1.1; letter-spacing:2px; color:var(--color-system-07); font-variant-numeric:tabular-nums; }
+.sp-clock-date { font-size:12px; color:var(--color-system-06); }
+.sp-clock-zone { font-family:var(--sp-mono, monospace); font-size:11px; color:var(--color-system-05); }
+.sp-clock-toolbar { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:0 2px; }
+/* classicy 的 .classicyPopUpMenuWrapper 自带 width:100%，与右侧按钮抢宽会把
+   「时区」标签挤到按字换行（CJK 逐字可断）；改为 flex:1 吃掉剩余空间，
+   标签加 nowrap 保底。 */
+.sp-clock-toolbar .classicyPopUpMenuWrapper { width:auto; flex:1 1 auto; min-width:0; }
+.sp-clock-toolbar .classicyControlLabel { white-space:nowrap; }
+.sp-clock-toolbar .classicyPopUpMenu { min-width:190px; max-width:100%; }
+.sp-clock-toolbar .classicyButton { margin:0; white-space:nowrap; }
+.sp-clock-status { flex:0 0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; min-height:22px; padding:3px 8px; font-size:11px; color:var(--color-system-06); background:var(--color-system-01); border-top:var(--window-border-size) solid var(--color-system-05); }
+.sp-clock-status-error { color:var(--color-error, #c00); font-weight:700; }

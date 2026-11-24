@@ -19,6 +19,7 @@ const runner = require('./api/runner');
 const blog = require('./api/blog');
 const { proxyHermesChat, proxyHermesSessions } = require('./api/chat');
 const { getDeepseekUsage, getBigmodelUsage } = require('./api/usage');
+const { getTimeSnapshot } = require('./api/time');
 const { fsRoute } = require('./api/fs');
 const { mountsRoute } = require('./api/mounts');
 const archive = require('./api/archive');
@@ -107,6 +108,9 @@ async function route(req, res, url) {
 
   /* ---- 公开接口 ---- */
   if (p === '/api/health') return send(res, 200, { ok: true, basePath: BASE });
+  // 权威时间：非敏感信息，公开可取（登录页/未登录也能用，便于排查客户端时钟漂移）。
+  // 只返回时间戳与校时元数据，不写审计、不触发前端全局登出。
+  if (p === '/api/time') return send(res, 200, getTimeSnapshot());
 
   /* ---- 会话探测（公开接口，恒 200，刻意不返回 401）----
      登录页需要知道「当前浏览器是否持有有效会话」，但前端读不到 HttpOnly Cookie，

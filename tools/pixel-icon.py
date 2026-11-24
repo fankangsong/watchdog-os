@@ -1576,6 +1576,75 @@ def build_ledger():
     return g
 
 
+def build_clock():
+    """Clock：白面圆表盘 + 10:10 黑指针 + 红色秒针（精确到秒的语义符号）。
+
+    与 Ledger 金币同为圆形，但靠「白面 + 放射状指针 + 红色秒针」破掉瞳孔读感；
+    指针与整点刻度都做成 >=2px，2x2 降采样到 16px 仍能读出「钟」。
+    """
+    g = blank()
+    cx, cy = 15.5, 15.5
+
+    def pt(r, deg):
+        a = math.radians(deg)
+        # 像素 (x,y) 的中心是 (x+0.5,y+0.5)，故索引 = 坐标 - 0.5 = 15 + r*cos
+        return (int(round(15 + r * math.cos(a))), int(round(15 + r * math.sin(a))))
+
+    def segment(x0, y0, x1, y1, width, color):
+        """按点到线段距离画粗线（像素中心坐标），width 为半宽。"""
+        ax, ay = x0 + 0.5, y0 + 0.5
+        bx, by = x1 + 0.5, y1 + 0.5
+        dx, dy = bx - ax, by - ay
+        den = dx * dx + dy * dy
+        for y in range(H):
+            for x in range(W):
+                px, py = x + 0.5, y + 0.5
+                t = 0.0 if den == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / den))
+                d = math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+                if d <= width:
+                    g[y][x] = color
+
+    # 表壳：半径 12.5 的圆，左上高光 / 右下暗边 + K 外框
+    shell = [[math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= 12.5 for x in range(W)] for y in range(H)]
+    bevel(g, shell, 'M', 'L', 'D')
+    outline(g, shell, 'K')
+    # 清掉圆顶点上四周无同伴的孤立描边点（同 Ledger 的「天线」问题）
+    for y in range(1, H - 1):
+        for x in range(1, W - 1):
+            if g[y][x] == 'K' and all(g[y + dy][x + dx] != 'K'
+                                      for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1))):
+                g[y][x] = '.'
+
+    # 表盘：半径 9.5 的白面，右下微暗；外缘一圈 M 做内凸缘
+    dial = [[math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= 9.5 for x in range(W)] for y in range(H)]
+    for y in range(H):
+        for x in range(W):
+            if dial[y][x]:
+                g[y][x] = 'd' if ((x + 0.5 - cx) + (y + 0.5 - cy) > 7) else 'W'
+    outline(g, dial, 'M')
+
+    # 12 个整点刻度：12/3/6/9 加粗成 2px（16px 缩略后仍可辨）
+    for i in range(12):
+        deg = i * 30 - 90
+        x, y = pt(7.7, deg)
+        if i % 3 == 0:
+            fill(g, x, y, 2, 2, 'K')
+        else:
+            g[y][x] = 'K'
+
+    # 指针：时针 10 点、分针 2 点（经典 10:10 构图），秒针指向 6 点（红色）
+    hx, hy = pt(6.0, -150)
+    mx, my = pt(8.6, -30)
+    sx, sy = pt(9.0, 90)
+    segment(15, 15, hx, hy, 1.3, 'B')
+    segment(15, 15, mx, my, 1.1, 'B')
+    # 秒针尾端反向一小截，强化「秒针」读感
+    tx, ty = pt(2.2, -90)
+    segment(tx, ty, sx, sy, 0.8, 'r')
+    fill(g, 15, 15, 2, 2, 'B')
+    return g
+
+
 def build_ledger_stack():
     """Ledger 备选 · 一叠侧视金币：4 个扁椭圆自下而上叠压。
 
@@ -2462,6 +2531,7 @@ if __name__ == '__main__':
     emit(build_editor(), 'editor')
     emit(build_watchdog(), 'watchdog')
     emit(build_ledger(), 'ledger')
+    emit(build_clock(), 'clock')
     files_new = build_files()
     emit(files_new, 'files')
     # 设计稿必须在 32 档下生成（shrink_chars / ART 的 width、height 读全局 W/H）

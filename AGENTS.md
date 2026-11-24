@@ -268,6 +268,13 @@ run.sh # Linux systemd 服务管理入口（保持项目根，不在 scripts/ �
 - 图标为自绘 `src/assets/icons/converter.svg`（双照片 + 箭头，`?no-inline` 引入）；样式 `sp-conv-` 前缀在 `styles.css`（含主窗口高度链与 `cv-` 菜单项防折行规则）
 - 注：HEIC 可含多图（连拍/实况深度图），只转换主图；上传受 `/api/fs/upload` 50MB 上限约束（iPhone 照片一般 2-5MB，无虞）
 
+### 时间（ClockApp + `/api/time`：NTP 校时表盘）
+
+- 解决「每次手动同步时间、时区不对」：服务端 `server/api/time.js` 用 Node 内置 `dgram` 做轻量 NTP 客户端（RFC5905，首字节 `0x1B`，t1~t4 算 offset/delay），启动即异步首校、成功每 5 分钟重校、失败 1 分钟重试并保留上次偏差（从未成功则回退系统时间，source=`system`）。配置 `TIME_ZONE`（默认 Asia/Shanghai）/ `NTP_HOST`（默认 pool.ntp.org）/ `NTP_ENABLED`（默认 true，测试可关网络）
+- `GET /api/time` 为**公开接口**（非敏感，不写审计）：返回 `{ nowMs: Date.now()+offset, timeZone, source, offsetMs, delayMs, stratum, syncedAt }`；`index.js` 在 listen 后调 `startTimeSync()`，失败只 warn，不影响其他接口
+- 前端 `ClockApp.tsx`：用「请求前 `sentAt` / 响应后 `receivedAt` / `rtt`」算 `offset = nowMs + rtt/2 - receivedAt`（NTP 式单边估算），之后 `Date.now()+offset` 驱动 200ms 走时——**秒针按秒跳动**（不做毫秒插值，与数字秒数同步跳变），分/时针随秒缓动；每 60s 自动重同步，失败沿用上次 offset 不跳回本地时间。数字与日期用 `Intl.DateTimeFormat` **显式 timeZone** 渲染，不受浏览器时区影响；应用内可切常见 IANA 时区（默认取服务器时区）。样式 `sp-clock-` 前缀，图标 `clock.svg`（`tools/pixel-icon.py` 的 `build_clock()` 生成）。⚠️ 工具栏里 classicy 下拉的 `.classicyPopUpMenuWrapper` 自带 `width:100%`，与右侧按钮抢宽会把中文标签挤到按字换行——已在 `sp-clock-toolbar` 作用域内改 `flex:1` + 标签 `nowrap`
+- 回归测试 `node test/test-time-api.js`（NTP_ENABLED=false 关网络，断言公开可取 / 字段 / 时间前进 / 时区合法），11 项
+
 ### 移动端 / 小屏适配（src/responsive.ts + src/mobile/）
 
 - **三档断点**（`src/responsive.ts` 的 `layoutForWidth`）：`<768px` → `mobile`（手机 + iPad 1/3 分屏）、`768~1024px` → `tablet`、`>1024px` → `desktop` 与改造前完全一致。判定写在 `<html data-wd-layout>` 上，`main.tsx` 在 `createRoot` 前 `initViewport()` 保证首帧即正确档位；`useViewport()` 是 `matchMedia` 单例订阅，只在跨断点时重渲染。**不要在组件里各自监听 resize**。

@@ -119,6 +119,14 @@ const cfg = {
     maxLogBytes: envInt('BLOG_MAX_LOG_BYTES', 5 * 1024 * 1024), // 超过则归档为 .old
   },
 
+  /* 时间源（Clock 应用）：服务端向 NTP 校时后返回权威 UTC 时间戳，前端按显式时区渲染。
+     ntpEnabled=false 时完全不发网络请求，回退系统时间（测试 / 离线部署用）。 */
+  time: {
+    timeZone: envStr('TIME_ZONE', 'Asia/Shanghai'), // IANA 时区，非法时回退 Asia/Shanghai
+    ntpHost: envStr('NTP_HOST', 'pool.ntp.org'),
+    ntpEnabled: envBool('NTP_ENABLED', true),
+  },
+
   /* 登录审计日志：登录成功/失败、登出、受保护接口 401 按本地日期分文件落盘（JSONL） */
   audit: {
     enabled: envBool('LOGIN_LOG_ENABLED', true),

@@ -35,6 +35,7 @@ const drafts = require('./api/drafts');
 const archive = require('./api/archive');
 const mounts = require('./api/mounts');
 const { route, handleUpgrade } = require('./router');
+const { startTimeSync } = require('./api/time');
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -73,6 +74,8 @@ server.listen(cfg.port, cfg.host, () => {
 startCollectTimers();
 startPrinterTimer(state);
 startPrinterHistoryTimer();
+// NTP 校时：仅影响 Clock 应用的时间源，失败只 warn，不影响其他接口
+startTimeSync();
 // 登录审计：建目录 + 清理过期日文件；失败只 warn（日志不可写时登录照常，只是没有审计记录）
 try {
   audit.startAudit();

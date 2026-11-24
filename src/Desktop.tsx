@@ -24,6 +24,7 @@ import { ConverterApp } from './apps/ConverterApp';
 import { AuditApp } from './apps/AuditApp';
 import { DiskApp } from './apps/DiskApp';
 import { LedgerApp } from './apps/LedgerApp';
+import { ClockApp } from './apps/ClockApp';
 
 const APPLE_MENU_LOGOUT_ID = 'sp-menu-logout';
 const APPLE_MENU_SHORTCUTS_ID = 'sp-menu-shortcuts';
@@ -111,7 +112,7 @@ function SystemMenuExtras({
   return null;
 }
 
-// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Files（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器 / 登录审计 / 磁盘容量
+// 桌面：系统监控 / Docker / imcolin.fan / 终端 / Files（文件管理器）/ 文本编辑器 / Runner / Blog / 打印机 / 聊天 / HEIC 转换器 / 登录审计 / 磁盘容量 / 时间（NTP 校时表盘）
 export function Desktop({ onLogout }: { onLogout: () => void }) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
@@ -148,6 +149,7 @@ export function Desktop({ onLogout }: { onLogout: () => void }) {
         <AuditApp onLogout={onLogout} />
         <DiskApp onLogout={onLogout} />
         <LedgerApp onLogout={onLogout} />
+        <ClockApp />
         {/* 设置面板必须留在 ClassicyDesktop 内部：主题 CSS 变量（--color-system-*）
             由 classicy 以内联样式注入在 .classicyDesktop 上，挂到根节点外侧会全部
             取不到 → 背景/标题条变透明。 */}
