@@ -596,11 +596,52 @@ body {
 .sp-block + .sp-block { margin-top: calc(var(--window-padding-size) * 2); }
 /* WatchDog OS 主窗口：工具栏带钉在顶部不随内容滚动——禁窗口级滚动，
    ContentsInner 钉为 flex column，内容区自滚动（同 Files 高度链模式） */
-#srv-monitor\.app_monitor-main > .classicyWindowContents { overflow: hidden; }
-#srv-monitor\.app_monitor-main .classicyWindowContentsInner { display: flex; flex-direction: column; overflow: hidden; }
-.sp-monitor-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+#srv-monitor\.app_monitor-main > .classicyWindowContents {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#srv-monitor\.app_monitor-main .classicyWindowContentsInner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  /* 覆盖 classicy 的 height:100%：移动端窗口内容区是 height:auto 的 flex 项，
+     百分比高度会退化成 auto，只有 flex:1 才能在两种布局下拿到确定高度 */
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
 .sp-dim { color: var(--color-system-05); font-size: 12px; }
 .sp-pulse { color: var(--color-alert); font-size: 12px; }
+
+/* ---------- 监控窗口标签页（ClassicyTabs 高度链，同 Ledger 模式） ----------
+   Tabs 宿主、内容区、当前面板全部钉成 flex column，保证每个 Tab 内部
+   自己能滚动，而不是整窗滚动把标签条带走。 */
+.sp-monitor-tabs { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.sp-monitor-tabs .classicyTabContainer,
+.sp-monitor-tabs .classicyTabsHolder,
+.sp-monitor-tabs .classicyTabActiveContent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sp-monitor-tabs .classicyTabHiddenContent { display: none; }
+/* 标签可读性：锁死按钮行不被 flex 压缩，收紧行高，窗口拉小时标签仍完整可见 */
+.sp-monitor-tabs .classicyTabButtonsRow { flex: 0 0 auto; }
+.sp-monitor-tabs .classicyTabButton,
+.sp-monitor-tabs .classicyTabButtonLabel { line-height: 1; }
+.sp-monitor-tabs .classicyTabButtonLabel { color: var(--color-black); }
+
+.sp-monitor-tab-scroll {
+  flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain;
+  padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 10px;
+}
+/* 滚动容器内的分组框保持自然高度：默认 flex-shrink:1 会压扁子项，滚动条反而不出现 */
+.sp-monitor-tab-scroll > * { flex: 0 0 auto; }
+/* Processes 页：ControlGroup(fieldset) 撑满剩余高度，表格区内部滚动 */
+.sp-monitor-tab-fill { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 8px 10px 12px; }
+.sp-monitor-tab-fill > .classicyControlGroupFieldset { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sp-monitor-tab-fill > .classicyControlGroupFieldset > div { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* Overview 双列：宽窗并排、窄窗 auto-fit 自动单列 */
+.sp-overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; align-items: start; }
+.sp-overview-grid > * { min-width: 0; }
+
 
 /* ---------- 系统信息（ClassicyControlGroup 内 label/value 行） ---------- */
 .sp-info-row {
@@ -643,6 +684,36 @@ body {
 /* Swap / 磁盘（ClassicyMeter） */
 .sp-meters { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 
+/* ---------- 监控详情页（CPU / Memory）：图形化头部 + 统计块 ---------- */
+.sp-detail-head { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+/* 详情页大号仪表（132px）与加高曲线；文字随仪表放大一档 */
+.sp-gauge-box-lg .sp-gauge { width: 132px; height: 132px; }
+.sp-gauge-box-lg .sp-gauge-text { font-size: 20px; }
+.sp-chart-tall .sp-chart { height: 104px; }
+.sp-detail-head .sp-chart-wrap { flex: 2 1 260px; }
+.sp-detail-head .sp-stats { flex: 1 1 220px; min-width: 180px; }
+
+/* 关键数值卡片（Overview / 详情头部）：键小值大，等宽数字 */
+.sp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px 12px; }
+.sp-stat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sp-stat-key { font-size: 11px; color: var(--color-system-05); }
+.sp-stat-val { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 内存构成堆叠条：Used / Free 两段 + 图例 */
+.sp-membar-track { display: flex; height: 16px; margin-top: 10px; overflow: hidden; border: 1px solid var(--color-system-05); background: var(--color-system-02); }
+.sp-membar-track > span { display: block; height: 100%; }
+.sp-membar-legend { display: flex; gap: 14px; margin-top: 4px; font-size: 11px; color: #444; }
+.sp-membar-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; border: 1px solid rgba(0, 0, 0, 0.2); }
+
+/* Top 进程横向条形图（CPU / Memory 详情页）：
+   条长按当前榜单最大值归一，右侧始终显示真实值 */
+.sp-procbars { display: flex; flex-direction: column; gap: 6px; }
+.sp-procbar { display: grid; grid-template-columns: minmax(70px, 130px) minmax(0, 1fr) 64px; align-items: center; gap: 8px; font-size: 11px; }
+.sp-procbar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--sp-mono); color: #333; }
+.sp-procbar-track { height: 12px; overflow: hidden; border-radius: 6px; background: rgba(0, 0, 0, 0.12); }
+.sp-procbar-fill { display: block; height: 100%; border-radius: 6px; transition: width 0.4s; }
+.sp-procbar-val { text-align: right; font-variant-numeric: tabular-nums; }
+
 /* ---------- 磁盘容量（DiskApp / DiskPanel） ---------- */
 .sp-disk-body { display: flex; flex-direction: column; gap: 8px; }
 /* 顶部汇总行：挂载点数 + 峰值使用率（着色）+ 不可读数 */
@@ -661,7 +732,20 @@ body {
 .sp-cellres { display: inline-flex; align-items: center; gap: 6px; }
 .sp-cellres-bar { width: 44px; height: 6px; background: rgba(0, 0, 0, 0.15); border-radius: 3px; overflow: hidden; flex-shrink: 0; }
 .sp-cellres-bar span { display: block; height: 100%; border-radius: 3px; }
-.sp-cmd { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+/* Command 列：不设 max-width，交给弹性列填满后单行省略 */
+.sp-cmd { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 进程表格宽度适配（ProcessPanel） ----------
+   固定列由列定义的 px width 控制；Command 列（最后一列）CSS 置为 auto，
+   吃掉窗口剩余宽度。窄屏（下方 mobile 段）改用百分比列宽，不隐藏列。 */
+.sp-proc-search { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
+.sp-proc-search > * { flex: 1 1 auto; min-width: 0; }
+.sp-proc-table-wrap { flex: 1 1 auto; min-height: 0; }
+/* 表格容器撑满页高：表头 sticky，行多时在表格内部滚动 */
+.sp-proc-table-wrap > .classicyTableContainer { height: 100%; }
+.sp-proc-table .classicyTable th:last-child,
+.sp-proc-table .classicyTable td:last-child { width: auto !important; }
+
 
 /* ---------- 窗口操作按钮带（规范 §3.2，Files / WatchDog OS 共用） ----------
    浅色容器带与标题栏（窗口框线）、内容区（底部分隔线）均分开；按钮在带内不属于内容流。
@@ -1630,11 +1714,31 @@ html[data-wd-layout="mobile"] .sp-fm-table,
 html[data-wd-layout="mobile"] .sp-conv-table,
 html[data-wd-layout="mobile"] .sp-audit-table,
 html[data-wd-layout="mobile"] .sp-fm-icons,
-html[data-wd-layout="mobile"] .sp-monitor-scroll,
+html[data-wd-layout="mobile"] .sp-monitor-tab-scroll,
+html[data-wd-layout="mobile"] .sp-proc-table,
 html[data-wd-layout="mobile"] .sp-audit-body {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
+/* 进程表窄屏：不隐藏列，改百分比列宽（固定列 71% + Command 29%），避免横向滚动 */
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable th:nth-child(1),
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable td:nth-child(1) { width: 9% !important; }
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable th:nth-child(2),
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable td:nth-child(2) { width: 12% !important; }
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable th:nth-child(3),
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable td:nth-child(3) { width: 16% !important; }
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable th:nth-child(4),
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable td:nth-child(4) { width: 13% !important; }
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable th:nth-child(5),
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable td:nth-child(5) { width: 10% !important; }
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable th:nth-child(6),
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTable td:nth-child(6) { width: 11% !important; }
+/* 窄屏收紧单元格内边距，给百分比列留出可读宽度 */
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTableCell,
+html[data-wd-layout="mobile"] .sp-proc-table .classicyTableColumnHeader { padding-left: 4px; padding-right: 4px; }
+html[data-wd-layout="mobile"] .sp-overview-grid { grid-template-columns: 1fr; }
+html[data-wd-layout="mobile"] .sp-procbar { grid-template-columns: minmax(60px, 96px) minmax(0, 1fr) 56px; }
+
 /* 图标视图：单元格收窄，一行放得下 3 个 */
 html[data-wd-layout="mobile"] .sp-fm-icons { padding: 8px 6px; gap: 6px 2px; }
 html[data-wd-layout="mobile"] .sp-fm-icon { width: 78px; }

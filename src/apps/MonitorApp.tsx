@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { ClassicyApp, ClassicyButton, ClassicyPopUpMenu, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
+import { ClassicyApp, ClassicyButton, ClassicyPopUpMenu, ClassicyTabs, ClassicyWindow, useClassicyAboutMenu } from 'classicy';
 import { Unauthorized } from '../api';
 import { monitorPoll } from '../polls';
 import { useSharedPoll } from '../sharedPoll';
 import { useAppOpen } from '../hooks/useAppOpen';
 import { SystemInfoPanel } from '../components/SystemInfoPanel';
-import { ResourcesPanel } from '../components/ResourcesPanel';
+import { OverviewPanel, CpuDetailPanel, MemoryDetailPanel } from '../components/ResourcesPanel';
 import { ProcessPanel } from '../components/ProcessPanel';
 import { quitMenuItem } from '../quitMenuItem';
 // 产品主应用改用自绘像素图标（登录页品牌图标复用同一个，见 LoginApp.tsx）；?no-inline 必需。
@@ -17,7 +17,7 @@ const ICON = watchdogIcon;
 
 const INTERVALS = [1, 2, 5, 10, 30];
 
-// 窗口1：系统信息 + 资源使用率 + 系统进程
+// 窗口1：四标签页监控面板（Overview / CPU / Memory / Processes）
 export function MonitorApp({ onLogout }: { onLogout: () => void }) {
   const { aboutMenuItem, aboutWindow } = useClassicyAboutMenu(APP_ID, APP_NAME, ICON);
 
@@ -60,6 +60,53 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
     document.title = m ? `${APP_NAME} · ${m.host.hostname}` : APP_NAME;
   }, [m]);
 
+  // 四个标签页：ClassicyTabs 非受控，默认选中第一项 Overview。
+  // 每次轮询重建 children（数据驱动），组件实例与当前选中页由 ClassicyTabs 自己保持。
+  const tabs = useMemo(
+    () => [
+      {
+        title: 'Overview',
+        children: (
+          <div className="sp-monitor-tab-scroll">
+            {m ? (
+              <div className="sp-overview-grid">
+                <OverviewPanel metrics={m} />
+                <SystemInfoPanel host={m.host} temps={m.temps} />
+              </div>
+            ) : (
+              <p className="sp-dim">Loading…</p>
+            )}
+          </div>
+        ),
+      },
+      {
+        title: 'CPU',
+        children: (
+          <div className="sp-monitor-tab-scroll">
+            {m ? <CpuDetailPanel metrics={m} processes={procs} /> : <p className="sp-dim">Loading…</p>}
+          </div>
+        ),
+      },
+      {
+        title: 'Memory',
+        children: (
+          <div className="sp-monitor-tab-scroll">
+            {m ? <MemoryDetailPanel metrics={m} processes={procs} /> : <p className="sp-dim">Loading…</p>}
+          </div>
+        ),
+      },
+      {
+        title: 'Processes',
+        children: (
+          <div className="sp-monitor-tab-fill">
+            <ProcessPanel processes={procs} />
+          </div>
+        ),
+      },
+    ],
+    [m, procs]
+  );
+
   return (
     <ClassicyApp id={APP_ID} name={APP_NAME} icon={ICON} defaultWindow="monitor-main">
       <ClassicyWindow
@@ -98,23 +145,8 @@ export function MonitorApp({ onLogout }: { onLogout: () => void }) {
           <span className="sp-pulse sp-toolbar-status" hidden={!poll.paused}>Paused</span>
         </div>
 
-        <div className="sp-monitor-scroll">
-          <div className="sp-block">
-            {m ? (
-              <>
-                <SystemInfoPanel host={m.host} temps={m.temps} />
-                <div className="sp-block">
-                  <ResourcesPanel metrics={m} />
-                </div>
-              </>
-            ) : (
-              <p className="sp-dim">Loading…</p>
-            )}
-          </div>
-
-          <div className="sp-block">
-            <ProcessPanel processes={procs} />
-          </div>
+        <div className="sp-monitor-tabs">
+          <ClassicyTabs tabs={tabs} />
         </div>
       </ClassicyWindow>
       {aboutWindow}
